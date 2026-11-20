@@ -1,127 +1,132 @@
-# Bitpunk Signer 로드맵
+# Bitpunk Signer 로드맵 (v2)
 
 - 범위: **Bitcoin 전용** · 100% 에어갭 (무선/NFC/USB 데이터 없음) · 카메라 QR + microSD · QWERTY 키보드
-- 언어: Rust, `embit`/`libwally` 등에 의존하지 않는 독자 구현
-- 근거 문서: [FEATURE_SURVEY.md](FEATURE_SURVEY.md), [HARDWARE_REQUIREMENTS.md](HARDWARE_REQUIREMENTS.md)
-- 진행 규칙: 각 단계(그리고 단계 안의 큰 작업)는 **구현 방향 제시 → 승인 → 구현 → 커밋/푸시 → 시뮬레이터 링크 제공** 순서로 진행합니다.
+- 언어: Rust, `embit`/`libwally` 등에 의존하지 않는 독자 구현 (기존 라이브러리는 테스트 대조용으로만 사용)
+- 근거 문서: [FEATURE_SURVEY.md](FEATURE_SURVEY.md), [HARDWARE_REQUIREMENTS.md](HARDWARE_REQUIREMENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md)
+- 진행 규칙: 각 마일스톤은 **구현 계획 제시 → 승인 → 구현 → 커밋/푸시 → 시뮬레이터 링크 제공** 순서로 진행합니다.
+
+## 로드맵 원칙 (v1에서 바뀐 점)
+
+1. **수직 구조.** 암호 → 비트코인 → QR → UX 순서로 층을 쌓지 않습니다. 마일스톤마다 화면에서 쓸 수 있는 기능 하나를 끝까지 완성합니다.
+2. **외부 대조로 끝냄.** 각 마일스톤은 Sparrow, SeedSigner, Krux 등 외부 도구와 결과가 같은지 확인하는 것으로 완료됩니다.
+3. **하드웨어 트랙을 일찍, 병행해서.** 보안 저장 설계가 칩에 의존하므로 보드는 보안 저장 마일스톤(M9) 전에 확정합니다.
+4. **QR 인코더와 디코더 분리.** 쉬운 출력(인코더)을 먼저 해서 xpub 내보내기를 앞당깁니다.
+5. **시뮬레이터 시드는 테스트 전용.** 브라우저 난수를 쓰고 에어갭이 아니므로, 시뮬레이터에는 "TEST ONLY" 표시를 상시 띄웁니다.
+
+## 의존 관계
+
+```
+SHA-256 ─► BIP-39 시드 (M1)
+SHA-512·HMAC·PBKDF2 ─┘
+secp256k1 + RIPEMD-160 ─► BIP-32 · 지문 · xpub · 주소 (M2)
+QR 인코더 ─► xpub/주소/SeedQR 표시 (M3) ─► 지갑 앱이 관찰 전용 지갑 생성
+QR 디코더 + UR ─► SeedQR/PSBT 읽기 (M4)
+ECDSA·Schnorr + PSBT ─► 서명 → 서명 결과 QR (M5 = MVP)
+```
 
 ---
 
-## Phase 0 — 기반 구축
+## Phase 0 — 기반 구축 ✅ 완료
 
-목표: 코드를 쌓을 토대와, 매 빌드를 확인할 시뮬레이터 파이프라인.
+아키텍처 문서, Rust 워크스페이스(7개 크레이트), 공용 UI 코드(폰트·위젯), 웹 시뮬레이터(기기 외형 + QWERTY),
+CI(포맷·clippy·테스트·Cortex-M no_std 빌드·GitHub Pages 배포), Rust 1.97.0 고정.
+
+---
+
+## M1 — 시드 생성 · 입력
 
 | 항목 | 내용 |
 |---|---|
-| 0.1 아키텍처 설계 문서 | 크레이트 구조, HAL(하드웨어 추상화) 경계, 메모리/비밀값 처리 원칙(zeroize, no_std 지향) |
-| 0.2 Rust 워크스페이스 | `bp-crypto`, `bp-bitcoin`, `bp-qr`, `bp-ui`, `bp-hal`, `bp-app`, `bp-sim-web` 골격 |
-| 0.3 CI | `cargo test`, `clippy`, `fmt`, 테스트 벡터 실행 (GitHub Actions) |
-| 0.4 웹 시뮬레이터 셸 | WASM 빌드, 참고 이미지와 같은 가로형 화면 + QWERTY 키보드 렌더링, PC 키보드/터치 입력 매핑 |
-| 0.5 자동 배포 | 푸시할 때마다 GitHub Pages에 시뮬레이터 배포 → 링크 제공 |
+| 암호 | SHA-256, SHA-512, HMAC-SHA512, PBKDF2-HMAC-SHA512 |
+| BIP-39 | 영문 단어장, 엔트로피 ↔ 니모닉, 체크섬, 시드(패스프레이즈 없이) |
+| 생성 | 하드웨어 TRNG(시뮬레이터는 브라우저 난수) 12/24단어, 주사위 D6 |
+| 입력 | QWERTY 타이핑 + 자동완성, 단어 번호(1~2048) 입력 |
+| 도구 | 마지막 단어(체크섬) 계산 |
+| 백업 | 단어 표시(경고 화면 포함), 백업 확인 퀴즈 |
+| 기반 | 화면 문자열 표(영어), 텍스트 입력 위젯, "TEST ONLY" 배너 |
 
-완료 기준: 시뮬레이터 링크에서 부팅 화면 → 메인 메뉴 이동이 키보드로 동작.
+**완료 기준:** 공식 BIP-39 테스트 벡터 통과. 같은 주사위 입력으로 SeedSigner·Krux와 같은 단어가 나옴.
 
----
+## M2 — 키와 주소
 
-## Phase 1 — MVP: 단일서명 무상태 서명기
+secp256k1(상수 시간), RIPEMD-160, BIP-32 파생, 지문(XFP), xpub/ypub/zpub/tpub(SLIP-132),
+Base58Check·Bech32·Bech32m 주소(P2PKH, P2SH-P2WPKH, P2WPKH, P2TR), BIP-39 패스프레이즈,
+주소 탐색기(텍스트), 공식 BIP-32/173/350 벡터 + libsecp256k1 대조 테스트.
 
-목표: SeedSigner 수준의 **무상태 단일서명 서명기**를 QWERTY UX로.
+**완료 기준:** 같은 시드를 Sparrow에 넣었을 때 지문·xpub·첫 주소가 모두 같음.
 
-### 1A. 암호 코어 (`bp-crypto`)
-- SHA-256, SHA-512, RIPEMD-160, HMAC, PBKDF2-HMAC-SHA512, tagged hash
-- secp256k1: 필드/스칼라 연산, **상수 시간** 구현, ECDSA(RFC6979, low-S), Schnorr(BIP-340)
-- 검증: NIST/BIP 공식 테스트 벡터 + Wycheproof 벡터 + 퍼징
+## M3 — QR 출력
 
-### 1B. 비트코인 코어 (`bp-bitcoin`)
-- BIP-39 (영문 단어장, 12/24단어, 체크섬, 패스프레이즈)
-- BIP-32 HD 파생, xpub/ypub/zpub/tpub 직렬화, SLIP-132
-- 주소: P2PKH, P2SH-P2WPKH, P2WPKH, P2TR (Bech32/Bech32m, Base58Check)
-- PSBT v0 파서/서명기 (단일서명, 위 4가지 스크립트 타입)
-- 거래 분석: 금액·수수료·거스름 검증, **SeedSigner 방식 세분화 경고** (소유권 모순, 음수 수수료, 누락 UTXO, 스크립트 불일치, OP_RETURN 등)
+QR 인코더, BC-UR 인코딩(bytewords, CBOR, `crypto-hdkey`/`crypto-account`/`crypto-output`), 애니메이션 QR,
+xpub QR, 주소 QR, SeedQR·Compact SeedQR 내보내기 + 손으로 옮겨 그리기 가이드, QR 밀도 설정.
 
-### 1C. QR (`bp-qr`)
-- QR 인코더/디코더 (카메라 프레임 → 디코드)
-- SeedQR / Compact SeedQR
-- BC-UR: bytewords, CBOR, fountain code, `crypto-psbt`, `crypto-account`, `crypto-hdkey`, `crypto-output`
-- 애니메이션 QR 출력 (밀도/속도 조절)
+**완료 기준:** Sparrow가 휴대폰에 띄운 시뮬레이터 화면의 QR을 읽어 관찰 전용 지갑을 만듦.
 
-### 1D. 기능 & UX
-- 시드 생성: TRNG, 주사위(D6/D20, 최소 횟수 검증), 카메라 이미지 엔트로피(품질 추정치 표시), 마지막 단어 계산
-- 시드 불러오기: QWERTY 타이핑 + 자동완성, 단어 번호 입력, SeedQR 스캔
-- 백업: 단어 표시, 백업 확인 퀴즈, SeedQR 내보내기 + 손으로 옮겨 그리기 가이드
-- xpub 내보내기 (UR / 일반 QR), 지문(XFP) 표시
-- PSBT 스캔 → 검토 → 서명 → 서명된 PSBT QR 출력
-- 주소 검증 (QR 스캔), 주소 탐색기
-- 설정: 네트워크(main/test/signet/regtest), 단위(BTC/sats), QR 밀도, 한국어/영어
-- 무상태 모드 (전원 끄면 비밀값 소멸)
+## M4 — QR 입력
 
-완료 기준: 시뮬레이터에서 **Sparrow가 만든 PSBT를 서명하고, 그 결과를 Sparrow가 받아들임** (테스트넷/시그넷).
+QR 디코더(흑백 프레임 → 데이터), UR fountain 디코딩, SeedQR 스캔, 범용 QR 형식 자동 판별,
+카메라 이미지 엔트로피(품질 추정치 표시), 시뮬레이터 카메라(이미지 업로드 · QR 텍스트 붙여넣기).
 
----
+**완료 기준:** SeedSigner로 만든 SeedQR을 읽으면 같은 시드가 나옴.
 
-## Phase 2 — 지갑 확장 & SD 카드
+## M5 — PSBT 서명 (MVP)
 
-| 항목 | 내용 |
-|---|---|
-| 2.1 디스크립터 | BIP-380~386 파서, 체크섬, 지갑 등록 |
-| 2.2 멀티시그 | P2WSH / P2SH-P2WSH, **사전 등록 후에만 서명** (CC/Jade 방식), 공동 서명자 검증 |
-| 2.3 PSBT v2 | BIP-370 |
-| 2.4 QR 포맷 추가 | BBQr (Zlib 포함), Specter 형식, 범용 QR 자동 판별, SettingsQR |
-| 2.5 SD 카드 | FAT 파일시스템, PSBT 읽기/쓰기, 파일 관리자, 서명된 tx 저장, SD 제거 알림 |
-| 2.6 지갑 내보내기 | Sparrow, Nunchuk, Specter, BlueWallet, Electrum, Bitcoin Core 형식 (QR + SD) |
-| 2.7 메시지 서명 | BIP-137, **BIP-322**, 서명 검증, SD 텍스트 파일 서명 |
-| 2.8 BIP-85 | 자식 니모닉 12/18/24, WIF, XPRV, HEX, 패스워드 |
-| 2.9 개인키 가져오기 | WIF / XPRV 가져오기 및 단일 키 서명 |
-| 2.10 고급 기능 토글 | SeedSigner 방식의 고급 기능 숨김, 경고 강도 설정 |
+PSBT v0 파서, ECDSA(RFC 6979, low-S)·Schnorr(BIP-340/341) 서명, 거래 검토 화면(금액·수수료·거스름),
+SeedSigner 방식의 세분화된 경고(소유권 모순, 음수 수수료, 누락 UTXO, 스크립트 불일치, OP_RETURN 등),
+서명된 PSBT 애니메이션 UR QR 출력, Wycheproof 벡터 + 퍼징.
 
-완료 기준: 2-of-3 멀티시그 생성 → 등록 → Sparrow/Nunchuk 연동 서명 성공.
+**완료 기준:** Signet에서 Sparrow → Bitpunk → Sparrow 실제 송금 성공.
 
----
+## M6 — 서명 확장
 
-## Phase 3 — 보안 저장 & 고급 보안
+QR로 주소 검증, 메시지 서명(BIP-137, BIP-322) 및 검증, BBQr, Specter 형식, SettingsQR, D20 주사위,
+고급 기능 토글·경고 강도 설정, **한국어 UI**(한글 폰트 포함).
+
+## M7 — 멀티시그 · 디스크립터
+
+출력 디스크립터(BIP-380~386), 멀티시그(P2WSH / P2SH-P2WSH) **사전 등록 후에만 서명**, PSBT v2(BIP-370),
+지갑 내보내기(Sparrow, Nunchuk, Specter, BlueWallet, Electrum, Bitcoin Core).
+
+**완료 기준:** Sparrow·Nunchuk에서 2-of-3 멀티시그 생성·등록·서명 성공.
+
+## M8 — microSD
+
+FAT 파일시스템, PSBT 파일 읽기/쓰기, 파일 관리자, 서명된 tx 저장, SD 제거 알림, BIP-85(니모닉·WIF·XPRV·HEX·패스워드),
+WIF / XPRV 개인키 가져오기 및 단일 키 서명.
+
+## H — 하드웨어 트랙 (M3부터 병행)
 
 | 항목 | 내용 |
 |---|---|
-| 3.1 암호화 저장 | 강한 KDF(Argon2id 후보) + AES-GCM 또는 ChaCha20-Poly1305, 기기 내부 / SD 분리 저장 |
-| 3.2 잠금 | 영숫자 패스워드(QWERTY), **피싱 방지 단어**, 로그인 지연, 오입력 횟수 초과 시 삭제 |
-| 3.3 Trick PIN | 미끼 지갑(Duress Wallet), 조용히 삭제, 삭제 후 미끼 지갑 열기 (Coldcard 체계) |
-| 3.4 Tamper Check Code | 부팅 시 펌웨어/플래시 해시 확인 (Krux 방식) |
-| 3.5 암호화 전체 백업 | 설정·지갑 등록 정보·노트 포함, 복원 없이 백업 검증 |
-| 3.6 SLIP-39 Shamir | 생성/복원 (Keystone/OneKey 호환) |
-| 3.7 Seed XOR | 분할/복원 |
-| 3.8 Miniscript | P2WSH miniscript, Taproot miniscript, 정책 뷰 (Krux/Specter 방식) |
-| 3.9 다중 시드 보관 | Seed Vault, 패스프레이즈 숨김 지갑 |
-| 3.10 부가 도구 | 보안 노트/패스워드, TOTP 인증기, 니모닉 편집기, Tinyseed/Stackbit 입력·출력, 데이텀 도구 |
+| H1 후보 비교 | 무선이 내장되지 않은 칩만 (예: 무선 없는 Pi Zero v1.3, STM32H7, i.MX RT). 화면·키보드·카메라·SD·TRNG·보안 칩 조합 |
+| H2 개발 보드 연결 | HAL 구현: 화면, 키보드 매트릭스, 카메라, SD, TRNG |
+| H3 성능 측정 | 실제 칩에서 PBKDF2(2048회), secp256k1 서명, QR 디코딩 시간·메모리 측정 |
+| H4 확정 | **M8 종료 전에 보드 확정** → M9 설계 입력 |
 
----
+## M9 — 보안 저장 (확정된 칩 기준)
 
-## Phase 4 — 하드웨어 이식
+암호화 저장(KDF + AEAD, 보안 칩 사용 범위 결정), 영숫자 PIN/패스워드, 피싱 방지 단어, 로그인 지연,
+오입력 횟수 초과 시 삭제, Trick PIN(미끼 지갑·조용히 삭제), Tamper Check Code, Seed Vault(다중 시드).
 
-| 항목 | 내용 |
-|---|---|
-| 4.1 보드 선정 | 무선이 내장되지 않은 SoC/MCU (예: 무선 없는 Pi Zero v1.3, STM32H7, i.MX RT) + 카메라 + SD + 디스플레이 + 키보드 매트릭스 |
-| 4.2 HAL 구현 | 디스플레이, 키보드, 카메라, SD, TRNG, 전원 관리 |
-| 4.3 보안 부트로더 | **SD로만** 설치/업데이트, **M-of-N 다중 서명 검증** (Specter 방식), 다운그레이드 방지 |
-| 4.4 재현 가능 빌드 | Docker/Nix로 동일 바이너리 해시 재현 |
-| 4.5 USB 데이터 차단 | (USB 포트가 있다면) 충전 전용 회로로 물리 차단 확인 |
-| 4.6 SE 검토 | 보안 칩 사용 여부와 범위 결정 |
+## M10 — 고급 백업 · 도구
 
----
+암호화 전체 백업 및 검증, SLIP-39 Shamir, Seed XOR, Miniscript(P2WSH·Taproot)와 정책 뷰,
+Tinyseed/Stackbit, 니모닉 편집기, 데이텀 도구, 보안 노트·패스워드, TOTP 인증기.
 
-## Phase 5 — 차별화 기능
+## M11 — 출시 준비
 
-8개 레퍼런스 어디에도 없거나 드문 기능입니다.
+보안 부트로더, **microSD로만** 설치/업데이트, **M-of-N 다중 서명 검증**, 다운그레이드 방지,
+재현 가능 빌드(Docker/Nix), USB 데이터 라인 물리 차단 확인, 외부 보안 감사 준비.
 
-- **MuSig2** (BIP-327) 서명
-- **Silent Payments** (BIP-352) 수신 주소/서명
-- **Bitpunk 간 Key Teleport**: ECDH 기반으로 기기끼리 QR로 시드/PSBT를 암호화해 전송
-- **Codex32** (BIP-93)
+## M12 — 차별화 기능
+
+MuSig2(BIP-327), Silent Payments(BIP-352), Bitpunk 간 Key Teleport(ECDH 기반 QR 암호 전송), Codex32(BIP-93).
 
 ---
 
 ## 빌드마다 하는 일
 
-1. 변경사항 커밋 & 푸시 (브랜치 → 검토 후 main 병합)
-2. CI 테스트 통과 확인
-3. GitHub Pages에 시뮬레이터 자동 배포
+1. 변경사항 커밋 & 푸시
+2. CI 통과 확인 (포맷, clippy, 테스트, no_std 빌드)
+3. 시뮬레이터 배포: Claude 아티팩트 갱신 + GitHub Pages 자동 배포
 4. 링크와 함께 **이번 빌드에서 확인할 항목** 체크리스트 제공
