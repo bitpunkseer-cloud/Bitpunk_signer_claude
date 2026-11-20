@@ -4,6 +4,8 @@
 //! PSBT v0/v2, output descriptors, miniscript.
 #![no_std]
 
+pub mod base58;
+pub mod bech32;
 pub mod bip39;
 pub mod entropy;
 
