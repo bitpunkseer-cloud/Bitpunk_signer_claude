@@ -5,6 +5,7 @@
 #![no_std]
 
 pub mod bip39;
+pub mod entropy;
 
 /// Bitcoin networks supported by the signer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
