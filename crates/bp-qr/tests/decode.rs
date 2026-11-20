@@ -298,3 +298,26 @@ fn small_output_buffer() {
     assert!(BitMatrix::new(22).is_none());
     assert!(BitMatrix::new(181).is_none());
 }
+
+#[test]
+fn kanji_segment_as_shift_jis() {
+    use qrcodegen::QrSegmentMode;
+    // ISO 18004 examples: 0x935F -> 0xD9F, 0xE4AA -> 0x1AAA (13 bits each)
+    let mut bits = Vec::new();
+    for v in [0xD9Fu32, 0x1AAA] {
+        for i in (0..13).rev() {
+            bits.push((v >> i) & 1 == 1);
+        }
+    }
+    let seg = QrSegment::new(QrSegmentMode::Kanji, 2, bits);
+    let q = qrcodegen::QrCode::encode_segments_advanced(
+        &[seg],
+        QrCodeEcc::Low,
+        Version::new(1),
+        Version::new(40),
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(read(&matrix_of(&q)).unwrap(), vec![0x93, 0x5F, 0xE4, 0xAA]);
+}

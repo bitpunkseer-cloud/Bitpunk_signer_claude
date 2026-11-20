@@ -226,14 +226,18 @@ fn rxing_once(img: Vec<u8>, w: usize, h: usize, want: &[u8]) -> bool {
 #[derive(Default, Clone, Copy)]
 struct Score {
     trials: u32,
+    /// Bitpunk's own scanner (bp-qr, M4)
+    ours: u32,
     rqrr: u32,
     rxing: u32,
+    /// rqrr or rxing: stands for the phone app reading Bitpunk's screen
     either: u32,
 }
 
 impl Score {
-    fn add(&mut self, a: bool, b: bool) {
+    fn add(&mut self, o: bool, a: bool, b: bool) {
         self.trials += 1;
+        self.ours += o as u32;
         self.rqrr += a as u32;
         self.rxing += b as u32;
         self.either += (a || b) as u32;
@@ -244,9 +248,20 @@ impl Score {
     fn either_pct(&self) -> f32 {
         Self::pct(self.either, self.trials)
     }
+    fn add_all(&mut self, o: &Score) {
+        self.trials += o.trials;
+        self.ours += o.ours;
+        self.rqrr += o.rqrr;
+        self.rxing += o.rxing;
+        self.either += o.either;
+    }
+    fn ours_pct(&self) -> f32 {
+        Self::pct(self.ours, self.trials)
+    }
     fn cells(&self) -> String {
         format!(
-            "{:.0}% | {:.0}% | **{:.0}%**",
+            "{:.0}% | {:.0}% | {:.0}% | **{:.0}%**",
+            self.ours_pct(),
             Self::pct(self.rqrr, self.trials),
             Self::pct(self.rxing, self.trials),
             self.either_pct()
@@ -420,12 +435,17 @@ fn run(case: &mut Case, scale: f32, cond: &Conditions, trials: u32, seed: u64) -
     let mut rng = Rng(seed ^ 0x9e37_79b9_7f4a_7c15);
     let frames = case.frames();
     let mut s = Score::default();
+    let mut scanner = std::boxed::Box::new(bp_qr::scan::Scanner::new());
+    let mut out = vec![0u8; 4096];
     for t in 0..trials {
         let (fb, want) = case.render(t as usize % frames);
         let (img, w, h) = camera(&fb, scale, cond, &mut rng);
+        let o = bp_qr::scan::Image::new(&img, w, h)
+            .and_then(|im| scanner.scan(im, &mut out))
+            .is_some_and(|f| out[..f.decoded.len] == want[..]);
         let a = decode_rqrr(&img, w, h, &want);
         let b = decode_rxing(img, w, h, &want);
-        s.add(a, b);
+        s.add(o, a, b);
     }
     s
 }
@@ -435,32 +455,32 @@ fn run(case: &mut Case, scale: f32, cond: &Conditions, trials: u32, seed: u64) -
 const REFERENCE: f32 = 0.55;
 
 /// CI check: every default QR screen at the reference distance in medium
-/// conditions (target: at least 95% of frames decode).
+/// conditions. Targets: a phone decoder (M3) and Bitpunk's own scanner
+/// (M4) each read at least 95% of frames.
 #[test]
 fn scan_bench_defaults() {
     let mut total = Score::default();
     for mut c in default_cases() {
         let s = run(&mut c, REFERENCE, &MEDIUM, 6, 1);
         assert!(s.either >= 5, "{}: {}", c.name, s.cells());
-        total.trials += s.trials;
-        total.either += s.either;
+        total.add_all(&s);
     }
-    assert!(total.either_pct() >= 95.0, "{:.1}%", total.either_pct());
+    assert!(total.either_pct() >= 95.0, "phone {:.1}%", total.either_pct());
+    assert!(total.ours_pct() >= 95.0, "Bitpunk {:.1}%", total.ours_pct());
 }
 
 const SCALES: [f32; 5] = [0.35, 0.45, 0.55, 0.7, 0.9];
 
 fn table(cases: Vec<Case>, cond: &Conditions, n: u32) -> Score {
-    std::println!("| Screen | QR | scale | rqrr | rxing | either |");
-    std::println!("|---|---|---|---|---|---|");
+    std::println!("| Screen | QR | scale | Bitpunk | rqrr | rxing | phone (either) |");
+    std::println!("|---|---|---|---|---|---|---|");
     let mut total = Score::default();
     for mut c in cases {
         let info = qr_info(&mut c);
         for (i, &sc) in SCALES.iter().enumerate() {
             let s = run(&mut c, sc, cond, n, i as u64 + 7);
             if sc == REFERENCE {
-                total.trials += s.trials;
-                total.either += s.either;
+                total.add_all(&s);
             }
             std::println!("| {} | {} | {} | {} |", c.name, info, sc, s.cells());
         }
@@ -485,9 +505,12 @@ fn scan_bench_full() {
         );
         let total = table(default_cases(), cond, N);
         std::println!(
-            "\nAt the reference scale {REFERENCE}: **{:.1}%** ({}/{})",
+            "\nAt the reference scale {REFERENCE}: phone **{:.1}%** ({}/{}), Bitpunk scanner **{:.1}%** ({}/{})",
             total.either_pct(),
             total.either,
+            total.trials,
+            total.ours_pct(),
+            total.ours,
             total.trials
         );
     }
@@ -496,8 +519,10 @@ fn scan_bench_full() {
     table(option_cases(), &MEDIUM, N);
 
     std::println!("\n### Density (animated UR), medium conditions\n");
-    std::println!("| Payload | QR | frames | scale | rqrr | rxing | either | est. time at Normal |");
-    std::println!("|---|---|---|---|---|---|---|---|");
+    std::println!(
+        "| Payload | QR | frames | scale | Bitpunk | rqrr | rxing | phone (either) | est. time at Normal |"
+    );
+    std::println!("|---|---|---|---|---|---|---|---|---|");
     for len in [700, 1000] {
         for d in [Density::Auto, Density::Low, Density::Medium, Density::High] {
             let mut c = psbt_case(d, len);

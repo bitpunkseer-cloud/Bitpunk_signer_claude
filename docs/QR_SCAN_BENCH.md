@@ -19,8 +19,8 @@ cargo test -p bp-app scan_bench_defaults                                  # CI �
 | 배율 | 화면 1px당 카메라 픽셀 수. 0.35 / 0.45 / 0.55 / 0.7 / 0.9 |
 | 기하 | 무작위 회전(±15°), 원근 기울임(호모그래피, 직선 유지), 위치 흔들림. 2×2 슈퍼샘플링 |
 | 광학 | 화면 검정·흰색이 카메라에 찍히는 밝기(대비 감소), 가우시안 흐림, 센서 잡음 |
-| 디코더 | `rqrr` (quirc 계열) · `rxing` (ZXing 계열, ZXing의 ALSO_INVERTED처럼 반전 영상도 재시도). 둘 다 테스트 전용 |
-| 판정 | 디코딩 결과 == 그 프레임의 원문. 표의 "either"는 둘 중 하나라도 성공한 비율 (실제 지갑 앱은 한 가지 디코더를 씀) |
+| 디코더 | `rqrr` (quirc 계열) · `rxing` (ZXing 계열, ZXing의 ALSO_INVERTED처럼 반전 영상도 재시도). 둘 다 테스트 전용. M4부터 **Bitpunk 스캐너**(`bp-qr::scan`) 열 추가 |
+| 판정 | 디코딩 결과 == 그 프레임의 원문. "phone (either)"은 rqrr·rxing 중 하나라도 성공한 비율로, 휴대폰 지갑 앱이 Bitpunk 화면을 읽는 경우를 대신함 (실제 앱은 한 가지 디코더를 씀) |
 
 **기준 거리 = 배율 0.55**: 휴대폰 카메라가 기기를 화면의 70% 정도로 담고, 스캐너가 640×480으로 줄여서 디코딩하는 경우에 해당한다.
 
@@ -60,162 +60,200 @@ cargo test -p bp-app scan_bench_defaults                                  # CI �
 시뮬레이션이다. 실제 휴대폰·지갑 앱(Sparrow 등)으로 읽는 확인은 M3 완료 기준 체크리스트에서 한다.
 예상 수신 시간은 프레임마다 성공이 독립이라는 가정의 대략치다.
 
-## 3. 전체 표
+## 3. Bitpunk 스캐너 (M4)
+
+M4에서 직접 구현한 QR 스캐너(`bp-qr::scan`, ZXing식 파이프라인 + 버전 정보·타이밍 패턴으로 크기 확정 + 패턴 적합도로 원근 보정)를 같은 영상으로 측정했다.
+
+| 측정 | Bitpunk | rqrr | rxing | 휴대폰 (either) |
+|---|---|---|---|---|
+| 기본 화면, medium, 기준 거리 | **98.2%** | — | — | 98.2% |
+| 기본 화면, hard, 기준 거리 | **56.1%** | — | — | 37.9% |
+| 700바이트 UR, Medium 밀도, 기준 거리 | **98%** | 42% | 50% | 68% |
+| 반전 QR, 기준 거리 | **100%** | 0% | 88% | 88% |
+
+### 실사진 세트 (ZXing blackbox qrcode-1~6)
+
+실제 카메라로 찍은 QR 사진 179장을 0°·90° 두 방향으로 읽었다 (Apache-2.0 테스트 데이터, 저장소에는 넣지 않음).
+재현: `tools/fetch_zxing_qr_photos.sh /tmp/zxing` 후
+`ZXING_QR_PHOTOS=/tmp/zxing/core/src/test/resources/blackbox cargo test -p bp-qr --release --test photos -- --ignored --nocapture`
+
+| 세트 | 사진 × 2방향 | Bitpunk | rqrr | rxing |
+|---|---|---|---|---|
+| qrcode-1 | 40 | **40** | 30 | 33 |
+| qrcode-2 | 70 | 62 | 53 | **64** |
+| qrcode-3 | 84 | **82** | 67 | 77 |
+| qrcode-4 | 96 | **73** | 54 | 71 |
+| qrcode-5 | 38 | **38** | 21 | 36 |
+| qrcode-6 | 30 | **30** | 18 | 29 |
+| **전체** | 358 | **325 (90.8%)** | 243 (67.9%) | 310 (86.6%) |
+
+일본어 사진(Kanji 모드)도 읽도록 ISO 규격의 Kanji 모드를 Shift JIS 바이트로 출력한다 (비트코인 데이터에는 쓰이지 않음).
+
+### 처리 시간 (데스크톱, release)
+
+| 프레임 (640×480) | 시간 |
+|---|---|
+| QR이 있는 프레임 | 약 1.5 ms |
+| 무작위 잡음 (최악의 경우) | 약 6 ms |
+
+실제 칩에서의 시간은 하드웨어 트랙(H)에서 다시 잰다.
+
+## 4. 전체 표
 
 #### Default QR screens, medium conditions
 
 blur 1 px, noise 8, contrast 35-215, rotation up to 15 deg, perspective up to 5%, 40 trials per row
 
-| Screen | QR | scale | rqrr | rxing | either |
-|---|---|---|---|---|---|
-| xpub UR crypto-account | v6 8px | 0.35 | 8% | 35% | **40%** |
-| xpub UR crypto-account | v6 8px | 0.45 | 90% | 90% | **100%** |
-| xpub UR crypto-account | v6 8px | 0.55 | 90% | 92% | **98%** |
-| xpub UR crypto-account | v6 8px | 0.7 | 100% | 72% | **100%** |
-| xpub UR crypto-account | v6 8px | 0.9 | 100% | 82% | **100%** |
-| xpub UR crypto-output | v6 8px | 0.35 | 0% | 25% | **25%** |
-| xpub UR crypto-output | v6 8px | 0.45 | 68% | 88% | **95%** |
-| xpub UR crypto-output | v6 8px | 0.55 | 82% | 92% | **98%** |
-| xpub UR crypto-output | v6 8px | 0.7 | 95% | 72% | **100%** |
-| xpub UR crypto-output | v6 8px | 0.9 | 100% | 82% | **100%** |
-| xpub text [fp/path]zpub | v6 8px | 0.35 | 5% | 18% | **20%** |
-| xpub text [fp/path]zpub | v6 8px | 0.45 | 70% | 90% | **92%** |
-| xpub text [fp/path]zpub | v6 8px | 0.55 | 90% | 90% | **100%** |
-| xpub text [fp/path]zpub | v6 8px | 0.7 | 100% | 72% | **100%** |
-| xpub text [fp/path]zpub | v6 8px | 0.9 | 100% | 82% | **100%** |
-| xpub Specter pM/N | v3 11px | 0.35 | 80% | 90% | **98%** |
-| xpub Specter pM/N | v3 11px | 0.45 | 95% | 95% | **100%** |
-| xpub Specter pM/N | v3 11px | 0.55 | 98% | 90% | **100%** |
-| xpub Specter pM/N | v3 11px | 0.7 | 98% | 70% | **100%** |
-| xpub Specter pM/N | v3 11px | 0.9 | 100% | 88% | **100%** |
-| address (Taproot, upper-case) | v4 8px | 0.35 | 0% | 38% | **38%** |
-| address (Taproot, upper-case) | v4 8px | 0.45 | 88% | 95% | **98%** |
-| address (Taproot, upper-case) | v4 8px | 0.55 | 98% | 90% | **100%** |
-| address (Taproot, upper-case) | v4 8px | 0.7 | 98% | 68% | **100%** |
-| address (Taproot, upper-case) | v4 8px | 0.9 | 100% | 85% | **100%** |
-| SeedQR Standard | v2 12px | 0.35 | 95% | 95% | **100%** |
-| SeedQR Standard | v2 12px | 0.45 | 100% | 100% | **100%** |
-| SeedQR Standard | v2 12px | 0.55 | 100% | 90% | **100%** |
-| SeedQR Standard | v2 12px | 0.7 | 100% | 78% | **100%** |
-| SeedQR Standard | v2 12px | 0.9 | 100% | 80% | **100%** |
-| SeedQR Compact | v1 14px | 0.35 | 35% | 58% | **78%** |
-| SeedQR Compact | v1 14px | 0.45 | 68% | 72% | **88%** |
-| SeedQR Compact | v1 14px | 0.55 | 80% | 68% | **92%** |
-| SeedQR Compact | v1 14px | 0.7 | 88% | 55% | **95%** |
-| SeedQR Compact | v1 14px | 0.9 | 98% | 65% | **100%** |
+| Screen | QR | scale | Bitpunk | rqrr | rxing | phone (either) |
+|---|---|---|---|---|---|---|
+| xpub UR crypto-account | v6 8px | 0.35 | 50% | 8% | 35% | **40%** |
+| xpub UR crypto-account | v6 8px | 0.45 | 100% | 90% | 90% | **100%** |
+| xpub UR crypto-account | v6 8px | 0.55 | 100% | 90% | 92% | **98%** |
+| xpub UR crypto-account | v6 8px | 0.7 | 100% | 100% | 72% | **100%** |
+| xpub UR crypto-account | v6 8px | 0.9 | 100% | 100% | 82% | **100%** |
+| xpub UR crypto-output | v6 8px | 0.35 | 48% | 0% | 25% | **25%** |
+| xpub UR crypto-output | v6 8px | 0.45 | 100% | 68% | 88% | **95%** |
+| xpub UR crypto-output | v6 8px | 0.55 | 100% | 82% | 92% | **98%** |
+| xpub UR crypto-output | v6 8px | 0.7 | 100% | 95% | 72% | **100%** |
+| xpub UR crypto-output | v6 8px | 0.9 | 100% | 100% | 82% | **100%** |
+| xpub text [fp/path]zpub | v6 8px | 0.35 | 28% | 5% | 18% | **20%** |
+| xpub text [fp/path]zpub | v6 8px | 0.45 | 98% | 70% | 90% | **92%** |
+| xpub text [fp/path]zpub | v6 8px | 0.55 | 100% | 90% | 90% | **100%** |
+| xpub text [fp/path]zpub | v6 8px | 0.7 | 100% | 100% | 72% | **100%** |
+| xpub text [fp/path]zpub | v6 8px | 0.9 | 100% | 100% | 82% | **100%** |
+| xpub Specter pM/N | v3 11px | 0.35 | 90% | 80% | 90% | **98%** |
+| xpub Specter pM/N | v3 11px | 0.45 | 98% | 95% | 95% | **100%** |
+| xpub Specter pM/N | v3 11px | 0.55 | 98% | 98% | 90% | **100%** |
+| xpub Specter pM/N | v3 11px | 0.7 | 100% | 98% | 70% | **100%** |
+| xpub Specter pM/N | v3 11px | 0.9 | 98% | 100% | 88% | **100%** |
+| address (Taproot, upper-case) | v4 8px | 0.35 | 48% | 0% | 38% | **38%** |
+| address (Taproot, upper-case) | v4 8px | 0.45 | 100% | 88% | 95% | **98%** |
+| address (Taproot, upper-case) | v4 8px | 0.55 | 100% | 98% | 90% | **100%** |
+| address (Taproot, upper-case) | v4 8px | 0.7 | 100% | 98% | 68% | **100%** |
+| address (Taproot, upper-case) | v4 8px | 0.9 | 100% | 100% | 85% | **100%** |
+| SeedQR Standard | v2 12px | 0.35 | 100% | 95% | 95% | **100%** |
+| SeedQR Standard | v2 12px | 0.45 | 100% | 100% | 100% | **100%** |
+| SeedQR Standard | v2 12px | 0.55 | 100% | 100% | 90% | **100%** |
+| SeedQR Standard | v2 12px | 0.7 | 100% | 100% | 78% | **100%** |
+| SeedQR Standard | v2 12px | 0.9 | 100% | 100% | 80% | **100%** |
+| SeedQR Compact | v1 14px | 0.35 | 70% | 35% | 58% | **78%** |
+| SeedQR Compact | v1 14px | 0.45 | 82% | 68% | 72% | **88%** |
+| SeedQR Compact | v1 14px | 0.55 | 90% | 80% | 68% | **92%** |
+| SeedQR Compact | v1 14px | 0.7 | 98% | 88% | 55% | **95%** |
+| SeedQR Compact | v1 14px | 0.9 | 95% | 98% | 65% | **100%** |
 
-기준 거리(0.55)에서: **98.2%** (275/280)
+기준 거리(0.55)에서: 휴대폰 **98.2%** (275/280), Bitpunk 스캐너 **98.2%** (275/280)
 
 #### Default QR screens, hard conditions
 
 blur 1.5 px, noise 14, contrast 55-190, rotation up to 15 deg, perspective up to 10%, 40 trials per row
 
-| Screen | QR | scale | rqrr | rxing | either |
-|---|---|---|---|---|---|
-| xpub UR crypto-account | v6 8px | 0.35 | 0% | 0% | **0%** |
-| xpub UR crypto-account | v6 8px | 0.45 | 0% | 0% | **0%** |
-| xpub UR crypto-account | v6 8px | 0.55 | 2% | 5% | **8%** |
-| xpub UR crypto-account | v6 8px | 0.7 | 52% | 50% | **80%** |
-| xpub UR crypto-account | v6 8px | 0.9 | 78% | 55% | **88%** |
-| xpub UR crypto-output | v6 8px | 0.35 | 0% | 0% | **0%** |
-| xpub UR crypto-output | v6 8px | 0.45 | 0% | 0% | **0%** |
-| xpub UR crypto-output | v6 8px | 0.55 | 2% | 2% | **5%** |
-| xpub UR crypto-output | v6 8px | 0.7 | 32% | 55% | **72%** |
-| xpub UR crypto-output | v6 8px | 0.9 | 70% | 55% | **88%** |
-| xpub text [fp/path]zpub | v6 8px | 0.35 | 0% | 0% | **0%** |
-| xpub text [fp/path]zpub | v6 8px | 0.45 | 0% | 0% | **0%** |
-| xpub text [fp/path]zpub | v6 8px | 0.55 | 5% | 8% | **12%** |
-| xpub text [fp/path]zpub | v6 8px | 0.7 | 50% | 58% | **75%** |
-| xpub text [fp/path]zpub | v6 8px | 0.9 | 75% | 45% | **90%** |
-| xpub Specter pM/N | v3 11px | 0.35 | 2% | 0% | **2%** |
-| xpub Specter pM/N | v3 11px | 0.45 | 40% | 40% | **65%** |
-| xpub Specter pM/N | v3 11px | 0.55 | 70% | 68% | **88%** |
-| xpub Specter pM/N | v3 11px | 0.7 | 85% | 58% | **90%** |
-| xpub Specter pM/N | v3 11px | 0.9 | 100% | 50% | **100%** |
-| address (Taproot, upper-case) | v4 8px | 0.35 | 0% | 0% | **0%** |
-| address (Taproot, upper-case) | v4 8px | 0.45 | 0% | 0% | **0%** |
-| address (Taproot, upper-case) | v4 8px | 0.55 | 0% | 0% | **0%** |
-| address (Taproot, upper-case) | v4 8px | 0.7 | 45% | 60% | **75%** |
-| address (Taproot, upper-case) | v4 8px | 0.9 | 82% | 60% | **95%** |
-| SeedQR Standard | v2 12px | 0.35 | 0% | 0% | **0%** |
-| SeedQR Standard | v2 12px | 0.45 | 62% | 52% | **85%** |
-| SeedQR Standard | v2 12px | 0.55 | 88% | 75% | **92%** |
-| SeedQR Standard | v2 12px | 0.7 | 95% | 62% | **100%** |
-| SeedQR Standard | v2 12px | 0.9 | 98% | 55% | **100%** |
-| SeedQR Compact | v1 14px | 0.35 | 10% | 0% | **10%** |
-| SeedQR Compact | v1 14px | 0.45 | 22% | 18% | **35%** |
-| SeedQR Compact | v1 14px | 0.55 | 45% | 22% | **60%** |
-| SeedQR Compact | v1 14px | 0.7 | 60% | 20% | **68%** |
-| SeedQR Compact | v1 14px | 0.9 | 78% | 0% | **78%** |
+| Screen | QR | scale | Bitpunk | rqrr | rxing | phone (either) |
+|---|---|---|---|---|---|---|
+| xpub UR crypto-account | v6 8px | 0.35 | 0% | 0% | 0% | **0%** |
+| xpub UR crypto-account | v6 8px | 0.45 | 0% | 0% | 0% | **0%** |
+| xpub UR crypto-account | v6 8px | 0.55 | 25% | 2% | 5% | **8%** |
+| xpub UR crypto-account | v6 8px | 0.7 | 92% | 52% | 50% | **80%** |
+| xpub UR crypto-account | v6 8px | 0.9 | 90% | 78% | 55% | **88%** |
+| xpub UR crypto-output | v6 8px | 0.35 | 0% | 0% | 0% | **0%** |
+| xpub UR crypto-output | v6 8px | 0.45 | 0% | 0% | 0% | **0%** |
+| xpub UR crypto-output | v6 8px | 0.55 | 40% | 2% | 2% | **5%** |
+| xpub UR crypto-output | v6 8px | 0.7 | 95% | 32% | 55% | **72%** |
+| xpub UR crypto-output | v6 8px | 0.9 | 90% | 70% | 55% | **88%** |
+| xpub text [fp/path]zpub | v6 8px | 0.35 | 0% | 0% | 0% | **0%** |
+| xpub text [fp/path]zpub | v6 8px | 0.45 | 0% | 0% | 0% | **0%** |
+| xpub text [fp/path]zpub | v6 8px | 0.55 | 45% | 5% | 8% | **12%** |
+| xpub text [fp/path]zpub | v6 8px | 0.7 | 92% | 50% | 58% | **75%** |
+| xpub text [fp/path]zpub | v6 8px | 0.9 | 85% | 75% | 45% | **90%** |
+| xpub Specter pM/N | v3 11px | 0.35 | 0% | 2% | 0% | **2%** |
+| xpub Specter pM/N | v3 11px | 0.45 | 78% | 40% | 40% | **65%** |
+| xpub Specter pM/N | v3 11px | 0.55 | 92% | 70% | 68% | **88%** |
+| xpub Specter pM/N | v3 11px | 0.7 | 78% | 85% | 58% | **90%** |
+| xpub Specter pM/N | v3 11px | 0.9 | 72% | 100% | 50% | **100%** |
+| address (Taproot, upper-case) | v4 8px | 0.35 | 0% | 0% | 0% | **0%** |
+| address (Taproot, upper-case) | v4 8px | 0.45 | 0% | 0% | 0% | **0%** |
+| address (Taproot, upper-case) | v4 8px | 0.55 | 48% | 0% | 0% | **0%** |
+| address (Taproot, upper-case) | v4 8px | 0.7 | 98% | 45% | 60% | **75%** |
+| address (Taproot, upper-case) | v4 8px | 0.9 | 75% | 82% | 60% | **95%** |
+| SeedQR Standard | v2 12px | 0.35 | 0% | 0% | 0% | **0%** |
+| SeedQR Standard | v2 12px | 0.45 | 78% | 62% | 52% | **85%** |
+| SeedQR Standard | v2 12px | 0.55 | 92% | 88% | 75% | **92%** |
+| SeedQR Standard | v2 12px | 0.7 | 82% | 95% | 62% | **100%** |
+| SeedQR Standard | v2 12px | 0.9 | 88% | 98% | 55% | **100%** |
+| SeedQR Compact | v1 14px | 0.35 | 0% | 10% | 0% | **10%** |
+| SeedQR Compact | v1 14px | 0.45 | 38% | 22% | 18% | **35%** |
+| SeedQR Compact | v1 14px | 0.55 | 50% | 45% | 22% | **60%** |
+| SeedQR Compact | v1 14px | 0.7 | 72% | 60% | 20% | **68%** |
+| SeedQR Compact | v1 14px | 0.9 | 5% | 78% | 0% | **78%** |
 
-기준 거리(0.55)에서: **37.9%** (106/280)
+기준 거리(0.55)에서: 휴대폰 **37.9%** (106/280), Bitpunk 스캐너 **56.1%** (157/280)
 
 #### Viewer options, medium conditions
 
-| Screen | QR | scale | rqrr | rxing | either |
-|---|---|---|---|---|---|
-| crypto-account, full screen | v6 9px | 0.35 | 32% | 62% | **80%** |
-| crypto-account, full screen | v6 9px | 0.45 | 95% | 92% | **100%** |
-| crypto-account, full screen | v6 9px | 0.55 | 100% | 90% | **100%** |
-| crypto-account, full screen | v6 9px | 0.7 | 100% | 80% | **100%** |
-| crypto-account, full screen | v6 9px | 0.9 | 100% | 90% | **100%** |
-| crypto-account, brightness level 3 of 5 | v6 8px | 0.35 | 2% | 15% | **18%** |
-| crypto-account, brightness level 3 of 5 | v6 8px | 0.45 | 82% | 88% | **98%** |
-| crypto-account, brightness level 3 of 5 | v6 8px | 0.55 | 92% | 92% | **98%** |
-| crypto-account, brightness level 3 of 5 | v6 8px | 0.7 | 100% | 72% | **100%** |
-| crypto-account, brightness level 3 of 5 | v6 8px | 0.9 | 100% | 82% | **100%** |
-| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.35 | 0% | 0% | **0%** |
-| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.45 | 32% | 48% | **60%** |
-| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.55 | 80% | 65% | **95%** |
-| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.7 | 98% | 70% | **100%** |
-| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.9 | 100% | 75% | **100%** |
-| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.35 | 0% | 0% | **0%** |
-| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.45 | 0% | 22% | **22%** |
-| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.55 | 0% | 88% | **88%** |
-| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.7 | 0% | 80% | **80%** |
-| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.9 | 0% | 75% | **75%** |
+| Screen | QR | scale | Bitpunk | rqrr | rxing | phone (either) |
+|---|---|---|---|---|---|---|
+| crypto-account, full screen | v6 9px | 0.35 | 90% | 32% | 62% | **80%** |
+| crypto-account, full screen | v6 9px | 0.45 | 100% | 95% | 92% | **100%** |
+| crypto-account, full screen | v6 9px | 0.55 | 100% | 100% | 90% | **100%** |
+| crypto-account, full screen | v6 9px | 0.7 | 100% | 100% | 80% | **100%** |
+| crypto-account, full screen | v6 9px | 0.9 | 100% | 100% | 90% | **100%** |
+| crypto-account, brightness level 3 of 5 | v6 8px | 0.35 | 20% | 2% | 15% | **18%** |
+| crypto-account, brightness level 3 of 5 | v6 8px | 0.45 | 98% | 82% | 88% | **98%** |
+| crypto-account, brightness level 3 of 5 | v6 8px | 0.55 | 100% | 92% | 92% | **98%** |
+| crypto-account, brightness level 3 of 5 | v6 8px | 0.7 | 100% | 100% | 72% | **100%** |
+| crypto-account, brightness level 3 of 5 | v6 8px | 0.9 | 100% | 100% | 82% | **100%** |
+| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.35 | 0% | 0% | 0% | **0%** |
+| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.45 | 78% | 32% | 48% | **60%** |
+| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.55 | 90% | 80% | 65% | **95%** |
+| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.7 | 98% | 98% | 70% | **100%** |
+| crypto-account, brightness level 5 of 5 (dimmest) | v6 8px | 0.9 | 90% | 100% | 75% | **100%** |
+| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.35 | 0% | 0% | 0% | **0%** |
+| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.45 | 98% | 0% | 22% | **22%** |
+| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.55 | 100% | 0% | 88% | **88%** |
+| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.7 | 100% | 0% | 80% | **80%** |
+| crypto-account, inverted (rqrr reads no inverted codes) | v6 8px | 0.9 | 100% | 0% | 75% | **75%** |
 
 #### Density (animated UR), medium conditions
 
-| Payload | QR | frames | scale | rqrr | rxing | either | est. time at Normal |
-|---|---|---|---|---|---|---|---|
-| 700 B, Auto | v6 8px | 10 | 0.35 | 0% | 28% | **28%** | 18.0 s |
-| 700 B, Auto | v6 8px | 10 | 0.45 | 62% | 85% | **92%** | 5.4 s |
-| 700 B, Auto | v6 8px | 10 | 0.55 | 92% | 95% | **100%** | 4.9 s |
-| 700 B, Auto | v6 8px | 10 | 0.7 | 95% | 90% | **100%** | 4.9 s |
-| 700 B, Auto | v6 8px | 10 | 0.9 | 100% | 75% | **100%** | 4.9 s |
-| 700 B, Low | v6 8px | 10 | 0.35 | 0% | 28% | **28%** | 18.0 s |
-| 700 B, Low | v6 8px | 10 | 0.45 | 62% | 85% | **92%** | 5.4 s |
-| 700 B, Low | v6 8px | 10 | 0.55 | 92% | 95% | **100%** | 4.9 s |
-| 700 B, Low | v6 8px | 10 | 0.7 | 95% | 90% | **100%** | 4.9 s |
-| 700 B, Low | v6 8px | 10 | 0.9 | 100% | 75% | **100%** | 4.9 s |
-| 700 B, Medium | v11 6px | 4 | 0.35 | 0% | 0% | **0%** | - |
-| 700 B, Medium | v11 6px | 4 | 0.45 | 0% | 5% | **5%** | 39.6 s |
-| 700 B, Medium | v11 6px | 4 | 0.55 | 42% | 50% | **68%** | 2.9 s |
-| 700 B, Medium | v11 6px | 4 | 0.7 | 65% | 65% | **90%** | 2.2 s |
-| 700 B, Medium | v11 6px | 4 | 0.9 | 90% | 50% | **95%** | 2.1 s |
-| 700 B, High | v12 5px | 3 | 0.35 | 0% | 0% | **0%** | - |
-| 700 B, High | v12 5px | 3 | 0.45 | 0% | 0% | **0%** | - |
-| 700 B, High | v12 5px | 3 | 0.55 | 0% | 10% | **10%** | 14.8 s |
-| 700 B, High | v12 5px | 3 | 0.7 | 18% | 48% | **60%** | 2.5 s |
-| 700 B, High | v12 5px | 3 | 0.9 | 55% | 52% | **82%** | 1.8 s |
-| 1000 B, Auto | v7 8px | 14 | 0.35 | 5% | 28% | **28%** | 25.2 s |
-| 1000 B, Auto | v7 8px | 14 | 0.45 | 72% | 82% | **98%** | 7.1 s |
-| 1000 B, Auto | v7 8px | 14 | 0.55 | 82% | 98% | **100%** | 6.9 s |
-| 1000 B, Auto | v7 8px | 14 | 0.7 | 92% | 90% | **100%** | 6.9 s |
-| 1000 B, Auto | v7 8px | 14 | 0.9 | 95% | 75% | **98%** | 7.1 s |
-| 1000 B, Low | v7 8px | 14 | 0.35 | 5% | 28% | **28%** | 25.2 s |
-| 1000 B, Low | v7 8px | 14 | 0.45 | 72% | 82% | **98%** | 7.1 s |
-| 1000 B, Low | v7 8px | 14 | 0.55 | 82% | 95% | **100%** | 6.9 s |
-| 1000 B, Low | v7 8px | 14 | 0.7 | 92% | 90% | **100%** | 6.9 s |
-| 1000 B, Low | v7 8px | 14 | 0.9 | 95% | 75% | **98%** | 7.1 s |
-| 1000 B, Medium | v10 6px | 6 | 0.35 | 0% | 0% | **0%** | - |
-| 1000 B, Medium | v10 6px | 6 | 0.45 | 0% | 8% | **8%** | 39.6 s |
-| 1000 B, Medium | v10 6px | 6 | 0.55 | 40% | 48% | **65%** | 4.6 s |
-| 1000 B, Medium | v10 6px | 6 | 0.7 | 70% | 70% | **95%** | 3.1 s |
-| 1000 B, Medium | v10 6px | 6 | 0.9 | 92% | 62% | **98%** | 3.0 s |
-| 1000 B, High | v15 5px | 3 | 0.35 | 0% | 0% | **0%** | - |
-| 1000 B, High | v15 5px | 3 | 0.45 | 0% | 0% | **0%** | - |
-| 1000 B, High | v15 5px | 3 | 0.55 | 0% | 8% | **8%** | 19.8 s |
-| 1000 B, High | v15 5px | 3 | 0.7 | 15% | 35% | **42%** | 3.5 s |
-| 1000 B, High | v15 5px | 3 | 0.9 | 40% | 30% | **52%** | 2.8 s |
+| Payload | QR | frames | scale | Bitpunk | rqrr | rxing | phone (either) | est. time at Normal |
+|---|---|---|---|---|---|---|---|---|
+| 700 B, Auto | v6 8px | 10 | 0.35 | 50% | 0% | 28% | **28%** | 18.0 s |
+| 700 B, Auto | v6 8px | 10 | 0.45 | 100% | 62% | 85% | **92%** | 5.4 s |
+| 700 B, Auto | v6 8px | 10 | 0.55 | 100% | 92% | 95% | **100%** | 4.9 s |
+| 700 B, Auto | v6 8px | 10 | 0.7 | 100% | 95% | 90% | **100%** | 4.9 s |
+| 700 B, Auto | v6 8px | 10 | 0.9 | 100% | 100% | 75% | **100%** | 4.9 s |
+| 700 B, Low | v6 8px | 10 | 0.35 | 50% | 0% | 28% | **28%** | 18.0 s |
+| 700 B, Low | v6 8px | 10 | 0.45 | 100% | 62% | 85% | **92%** | 5.4 s |
+| 700 B, Low | v6 8px | 10 | 0.55 | 100% | 92% | 95% | **100%** | 4.9 s |
+| 700 B, Low | v6 8px | 10 | 0.7 | 100% | 95% | 90% | **100%** | 4.9 s |
+| 700 B, Low | v6 8px | 10 | 0.9 | 100% | 100% | 75% | **100%** | 4.9 s |
+| 700 B, Medium | v11 6px | 4 | 0.35 | 0% | 0% | 0% | **0%** | - |
+| 700 B, Medium | v11 6px | 4 | 0.45 | 45% | 0% | 5% | **5%** | 39.6 s |
+| 700 B, Medium | v11 6px | 4 | 0.55 | 98% | 42% | 50% | **68%** | 2.9 s |
+| 700 B, Medium | v11 6px | 4 | 0.7 | 100% | 65% | 65% | **90%** | 2.2 s |
+| 700 B, Medium | v11 6px | 4 | 0.9 | 100% | 90% | 50% | **95%** | 2.1 s |
+| 700 B, High | v12 5px | 3 | 0.35 | 0% | 0% | 0% | **0%** | - |
+| 700 B, High | v12 5px | 3 | 0.45 | 0% | 0% | 0% | **0%** | - |
+| 700 B, High | v12 5px | 3 | 0.55 | 38% | 0% | 10% | **10%** | 14.8 s |
+| 700 B, High | v12 5px | 3 | 0.7 | 98% | 18% | 48% | **60%** | 2.5 s |
+| 700 B, High | v12 5px | 3 | 0.9 | 100% | 55% | 52% | **82%** | 1.8 s |
+| 1000 B, Auto | v7 8px | 14 | 0.35 | 45% | 5% | 28% | **28%** | 25.2 s |
+| 1000 B, Auto | v7 8px | 14 | 0.45 | 100% | 72% | 82% | **98%** | 7.1 s |
+| 1000 B, Auto | v7 8px | 14 | 0.55 | 100% | 82% | 98% | **100%** | 6.9 s |
+| 1000 B, Auto | v7 8px | 14 | 0.7 | 100% | 92% | 90% | **100%** | 6.9 s |
+| 1000 B, Auto | v7 8px | 14 | 0.9 | 100% | 95% | 75% | **98%** | 7.1 s |
+| 1000 B, Low | v7 8px | 14 | 0.35 | 45% | 5% | 28% | **28%** | 25.2 s |
+| 1000 B, Low | v7 8px | 14 | 0.45 | 100% | 72% | 82% | **98%** | 7.1 s |
+| 1000 B, Low | v7 8px | 14 | 0.55 | 100% | 82% | 95% | **100%** | 6.9 s |
+| 1000 B, Low | v7 8px | 14 | 0.7 | 100% | 92% | 90% | **100%** | 6.9 s |
+| 1000 B, Low | v7 8px | 14 | 0.9 | 100% | 95% | 75% | **98%** | 7.1 s |
+| 1000 B, Medium | v10 6px | 6 | 0.35 | 0% | 0% | 0% | **0%** | - |
+| 1000 B, Medium | v10 6px | 6 | 0.45 | 38% | 0% | 8% | **8%** | 39.6 s |
+| 1000 B, Medium | v10 6px | 6 | 0.55 | 95% | 40% | 48% | **65%** | 4.6 s |
+| 1000 B, Medium | v10 6px | 6 | 0.7 | 100% | 70% | 70% | **95%** | 3.1 s |
+| 1000 B, Medium | v10 6px | 6 | 0.9 | 100% | 92% | 62% | **98%** | 3.0 s |
+| 1000 B, High | v15 5px | 3 | 0.35 | 0% | 0% | 0% | **0%** | - |
+| 1000 B, High | v15 5px | 3 | 0.45 | 0% | 0% | 0% | **0%** | - |
+| 1000 B, High | v15 5px | 3 | 0.55 | 32% | 0% | 8% | **8%** | 19.8 s |
+| 1000 B, High | v15 5px | 3 | 0.7 | 100% | 15% | 35% | **42%** | 3.5 s |
+| 1000 B, High | v15 5px | 3 | 0.9 | 100% | 40% | 30% | **52%** | 2.8 s |

@@ -22,7 +22,7 @@ pub enum Error {
     TooManyErrors,
     /// Segment data is malformed (bad length, value or mode).
     Malformed,
-    /// Kanji or another mode Bitpunk does not use.
+    /// A reserved or unknown segment mode.
     UnsupportedMode,
     /// Output buffer too small.
     BufferTooSmall,
@@ -121,7 +121,7 @@ pub struct Decoded {
 }
 
 /// Decode `m` into `out` (the raw segment bytes: digits and alphanumeric
-/// characters as ASCII, byte segments as-is).
+/// characters as ASCII, byte segments as-is, Kanji as Shift JIS).
 pub fn decode(m: &BitMatrix, out: &mut [u8]) -> Result<Decoded, Error> {
     match decode_once(m, out) {
         Ok(d) => Ok(d),
@@ -459,6 +459,21 @@ fn parse_segments(data: &[u8], ver: u8, out: &mut [u8]) -> Result<usize, Error> 
                     } else {
                         return Err(Error::Malformed);
                     }
+                }
+            }
+            8 => {
+                // Kanji: 13 bits per character, output as Shift JIS bytes
+                let count = r.read(match ver {
+                    1..=9 => 8,
+                    10..=26 => 10,
+                    _ => 12,
+                })? as usize;
+                for _ in 0..count {
+                    let v = r.read(13)?;
+                    let mut sj = ((v / 0xC0) << 8) | (v % 0xC0);
+                    sj += if sj < 0x1F00 { 0x8140 } else { 0xC140 };
+                    put((sj >> 8) as u8, &mut n)?;
+                    put(sj as u8, &mut n)?;
                 }
             }
             3 => {
