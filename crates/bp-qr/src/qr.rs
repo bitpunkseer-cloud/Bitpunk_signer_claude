@@ -4,9 +4,9 @@
 
 pub const MAX_VERSION: u8 = 40;
 pub const MAX_SIZE: usize = 17 + 4 * MAX_VERSION as usize; // 177
-const MODULE_BYTES: usize = (MAX_SIZE * MAX_SIZE).div_ceil(8);
+pub(crate) const MODULE_BYTES: usize = (MAX_SIZE * MAX_SIZE).div_ceil(8);
 /// Raw codewords of version 40.
-const MAX_CODEWORDS: usize = 3706;
+pub(crate) const MAX_CODEWORDS: usize = 3706;
 const MAX_ECC_BYTES_PER_BLOCK: usize = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,7 +18,7 @@ pub enum Ecc {
 }
 
 impl Ecc {
-    const fn ordinal(self) -> usize {
+    pub(crate) const fn ordinal(self) -> usize {
         match self {
             Ecc::Low => 0,
             Ecc::Medium => 1,
@@ -26,7 +26,7 @@ impl Ecc {
             Ecc::High => 3,
         }
     }
-    const fn format_bits(self) -> u32 {
+    pub(crate) const fn format_bits(self) -> u32 {
         match self {
             Ecc::Low => 1,
             Ecc::Medium => 0,
@@ -51,10 +51,10 @@ pub enum Error {
     InvalidMask,
 }
 
-const ALNUM: &[u8; 45] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+pub(crate) const ALNUM: &[u8; 45] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
 
 // ISO/IEC 18004 Table 9: error correction codewords per block, and number of blocks.
-static ECC_CODEWORDS_PER_BLOCK: [[u8; 41]; 4] = [
+pub(crate) static ECC_CODEWORDS_PER_BLOCK: [[u8; 41]; 4] = [
     [
         0, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26,
         28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
@@ -72,7 +72,7 @@ static ECC_CODEWORDS_PER_BLOCK: [[u8; 41]; 4] = [
         30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
     ],
 ];
-static NUM_ECC_BLOCKS: [[u8; 41]; 4] = [
+pub(crate) static NUM_ECC_BLOCKS: [[u8; 41]; 4] = [
     [
         0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15,
         16, 17, 18, 19, 19, 20, 21, 22, 24, 25,
@@ -102,7 +102,7 @@ pub fn best_mode(data: &[u8]) -> Mode {
     }
 }
 
-const fn char_count_bits(mode: Mode, ver: u8) -> usize {
+pub(crate) const fn char_count_bits(mode: Mode, ver: u8) -> usize {
     let i = if ver <= 9 {
         0
     } else if ver <= 26 {
@@ -259,8 +259,8 @@ pub struct QrCode {
     modules: [u8; MODULE_BYTES],
 }
 
-struct Builder {
-    size: usize,
+pub(crate) struct Builder {
+    pub(crate) size: usize,
     modules: [u8; MODULE_BYTES],
     function: [u8; MODULE_BYTES],
 }
@@ -278,7 +278,7 @@ impl Builder {
             self.modules[i / 8] &= !(1 << (i % 8));
         }
     }
-    fn is_function(&self, x: usize, y: usize) -> bool {
+    pub(crate) fn is_function(&self, x: usize, y: usize) -> bool {
         let i = y * self.size + x;
         self.function[i / 8] >> (i % 8) & 1 == 1
     }
@@ -286,6 +286,19 @@ impl Builder {
         self.set(x, y, dark);
         let i = y * self.size + x;
         self.function[i / 8] |= 1 << (i % 8);
+    }
+
+    /// Function-pattern map of a symbol (finders, timing, alignment,
+    /// format and version areas) for the decoder.
+    pub(crate) fn function_map(ver: u8) -> Builder {
+        let size = 17 + 4 * ver as usize;
+        let mut b = Builder {
+            size,
+            modules: [0; MODULE_BYTES],
+            function: [0; MODULE_BYTES],
+        };
+        b.draw_function_patterns(ver, Ecc::Low);
+        b
     }
 
     fn draw_function_patterns(&mut self, ver: u8, ecc: Ecc) {
@@ -407,17 +420,7 @@ impl Builder {
                 if self.is_function(x, y) {
                     continue;
                 }
-                let invert = match mask {
-                    0 => (x + y) % 2 == 0,
-                    1 => y % 2 == 0,
-                    2 => x % 3 == 0,
-                    3 => (x + y) % 3 == 0,
-                    4 => (x / 3 + y / 2) % 2 == 0,
-                    5 => x * y % 2 + x * y % 3 == 0,
-                    6 => (x * y % 2 + x * y % 3) % 2 == 0,
-                    _ => ((x + y) % 2 + x * y % 3) % 2 == 0,
-                };
-                if invert {
+                if mask_bit(mask, x, y) {
                     let v = self.get(x, y);
                     self.set(x, y, !v);
                 }
@@ -510,7 +513,21 @@ impl FinderRuns {
     }
 }
 
-fn alignment_positions(ver: u8, out: &mut [usize; 7]) -> usize {
+/// True where data mask pattern `mask` (0..8) inverts module (x, y).
+pub(crate) fn mask_bit(mask: u8, x: usize, y: usize) -> bool {
+    match mask {
+        0 => (x + y).is_multiple_of(2),
+        1 => y.is_multiple_of(2),
+        2 => x.is_multiple_of(3),
+        3 => (x + y).is_multiple_of(3),
+        4 => (x / 3 + y / 2).is_multiple_of(2),
+        5 => x * y % 2 + x * y % 3 == 0,
+        6 => (x * y % 2 + x * y % 3).is_multiple_of(2),
+        _ => ((x + y) % 2 + x * y % 3).is_multiple_of(2),
+    }
+}
+
+pub(crate) fn alignment_positions(ver: u8, out: &mut [usize; 7]) -> usize {
     if ver == 1 {
         return 0;
     }

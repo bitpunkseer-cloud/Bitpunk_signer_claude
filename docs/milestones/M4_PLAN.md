@@ -1,6 +1,6 @@
 # M4 구현 계획 — QR 입력
 
-상태: **승인 대기** · 근거: [QR_SURVEY.md](../QR_SURVEY.md) 4장, [QR_SCAN_BENCH.md](../QR_SCAN_BENCH.md)
+상태: **승인됨 (2026-11-20, 권장안: ZXing식 디코더 직접 구현 · 시뮬레이터 웹캠 허용)** · 근거: [QR_SURVEY.md](../QR_SURVEY.md) 4장, [QR_SCAN_BENCH.md](../QR_SCAN_BENCH.md)
 
 ## 1. 목표
 
