@@ -361,7 +361,7 @@ pub static EN: Strings = Strings {
     dice_head: "DICE ROLLS",
     coin_head: "COIN FLIPS",
     entry_head: "{} - {} WORDS",
-    entry_keys2: "Back undo   Enter finish   Esc cancel",
+    entry_keys2: "DEL undo   ENTER finish   CANCEL quit",
     heads: "Heads",
     tails: "Tails",
     bits_of: "{} / {} bits",

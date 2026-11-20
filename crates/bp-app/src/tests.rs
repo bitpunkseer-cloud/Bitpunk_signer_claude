@@ -422,3 +422,14 @@ fn backspace_on_empty_coins_returns_to_words() {
     press(&mut a, Key::Backspace);
     assert_eq!(a.current(), Screen::WordEntry);
 }
+
+#[test]
+fn qr_key_opens_scanner_placeholder_from_menus_only() {
+    let mut a = app();
+    press(&mut a, Key::Qr);
+    assert!(matches!(a.current(), Screen::Placeholder { .. }));
+    press(&mut a, Key::Esc);
+    open_create(&mut a, false, false);
+    press(&mut a, Key::Qr); // ignored while entering dice
+    assert_eq!(a.current(), Screen::EntropyEntry);
+}

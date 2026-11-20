@@ -64,28 +64,39 @@
   .led.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
   .led-label { font-family: var(--mono); font-size: .62rem; color: var(--legend-dim); letter-spacing: .08em; }
 
-  /* keyboard */
-  .kb { display: grid; gap: clamp(4px, .9vw, 8px); }
-  .row { display: grid; gap: clamp(4px, .9vw, 8px); }
+  /* keyboard: function cluster (QR, TAB, D-pad, CANCEL, ENTER) over a 10-column QWERTY */
+  .kb { display: grid; gap: clamp(6px, 1.2vw, 12px); }
+  .fn {
+    display: grid; gap: clamp(4px, .9vw, 8px);
+    grid-template-columns: 1.2fr .5fr 1fr 1.3fr 1fr .5fr 1.6fr;
+    grid-template-areas: "qr . left up right . cancel" "tab . left down right . enter";
+  }
+  .rows { display: grid; gap: clamp(4px, .9vw, 8px); }
+  .row { display: grid; gap: clamp(4px, .9vw, 8px); grid-template-columns: repeat(10, 1fr); }
+  .row.bottom { grid-template-columns: 2.2fr 4.6fr 1.6fr 1.6fr; }
   .key {
     font-family: var(--mono); font-weight: 500;
-    font-size: clamp(.5rem, 1.45vw, .82rem);
+    font-size: clamp(.62rem, 1.7vw, .95rem);
     color: var(--legend);
     background: linear-gradient(180deg, var(--key-top), var(--key));
     border: 1px solid var(--key-edge);
-    border-radius: clamp(4px, .8vw, 8px);
-    min-height: clamp(26px, 5.2vw, 46px);
+    border-radius: clamp(5px, 1vw, 10px);
+    min-height: clamp(30px, 5.6vw, 50px);
     padding: 2px 4px;
-    display: flex; align-items: center; justify-content: center; gap: 4px;
+    display: flex; align-items: center; justify-content: center;
     cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation;
-    box-shadow: 0 2px 0 #00000080, inset 0 1px 0 #ffffff12, 0 0 0 1px #f7931a14;
+    box-shadow: 0 2px 0 #00000080, inset 0 1px 0 #ffffff12;
     position: relative; min-width: 0;
   }
-  .key small { color: var(--accent); font-size: .8em; }
-  .key.mod { color: var(--legend-dim); }
-  .key.arrow { color: var(--accent); }
+  .key .sym { position: absolute; top: 2px; right: 5px; color: var(--accent); font-size: .68em; line-height: 1; }
+  .key .sub { display: block; color: var(--legend-dim); font-size: .62em; line-height: 1; margin-top: 2px; }
+  .key .stack { display: flex; flex-direction: column; align-items: center; }
+  .key.ctl { font-family: var(--head); font-weight: 700; letter-spacing: .04em; font-size: clamp(.55rem, 1.4vw, .82rem); }
+  .key.go { background: linear-gradient(180deg, #33281a, #2a2015); border-color: #5a4022; color: var(--accent); }
+  .key.arrow { color: var(--accent); font-size: clamp(.7rem, 2vw, 1.1rem); }
   .key:active, .key.down { transform: translateY(1px); box-shadow: 0 1px 0 #00000080, inset 0 1px 0 #ffffff08; background: var(--key); }
   .key.latched { border-color: var(--accent); color: var(--accent); }
+  .key.locked { border-color: var(--accent); background: #2a2015; color: var(--accent); }
   .key:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .info { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
@@ -118,14 +129,15 @@
     <div class="card">
       <h2>Controls</h2>
       <ul>
-        <li><kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>Enter</kbd> select, <kbd>Esc</kbd> back</li>
-        <li><kbd>1</kbd>–<kbd>6</kbd> dice, <kbd>H</kbd>/<kbd>T</kbd> coin, <kbd>Back</kbd> undo</li>
+        <li>D-pad moves, <kbd>ENTER</kbd> selects, <kbd>CANCEL</kbd> goes back</li>
+        <li><kbd>1</kbd>–<kbd>6</kbd> dice, <kbd>H</kbd>/<kbd>T</kbd> coin, <kbd>DEL</kbd> undo</li>
         <li>Type 4 letters of a word; it completes itself</li>
+        <li>Your computer keyboard works too (Esc = CANCEL)</li>
       </ul>
     </div>
     <div class="card">
-      <h2>On the device</h2>
-      <p>The HOME, PG UP, PG DN and END keys carry the ◄ ▲ ▼ ► arrows. The screen is drawn by the same Rust code the firmware runs.</p>
+      <h2>Keyboard</h2>
+      <p>No Ctrl, Alt or F-keys. <kbd>SYM</kbd> types the orange symbol on a key; <kbd>SHIFT</kbd> once for a capital, twice for CAPS. <kbd>QR</kbd> opens the scanner.</p>
     </div>
     <div class="card">
       <h2>This build · M1</h2>
@@ -137,117 +149,135 @@
 <script>
 (() => {
   const WASM_B64 = "__WASM_BASE64__";
-  // code: 0 = char, 1 Enter, 2 Esc, 3 Backspace, 4 Delete, 5 Tab, 6 Up, 7 Down, 8 Left, 9 Right, 101-112 F1-F12
+  // Wire codes (bp_hal::input::KeyEvent::from_code):
+  // 0 = char, 1 Enter, 2 Esc/CANCEL, 3 Backspace/DEL, 4 Delete, 5 Tab, 6 Up, 7 Down, 8 Left, 9 Right, 10 QR
   const SPECIAL = { Enter: 1, Escape: 2, Backspace: 3, Delete: 4, Tab: 5, ArrowUp: 6, ArrowDown: 7, ArrowLeft: 8, ArrowRight: 9,
-                    Home: 8, PageUp: 6, PageDown: 7, End: 9 };
-  for (let i = 1; i <= 12; i++) SPECIAL["F" + i] = 100 + i;
+                    Home: 8, PageUp: 6, PageDown: 7, End: 9, Qr: 10 };
 
-  // Device keyboard layout (reference photo). [label, sub, spec, width]
-  // spec: "c:x" char, "k:Name" special, "m:shift|ctrl|alt|fn" modifier
-  const ROWS = [
-    { cols: "repeat(6, 1fr)", indent: "38%", keys: [
-      ["-", "_", "c:-"], ["+", "=", "c:="], ["◄", "HOME", "k:ArrowLeft", 1, "arrow"], ["▲", "PG UP", "k:ArrowUp", 1, "arrow"],
-      ["▼", "PG DN", "k:ArrowDown", 1, "arrow"], ["►", "END", "k:ArrowRight", 1, "arrow"] ] },
-    { keys: [["Esc", "F1", "k:Escape", 1.4], ["1", "F2", "c:1"], ["2", "F3", "c:2"], ["3", "F4", "c:3"], ["4", "F5", "c:4"],
-      ["5", "F6", "c:5"], ["6", "F7", "c:6"], ["7", "F8", "c:7"], ["8", "F9", "c:8"], ["9", "F10", "c:9"], ["0", "F11", "c:0"], ["`", "F12", "c:`", 1.4]] },
-    { keys: [["Tab", "", "k:Tab", 1.4], ..."QWERTYUIOP".split("").map(c => [c, "", "c:" + c.toLowerCase()]), ["Back", "Del", "k:Backspace", 1.8]] },
-    { keys: [["Caps", "", "m:caps", 1.6], ..."ASDFGHJKL".split("").map(c => [c, "", "c:" + c.toLowerCase()]), [";", ":", "c:;"], ["Enter", "", "k:Enter", 1.8]] },
-    { keys: [["Shift", "", "m:shift", 2], ..."ZXCVBNM".split("").map(c => [c, "", "c:" + c.toLowerCase()]), [",", "<", "c:,"], [".", ">", "c:."], ["/", "?", "c:/"], ["\\", "|", "c:\\"]] },
-    { keys: [["Ctrl", "", "m:ctrl", 1.4], ["Fn", "", "m:fn"], ["◇", "", "c: ", 1, "mod"], ["Alt", "", "m:alt"], ["", "", "c: ", 5], ["AltGr", "", "m:alt", 1.2],
-      ["{", "[", "c:["], ["}", "]", "c:]"], ["'", "\"", "c:'"]] },
-  ];
-  const SHIFTED = { "1":"!", "2":"@", "3":"#", "4":"$", "5":"%", "6":"^", "7":"&", "8":"*", "9":"(", "0":")", "-":"_", "=":"+",
-    "`":"~", ";":":", ",":"<", ".":">", "/":"?", "\\":"|", "[":"{", "]":"}", "'":"\"" };
-  const MOD = { shift: 1, ctrl: 2, alt: 4, fn: 8 };
-  const latched = { shift: false, ctrl: false, alt: false, fn: false, caps: false };
+  // SYM layer: every printable ASCII symbol is reachable for passphrases.
+  const SYM = {
+    "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
+    q: "~", w: "`", e: "+", r: "=", t: "[", y: "]", u: "{", i: "}", o: "<", p: ">",
+    a: "-", s: "_", d: ":", f: ";", g: "\"", h: "?", j: "\\", k: "|",
+  };
+  const ROWS = ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,./"];
 
   const status = document.getElementById("status");
   const canvas = document.getElementById("screen");
   const ctx = canvas.getContext("2d");
-  let wasm, img, W, H, view;
+  let wasm, img, W, H;
+  // one-shot SHIFT / SYM; SHIFT twice = CAPS lock
+  const mode = { shift: false, caps: false, sym: false };
+  let lastShift = 0;
 
-  function modsMask(ev) {
-    let m = 0;
-    if (latched.shift || ev?.shiftKey) m |= MOD.shift;
-    if (latched.ctrl || ev?.ctrlKey) m |= MOD.ctrl;
-    if (latched.alt || ev?.altKey) m |= MOD.alt;
-    if (latched.fn) m |= MOD.fn;
-    return m;
-  }
   function blit() {
     const ptr = wasm.bp_framebuffer();
-    const src = new Uint8ClampedArray(wasm.memory.buffer, ptr, W * H * 4);
-    img.data.set(src);
+    img.data.set(new Uint8ClampedArray(wasm.memory.buffer, ptr, W * H * 4));
     ctx.putImageData(img, 0, 0);
   }
-  function send(code, ch, mods) {
+  function send(code, ch) {
     if (!wasm) return;
-    wasm.bp_key(code, ch, mods);
+    wasm.bp_key(code, ch, 0);
     if (wasm.bp_tick(0)) blit();
   }
-  function clearLatches() {
-    let changed = false;
-    for (const k of ["shift", "ctrl", "alt", "fn"]) if (latched[k]) { latched[k] = false; changed = true; }
-    if (changed) paintLatches();
-  }
 
-  // Build on-screen keyboard
   const kb = document.getElementById("kb");
-  const latchEls = [];
-  for (const row of ROWS) {
-    const r = document.createElement("div");
-    r.className = "row";
-    r.style.gridTemplateColumns = row.cols || row.keys.map(k => (k[3] || 1) + "fr").join(" ");
-    if (row.indent) r.style.paddingLeft = row.indent;
-    for (const [label, sub, spec, , cls] of row.keys) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "key" + (spec.startsWith("m:") ? " mod" : "") + (cls ? " " + cls : "");
-      b.innerHTML = label === "" ? "&nbsp;" : `<span>${label.replace(/</g, "&lt;")}</span>` + (sub ? `<small>${sub.replace(/</g, "&lt;")}</small>` : "");
-      b.setAttribute("aria-label", (label || "Space") + (sub ? " " + sub : ""));
-      b.addEventListener("pointerdown", e => { e.preventDefault(); press(spec); });
-      b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); press(spec); } });
-      if (spec.startsWith("m:")) latchEls.push([spec.slice(2), b]);
-      r.appendChild(b);
-    }
-    kb.appendChild(r);
+  const els = {};
+  function key(html, label, onPress, cls = "", area = "") {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "key " + cls;
+    b.innerHTML = html;
+    b.setAttribute("aria-label", label);
+    if (area) b.style.gridArea = area;
+    b.addEventListener("pointerdown", e => { e.preventDefault(); onPress(); });
+    b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPress(); } });
+    return b;
   }
-  function paintLatches() { for (const [m, el] of latchEls) el.classList.toggle("latched", !!latched[m]); }
+  const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  function press(spec) {
-    const [t, v] = [spec.slice(0, 1), spec.slice(2)];
-    if (t === "m") { latched[v] = !latched[v]; paintLatches(); return; }
-    if (t === "k") {
-      // Fn + 1..0/` gives F1..F12 on the device; Esc doubles as F1 with Fn
-      if (latched.fn && v === "Escape") { send(101, 0, modsMask()); clearLatches(); return; }
-      send(SPECIAL[v], 0, modsMask()); clearLatches(); return;
+  // Function cluster
+  const fn = document.createElement("div");
+  fn.className = "fn";
+  const special = (name) => () => { send(SPECIAL[name], 0); clearOneShot(); };
+  fn.append(
+    els.Qr = key("QR", "QR scan", special("Qr"), "ctl", "qr"),
+    els.Tab = key("TAB", "Tab", special("Tab"), "ctl", "tab"),
+    els.ArrowLeft = key("◄", "Left", special("ArrowLeft"), "arrow", "left"),
+    els.ArrowUp = key("▲", "Up", special("ArrowUp"), "arrow", "up"),
+    els.ArrowDown = key("▼", "Down", special("ArrowDown"), "arrow", "down"),
+    els.ArrowRight = key("►", "Right", special("ArrowRight"), "arrow", "right"),
+    els.Escape = key("CANCEL", "Cancel", special("Escape"), "ctl", "cancel"),
+    els.Enter = key("ENTER", "Enter", special("Enter"), "ctl go", "enter"),
+  );
+  kb.appendChild(fn);
+
+  // QWERTY rows
+  const rows = document.createElement("div");
+  rows.className = "rows";
+  for (const r of ROWS) {
+    const row = document.createElement("div");
+    row.className = "row";
+    for (const c of r) {
+      const sym = SYM[c];
+      const face = /[a-z]/.test(c) ? c.toUpperCase() : c;
+      const html = `<span>${esc(face)}</span>` + (sym ? `<span class="sym">${esc(sym)}</span>` : "");
+      const b = key(html, face + (sym ? " / " + sym : ""), () => typeChar(c));
+      els["c:" + c] = b;
+      row.appendChild(b);
     }
-    let ch = v;
-    if (latched.fn) {
-      const fmap = { "1": 102, "2": 103, "3": 104, "4": 105, "5": 106, "6": 107, "7": 108, "8": 109, "9": 110, "0": 111, "`": 112 };
-      if (fmap[ch]) { send(fmap[ch], 0, modsMask()); clearLatches(); return; }
-    }
-    const upper = latched.shift !== latched.caps;
-    if (latched.shift && SHIFTED[ch]) ch = SHIFTED[ch];
-    else if (upper) ch = ch.toUpperCase();
-    send(0, ch.codePointAt(0), modsMask());
-    clearLatches();
+    rows.appendChild(row);
+  }
+  const bottom = document.createElement("div");
+  bottom.className = "row bottom";
+  els.shift = key('<span class="stack">SHIFT<span class="sub">CAPS</span></span>', "Shift (twice for caps lock)", pressShift, "ctl");
+  els.space = key("", "Space", () => typeChar(" "));
+  els.sym = key("SYM", "Symbols", () => { mode.sym = !mode.sym; paintModes(); }, "ctl");
+  els.Backspace = key("DEL", "Delete", special("Backspace"), "ctl");
+  bottom.append(els.shift, els.space, els.sym, els.Backspace);
+  rows.appendChild(bottom);
+  kb.appendChild(rows);
+
+  function pressShift() {
+    const now = performance.now();
+    if (mode.caps) { mode.caps = false; mode.shift = false; }
+    else if (mode.shift && now - lastShift < 600) { mode.caps = true; mode.shift = false; }
+    else { mode.shift = !mode.shift; }
+    lastShift = now;
+    paintModes();
+  }
+  function paintModes() {
+    els.shift.classList.toggle("latched", mode.shift);
+    els.shift.classList.toggle("locked", mode.caps);
+    els.sym.classList.toggle("latched", mode.sym);
+  }
+  function clearOneShot() {
+    if (mode.shift || mode.sym) { mode.shift = false; mode.sym = false; paintModes(); }
+  }
+  function typeChar(c) {
+    let ch = c;
+    if (mode.sym && SYM[c]) ch = SYM[c];
+    else if ((mode.shift !== mode.caps) && /[a-z]/.test(c)) ch = c.toUpperCase();
+    send(0, ch.codePointAt(0));
+    clearOneShot();
   }
 
-  // Physical keyboard
+  // Computer keyboard
   window.addEventListener("keydown", e => {
     if (e.target.closest && e.target.closest("button.key") && (e.key === "Enter" || e.key === " ")) return;
-    if (e.metaKey) return;
-    if (SPECIAL[e.key] !== undefined) { e.preventDefault(); send(SPECIAL[e.key], 0, modsMask(e)); flash(e.key); return; }
-    if (e.key.length === 1 && !e.ctrlKey && !e.altKey) { e.preventDefault(); send(0, e.key.codePointAt(0), modsMask(e)); flash(e.key); }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (SPECIAL[e.key] !== undefined) { e.preventDefault(); send(SPECIAL[e.key], 0); flash(e.key); return; }
+    if (e.key.length === 1) { e.preventDefault(); send(0, e.key.codePointAt(0)); flash(e.key); }
   });
   function flash(k) {
-    const label = { ArrowUp: "▲", ArrowDown: "▼", ArrowLeft: "◄", ArrowRight: "►", PageUp: "▲", PageDown: "▼", Home: "◄", End: "►",
-      Escape: "Esc", Enter: "Enter", Tab: "Tab", Backspace: "Back", " ": "" }[k] ?? k.toUpperCase();
-    for (const el of kb.querySelectorAll(".key")) {
-      const t = el.firstChild?.textContent ?? "";
-      if (t === label || (label === "" && el.textContent.trim() === "")) { el.classList.add("down"); setTimeout(() => el.classList.remove("down"), 110); break; }
+    const alias = { PageUp: "ArrowUp", PageDown: "ArrowDown", Home: "ArrowLeft", End: "ArrowRight", Delete: "Backspace" };
+    let el = els[alias[k] || k];
+    if (!el && k === " ") el = els.space;
+    if (!el && k.length === 1) {
+      const lower = k.toLowerCase();
+      el = els["c:" + lower] || els["c:" + (Object.keys(SYM).find(x => SYM[x] === k) || "")];
     }
+    if (el) { el.classList.add("down"); setTimeout(() => el.classList.remove("down"), 110); }
   }
 
   // Boot

@@ -220,6 +220,17 @@ impl App {
             self.dirty = true;
         }
         let back = matches!(ev.key, Key::Esc);
+        // QR key: shortcut to the scanner from any menu.
+        if ev.key == Key::Qr {
+            if matches!(self.current(), Screen::Menu { .. }) {
+                let s = self.text();
+                self.push(Screen::Placeholder {
+                    title: s.scan_qr,
+                    phase: "Milestone M4 (QR input)",
+                });
+            }
+            return;
+        }
         match self.current() {
             Screen::Splash => self.reset_to(Screen::Menu {
                 id: MenuId::Main,

@@ -1,9 +1,11 @@
 //! QWERTY keyboard events.
 
-/// Physical/logical keys on the device keyboard.
+/// Keys on the device keyboard.
 ///
-/// The reference keyboard has HOME / PGUP / PGDN / END keys printed with
-/// ◄ ▲ ▼ ► arrows; they are reported as `Left` / `Up` / `Down` / `Right`.
+/// Layout (Coldcard-Q-style, see docs/HARDWARE_REQUIREMENTS.md): a function
+/// cluster with QR, TAB, a D-pad, CANCEL and ENTER above a 10-column QWERTY
+/// with SHIFT/CAPS, SPACE, SYM and DEL. CANCEL is reported as `Esc`, DEL as
+/// `Backspace`. SHIFT and SYM are resolved by the keyboard driver into `Char`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
     /// Printable character, already shifted (e.g. 'A', '!', ' ').
@@ -17,8 +19,10 @@ pub enum Key {
     Down,
     Left,
     Right,
-    /// Function key F1..F12.
+    /// Function key F1..F12 (not on the device keyboard; kept for hosts).
     F(u8),
+    /// Dedicated QR key: open the camera scanner.
+    Qr,
 }
 
 /// Modifier key state.
@@ -61,6 +65,7 @@ impl KeyEvent {
             7 => Key::Down,
             8 => Key::Left,
             9 => Key::Right,
+            10 => Key::Qr,
             n @ 101..=112 => Key::F((n - 100) as u8),
             _ => return None,
         };
