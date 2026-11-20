@@ -3,6 +3,7 @@
 #![no_std]
 
 pub mod draw;
+pub mod fmt;
 pub mod font;
 pub mod theme;
 pub mod widgets;
