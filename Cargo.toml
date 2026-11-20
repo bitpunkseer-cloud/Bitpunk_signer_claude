@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/bitpunkseer-cloud/Bitpunk_signer_claude"
+rust-version = "1.80"
+
+[workspace.dependencies]
+bp-crypto = { path = "crates/bp-crypto" }
+bp-bitcoin = { path = "crates/bp-bitcoin" }
+bp-qr = { path = "crates/bp-qr" }
+bp-hal = { path = "crates/bp-hal" }
+bp-ui = { path = "crates/bp-ui" }
+bp-app = { path = "crates/bp-app" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+panic = "abort"

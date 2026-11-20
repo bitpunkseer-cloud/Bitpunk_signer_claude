@@ -1,0 +1,14 @@
+[package]
+name = "bp-sim-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Web (WASM) simulator host for Bitpunk Signer"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bp-hal.workspace = true
+bp-app.workspace = true
