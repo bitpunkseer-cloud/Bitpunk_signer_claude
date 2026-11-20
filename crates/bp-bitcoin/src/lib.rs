@@ -10,6 +10,7 @@ pub mod bech32;
 pub mod bip32;
 pub mod bip39;
 pub mod entropy;
+pub mod seedqr;
 
 /// Bitcoin networks supported by the signer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
