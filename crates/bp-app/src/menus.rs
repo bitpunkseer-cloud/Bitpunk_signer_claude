@@ -39,6 +39,8 @@ pub enum Action {
     Open(MenuId),
     /// Not built yet: label + milestone description.
     Todo(Label, &'static str),
+    /// Tools > Address explorer (picks a seed first if several are loaded).
+    Explorer,
     Start(Start),
     CycleSetting,
     About,
@@ -111,7 +113,11 @@ static LOAD_SEED: [Entry; 6] = [
 
 static TOOLS: [Entry; 7] = [
     start(|s| s.final_word, Start::FinalWord),
-    todo_entry!(|s| s.address_explorer, "M2", "Milestone M2 (keys & addresses)"),
+    Entry {
+        label: |s| s.address_explorer,
+        detail: ">",
+        action: Action::Explorer,
+    },
     todo_entry!(|s| s.verify_address, "M6", "Milestone M6 (signing extras)"),
     todo_entry!(|s| s.sign_message, "M6", "Milestone M6 (signing extras)"),
     todo_entry!(|s| s.bip85, "M8", "Milestone M8 (microSD, keys)"),

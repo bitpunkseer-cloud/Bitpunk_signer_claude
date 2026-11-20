@@ -3,7 +3,9 @@
 use crate::flow::Flow;
 use crate::menus::{self, Start};
 use crate::{App, Confirm, MenuId, Screen, GIT_HASH, VERSION};
-use bp_bitcoin::bip39::{Mnemonic, WORDS};
+use bp_bitcoin::address::{self, ScriptType};
+use bp_bitcoin::bip32::XKEY_LEN;
+use bp_bitcoin::bip39::WORDS;
 use bp_bitcoin::entropy::{Analysis, Source, Status};
 use bp_hal::Canvas;
 use bp_ui::bformat;
@@ -12,12 +14,15 @@ use bp_ui::font::{BODY, HUGE, SMALL, TITLE};
 use bp_ui::theme;
 use bp_ui::widgets::{self, CheckState, MenuItem, MARGIN, STATUS_H};
 
-/// e.g. "crew ... unique (12)"
-pub fn seed_label(m: &Mnemonic) -> Buf<40> {
-    fill(
-        crate::text::EN.seed_label,
-        &[&m.word(0), &m.word(m.len() - 1), &m.len()],
-    )
+/// e.g. "73c5da0a (12)" or "73c5da0a (12) +PP" with a passphrase.
+pub fn seed_label(slot: &crate::seeds::SeedSlot) -> Buf<40> {
+    let fp = crate::seeds::fingerprint_hex(&slot.fingerprint);
+    let pp = if slot.has_passphrase() {
+        crate::text::EN.pp_tag
+    } else {
+        ""
+    };
+    fill(crate::text::EN.seed_label, &[&fp, &slot.mnemonic.len(), &pp])
 }
 
 impl App {
@@ -165,7 +170,7 @@ impl App {
             }
             Screen::SeedReady { slot, created } => {
                 self.status(c, s.seeds);
-                let label = self.seed(slot as usize).map(seed_label).unwrap_or_default();
+                let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
                 let head = if created { s.seed_created } else { s.seed_loaded };
                 widgets::message_at(
                     c,
@@ -190,11 +195,23 @@ impl App {
             Screen::WordEntry => self.render_word_entry(c),
             Screen::ChecksumError { sel } => self.render_checksum(c, sel),
             Screen::SeedOptions { slot, sel } => {
-                let label = self.seed(slot as usize).map(seed_label).unwrap_or_default();
+                let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
                 self.status(c, label.as_str());
                 let items = [
                     MenuItem {
                         label: s.show_words,
+                        detail: ">",
+                    },
+                    MenuItem {
+                        label: s.export_xpub,
+                        detail: ">",
+                    },
+                    MenuItem {
+                        label: s.address_explorer,
+                        detail: ">",
+                    },
+                    MenuItem {
+                        label: s.passphrase,
                         detail: ">",
                     },
                     MenuItem {
@@ -207,6 +224,97 @@ impl App {
                     c,
                     &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.h_back)],
                 );
+            }
+            Screen::PassphraseEntry { slot } => self.render_passphrase(c, slot),
+            Screen::PassphraseReview { slot, sel } => self.render_pp_review(c, slot, sel),
+            Screen::ScriptSelect { slot, explorer, sel } => {
+                let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
+                self.status(c, label.as_str());
+                TITLE.draw(
+                    c,
+                    MARGIN,
+                    STATUS_H + 16,
+                    if explorer {
+                        s.address_explorer
+                    } else {
+                        s.export_xpub
+                    },
+                    theme::TEXT,
+                );
+                let scripts = self.visible_scripts();
+                let bips: [Buf<16>; 4] = core::array::from_fn(|i| {
+                    scripts
+                        .get(i)
+                        .map(|st| fill(s.bip_n, &[&st.purpose()]))
+                        .unwrap_or_default()
+                });
+                let items: [MenuItem; 4] = core::array::from_fn(|i| MenuItem {
+                    label: scripts.get(i).map(|st| st.name()).unwrap_or(""),
+                    detail: bips[i].as_str(),
+                });
+                widgets::list(
+                    c,
+                    MARGIN,
+                    STATUS_H + 70,
+                    w - 2 * MARGIN,
+                    4 * 52,
+                    &items[..scripts.len()],
+                    sel as usize,
+                    false,
+                );
+                widgets::hint_bar(
+                    c,
+                    &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.h_back)],
+                );
+            }
+            Screen::XpubView { slot, st, account } => self.render_xpub(c, slot, st, account),
+            Screen::AddressList {
+                slot,
+                st,
+                change,
+                page,
+                sel,
+            } => self.render_addr_list(c, slot, st, change, page, sel),
+            Screen::AddressDetail {
+                slot,
+                st,
+                change,
+                index,
+            } => self.render_addr_detail(c, slot, st, change, index),
+            Screen::PickSeed { sel } => {
+                self.status(c, s.address_explorer);
+                TITLE.draw(c, MARGIN, STATUS_H + 16, s.pick_seed, theme::TEXT);
+                let labels: [Buf<40>; 3] = core::array::from_fn(|i| {
+                    self.seeds
+                        .iter()
+                        .flatten()
+                        .nth(i)
+                        .map(seed_label)
+                        .unwrap_or_default()
+                });
+                let items: [MenuItem; 3] = core::array::from_fn(|i| MenuItem {
+                    label: labels[i].as_str(),
+                    detail: s.seed_tag,
+                });
+                widgets::list(
+                    c,
+                    MARGIN,
+                    STATUS_H + 70,
+                    w - 2 * MARGIN,
+                    3 * 52,
+                    &items[..self.seed_count()],
+                    sel as usize,
+                    false,
+                );
+                widgets::hint_bar(
+                    c,
+                    &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.h_back)],
+                );
+            }
+            Screen::NoSeed => {
+                self.status(c, s.address_explorer);
+                widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
+                widgets::hint_bar(c, &[("CANCEL", s.h_back)]);
             }
             Screen::Confirm { what, sel } => {
                 self.status(c, s.seeds);
@@ -515,6 +623,294 @@ impl App {
         SMALL.draw_centered(c, 0, 800, 300, num.as_str(), theme::TEXT_FAINT);
         BODY.draw_centered(c, 0, 800, 360, s.final_next, theme::TEXT_DIM);
         widgets::hint_bar(c, &[("ENTER", s.h_continue), ("CANCEL", s.h_back)]);
+    }
+
+    fn render_passphrase(&self, c: &mut dyn Canvas, slot: u8) {
+        let s = self.text();
+        let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
+        self.status(c, label.as_str());
+        widgets::label(c, MARGIN, STATUS_H + 12, s.pp_label);
+        let text = self.pass_in.text();
+        // show the tail that fits; mask when hidden
+        let max = ((800 - 2 * MARGIN - 40) / BODY.width as i32) as usize;
+        let start = text.len().saturating_sub(max);
+        let mut shown = Buf::<128>::new();
+        for &b in &text[start..] {
+            let ch = if self.pass_in.show { b as char } else { '*' };
+            let mut t = [0u8; 4];
+            shown.push_str(ch.encode_utf8(&mut t));
+        }
+        widgets::text_field(
+            c,
+            MARGIN,
+            STATUS_H + 34,
+            800 - 2 * MARGIN,
+            shown.as_str(),
+            "",
+            &BODY,
+        );
+        let count: Buf<16> = fill(s.progress, &[&text.len(), &crate::seeds::MAX_PASSPHRASE]);
+        SMALL.draw(
+            c,
+            800 - MARGIN - SMALL.text_width(count.as_str()),
+            STATUS_H + 84,
+            count.as_str(),
+            theme::TEXT_DIM,
+        );
+        BODY.draw(c, MARGIN, STATUS_H + 120, s.pp_info[0], theme::TEXT_DIM);
+        BODY.draw(c, MARGIN, STATUS_H + 148, s.pp_info[1], theme::TEXT_DIM);
+        widgets::hint_bar(
+            c,
+            &[
+                ("SYM", "!@#"),
+                ("TAB", s.h_show),
+                ("ENTER", s.h_review),
+                ("CANCEL", s.h_back),
+            ],
+        );
+    }
+
+    fn render_pp_review(&self, c: &mut dyn Canvas, slot: u8, sel: u8) {
+        let s = self.text();
+        self.status(c, s.pp_review_title);
+        let text = self.pass_in.text();
+        let mut y = STATUS_H + 16;
+        if text.is_empty() {
+            BODY.draw(c, MARGIN, y, s.pp_none, theme::TEXT_DIM);
+            y += 30;
+        } else {
+            for chunk in text.chunks(58).take(2) {
+                let line = core::str::from_utf8(chunk).unwrap_or("");
+                let quoted = bformat!(64, "\"{}\"", line);
+                BODY.draw(c, MARGIN, y, quoted.as_str(), theme::TEXT);
+                y += 30;
+            }
+            let spaces = text.iter().filter(|&&b| b == b' ').count();
+            let info: Buf<48> = fill(s.pp_len, &[&text.len(), &spaces]);
+            SMALL.draw(c, MARGIN, y, info.as_str(), theme::TEXT_DIM);
+            y += 26;
+        }
+        let cur = self
+            .slot(slot as usize)
+            .map(|x| crate::seeds::fingerprint_hex(&x.fingerprint))
+            .unwrap_or_default();
+        let new = self
+            .pending
+            .as_ref()
+            .map(|x| crate::seeds::fingerprint_hex(&x.fingerprint))
+            .unwrap_or_default();
+        widgets::label(c, MARGIN, y + 6, s.fp_current);
+        BODY.draw(c, MARGIN + 220, y, cur.as_str(), theme::TEXT_DIM);
+        widgets::label(c, MARGIN, y + 46, s.fp_new);
+        TITLE.draw(c, MARGIN + 220, y + 34, new.as_str(), theme::ACCENT);
+        SMALL.draw(c, MARGIN, y + 84, s.pp_check, theme::TEXT_DIM);
+        let items = [
+            MenuItem {
+                label: s.apply,
+                detail: "",
+            },
+            MenuItem {
+                label: s.edit,
+                detail: "",
+            },
+        ];
+        widgets::list(c, 200, 336, 400, 104, &items, sel as usize, false);
+        widgets::hint_bar(c, &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.edit)]);
+    }
+
+    fn render_xpub(&self, c: &mut dyn Canvas, slot: u8, st: ScriptType, account: u32) {
+        let s = self.text();
+        let Some(seed) = self.slot(slot as usize) else {
+            return;
+        };
+        let net = self.settings.network;
+        let head: Buf<48> = fill(
+            s.words_count,
+            &[&st.name(), &fill::<16>(s.account_n, &[&account])],
+        );
+        self.status(c, head.as_str());
+        let Some(x) = seed.account_xpub(st, net, account) else {
+            return;
+        };
+        let fp = crate::seeds::fingerprint_hex(&seed.fingerprint);
+        let path = st.account_path(net, account);
+        let path_s = bformat!(32, "{}", path);
+        widgets::label(c, MARGIN, STATUS_H + 12, s.fp_label);
+        BODY.draw(c, MARGIN + 110, STATUS_H + 6, fp.as_str(), theme::ACCENT);
+        widgets::label(c, MARGIN + 260, STATUS_H + 12, s.path_label);
+        BODY.draw(c, MARGIN + 320, STATUS_H + 6, path_s.as_str(), theme::TEXT);
+
+        // SLIP-132 form (zpub/ypub/xpub), grouped by 4 for reading
+        let kv = st.key_version();
+        let mut out = [0u8; XKEY_LEN];
+        let n = x.encode(kv.public(net), &mut out);
+        let key = core::str::from_utf8(&out[..n]).unwrap_or("");
+        let prefix = &key[..4];
+        let lab: Buf<32> = fill(s.slip132_label, &[&prefix]);
+        widgets::label(c, MARGIN, STATUS_H + 50, lab.as_str());
+        for (row, chunk) in key.as_bytes().chunks(40).enumerate() {
+            let mut line = Buf::<64>::new();
+            for (i, g) in chunk.chunks(4).enumerate() {
+                if i > 0 {
+                    line.push_str(" ");
+                }
+                line.push_str(core::str::from_utf8(g).unwrap_or(""));
+            }
+            BODY.draw(
+                c,
+                MARGIN,
+                STATUS_H + 72 + row as i32 * 28,
+                line.as_str(),
+                theme::TEXT,
+            );
+        }
+
+        // descriptor-style key with origin, always in xpub/tpub form
+        widgets::label(c, MARGIN, STATUS_H + 168, s.descriptor_label);
+        let mut out2 = [0u8; XKEY_LEN];
+        let n2 = x.encode(bp_bitcoin::bip32::KeyVersion::X.public(net), &mut out2);
+        let xk = core::str::from_utf8(&out2[..n2]).unwrap_or("");
+        let origin = bformat!(48, "[{}/{}'/{}'/{}']", fp, st.purpose(), net.coin_type(), account);
+        let mut desc = Buf::<200>::new();
+        desc.push_str(st.descriptor_prefix());
+        desc.push_str(origin.as_str());
+        desc.push_str(xk);
+        desc.push_str("/<0;1>/*");
+        desc.push_str(st.descriptor_suffix());
+        for (row, chunk) in desc.as_str().as_bytes().chunks(80).enumerate() {
+            SMALL.draw(
+                c,
+                MARGIN,
+                STATUS_H + 190 + row as i32 * 20,
+                core::str::from_utf8(chunk).unwrap_or(""),
+                theme::TEXT_DIM,
+            );
+        }
+        SMALL.draw(c, MARGIN, 410, s.qr_later, theme::TEXT_FAINT);
+        widgets::hint_bar(c, &[("<>", s.h_account), ("CANCEL", s.h_back)]);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_addr_list(
+        &self,
+        c: &mut dyn Canvas,
+        slot: u8,
+        st: ScriptType,
+        change: bool,
+        page: u32,
+        sel: u8,
+    ) {
+        let s = self.text();
+        let Some(seed) = self.slot(slot as usize) else {
+            return;
+        };
+        let net = self.settings.network;
+        self.status(c, st.name());
+        let path = st.account_path(net, 0);
+        let kind = if change { s.change } else { s.receive };
+        let head = bformat!(64, "{}  {}/{}/*", kind, path, change as u8);
+        widgets::label(c, MARGIN, STATUS_H + 12, head.as_str());
+        let pg: Buf<16> = fill(s.page_n, &[&(page + 1)]);
+        SMALL.draw(
+            c,
+            800 - MARGIN - SMALL.text_width(pg.as_str()),
+            STATUS_H + 12,
+            pg.as_str(),
+            theme::TEXT_DIM,
+        );
+        // derive the chain key once for the page
+        let Some(acct) = seed.account_xpub(st, net, 0) else {
+            return;
+        };
+        let Ok(chain) = acct.derive_child(change as u32) else {
+            return;
+        };
+        for row in 0..10u32 {
+            let idx = page * 10 + row;
+            let y = STATUS_H + 40 + row as i32 * 33;
+            let selected = row == sel as u32;
+            if selected {
+                bp_ui::draw::round_rect(
+                    c,
+                    MARGIN - 8,
+                    y - 2,
+                    800 - 2 * MARGIN + 16,
+                    30,
+                    6,
+                    theme::SURFACE_HI,
+                );
+            }
+            let num = bformat!(8, "{:>4}", idx);
+            SMALL.draw(c, MARGIN, y + 3, num.as_str(), theme::TEXT_FAINT);
+            let mut out = [0u8; address::MAX_ADDRESS_LEN];
+            if let Ok(k) = chain.derive_child(idx) {
+                let n = address::encode(&k.key, st, net, &mut out);
+                let a = core::str::from_utf8(&out[..n]).unwrap_or("");
+                SMALL.draw(
+                    c,
+                    MARGIN + 52,
+                    y + 3,
+                    a,
+                    if selected { theme::ACCENT } else { theme::TEXT },
+                );
+            }
+        }
+        widgets::hint_bar(
+            c,
+            &[
+                ("^v", s.h_move),
+                ("<>", s.h_page),
+                ("TAB", s.h_switch),
+                ("ENTER", s.h_open),
+                ("CANCEL", s.h_back),
+            ],
+        );
+    }
+
+    fn render_addr_detail(&self, c: &mut dyn Canvas, slot: u8, st: ScriptType, change: bool, index: u32) {
+        let s = self.text();
+        let Some(seed) = self.slot(slot as usize) else {
+            return;
+        };
+        let net = self.settings.network;
+        self.status(c, st.name());
+        let kind = if change { s.change } else { s.receive };
+        let head: Buf<32> = fill(s.addr_head, &[&kind, &index]);
+        widgets::label(c, MARGIN, STATUS_H + 12, head.as_str());
+        let path = bformat!(48, "{}/{}/{}", st.account_path(net, 0), change as u8, index);
+        SMALL.draw(
+            c,
+            800 - MARGIN - SMALL.text_width(path.as_str()),
+            STATUS_H + 12,
+            path.as_str(),
+            theme::TEXT_DIM,
+        );
+        let mut out = [0u8; address::MAX_ADDRESS_LEN];
+        let Some(n) = seed.address(st, net, 0, change, index, &mut out) else {
+            return;
+        };
+        // groups of four, eight groups per line (Coldcard-style readability)
+        for (row, chunk) in out[..n].chunks(32).enumerate() {
+            let mut line = Buf::<48>::new();
+            for (i, g) in chunk.chunks(4).enumerate() {
+                if i > 0 {
+                    line.push_str(" ");
+                }
+                line.push_str(core::str::from_utf8(g).unwrap_or(""));
+            }
+            TITLE.draw_centered(
+                c,
+                0,
+                800,
+                STATUS_H + 70 + row as i32 * 50,
+                line.as_str(),
+                theme::TEXT,
+            );
+        }
+        let fp = crate::seeds::fingerprint_hex(&seed.fingerprint);
+        let info = bformat!(64, "{}  -  {}  -  {}", st.name(), net.name(), fp);
+        SMALL.draw_centered(c, 0, 800, 360, info.as_str(), theme::TEXT_DIM);
+        widgets::hint_bar(c, &[("<>", s.h_prev_next), ("CANCEL", s.h_back)]);
     }
 
     fn render_summary(&self, c: &mut dyn Canvas) {

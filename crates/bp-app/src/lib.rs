@@ -4,10 +4,12 @@
 
 mod flow;
 mod menus;
+mod seeds;
 mod settings;
 mod text;
 mod view;
 
+use bp_bitcoin::address::ScriptType;
 use bp_bitcoin::bip39::{self, Mnemonic};
 use bp_crypto::drbg::Drbg;
 use bp_hal::input::{Key, KeyEvent};
@@ -90,6 +92,44 @@ pub enum Screen {
         slot: u8,
         sel: u8,
     },
+    /// Type a BIP-39 passphrase for a loaded seed.
+    PassphraseEntry {
+        slot: u8,
+    },
+    /// Show the passphrase and the resulting fingerprint before applying.
+    PassphraseReview {
+        slot: u8,
+        sel: u8,
+    },
+    /// Choose a script type for the xpub view or the address explorer.
+    ScriptSelect {
+        slot: u8,
+        explorer: bool,
+        sel: u8,
+    },
+    XpubView {
+        slot: u8,
+        st: ScriptType,
+        account: u32,
+    },
+    AddressList {
+        slot: u8,
+        st: ScriptType,
+        change: bool,
+        page: u32,
+        sel: u8,
+    },
+    AddressDetail {
+        slot: u8,
+        st: ScriptType,
+        change: bool,
+        index: u32,
+    },
+    /// Tools > Address explorer with several seeds loaded.
+    PickSeed {
+        sel: u8,
+    },
+    NoSeed,
     Confirm {
         what: Confirm,
         sel: u8,
@@ -103,11 +143,51 @@ pub struct App {
     dirty: bool,
     splash_ms: u32,
     test_only: bool,
-    seeds: [Option<Mnemonic>; SEED_SLOTS],
+    seeds: [Option<seeds::SeedSlot>; SEED_SLOTS],
     flow: Option<Flow>,
     /// Shuffles quiz questions only; never used for seed material.
     quiz_rng: Drbg,
     notice: Option<&'static str>,
+    /// Passphrase being typed (wiped on drop and when leaving the screen).
+    pass_in: PassInput,
+    /// Seed recomputed with the typed passphrase, waiting for "Apply".
+    pending: Option<seeds::SeedSlot>,
+}
+
+/// Passphrase input buffer. Wiped on clear and on drop.
+struct PassInput {
+    buf: [u8; seeds::MAX_PASSPHRASE],
+    len: usize,
+    show: bool,
+}
+
+impl PassInput {
+    const fn new() -> Self {
+        Self {
+            buf: [0; seeds::MAX_PASSPHRASE],
+            len: 0,
+            show: true,
+        }
+    }
+    fn text(&self) -> &[u8] {
+        &self.buf[..self.len]
+    }
+    fn clear(&mut self) {
+        bp_crypto::secret::wipe(&mut self.buf);
+        self.len = 0;
+    }
+    fn set(&mut self, v: &[u8]) {
+        self.clear();
+        let n = v.len().min(self.buf.len());
+        self.buf[..n].copy_from_slice(&v[..n]);
+        self.len = n;
+    }
+}
+
+impl Drop for PassInput {
+    fn drop(&mut self) {
+        self.clear();
+    }
 }
 
 impl App {
@@ -125,6 +205,8 @@ impl App {
             flow: None,
             quiz_rng: Drbg::new(quiz_seed),
             notice: None,
+            pass_in: PassInput::new(),
+            pending: None,
         }
     }
 
@@ -143,6 +225,10 @@ impl App {
     }
 
     pub fn seed(&self, slot: usize) -> Option<&Mnemonic> {
+        self.slot(slot).map(|s| &s.mnemonic)
+    }
+
+    pub fn slot(&self, slot: usize) -> Option<&seeds::SeedSlot> {
         self.seeds.get(slot).and_then(|s| s.as_ref())
     }
 
@@ -325,9 +411,32 @@ impl App {
             },
             Screen::WordEntry => self.word_entry_key(ev),
             Screen::ChecksumError { sel } => self.checksum_key(sel, ev),
-            Screen::SeedOptions { slot, sel } => match pick(ev.key, sel, 2) {
+            Screen::SeedOptions { slot, sel } => match pick(ev.key, sel, 5) {
                 Pick::Move(s) => self.set_current(Screen::SeedOptions { slot, sel: s }),
                 Pick::Choose(0) => self.push(Screen::WordsWarning { view: Some(slot) }),
+                Pick::Choose(1) => self.push(Screen::ScriptSelect {
+                    slot,
+                    explorer: false,
+                    sel: 0,
+                }),
+                Pick::Choose(2) => self.push(Screen::ScriptSelect {
+                    slot,
+                    explorer: true,
+                    sel: 0,
+                }),
+                Pick::Choose(3) => {
+                    let current = self.slot(slot as usize).map(|s| {
+                        let mut b = [0u8; seeds::MAX_PASSPHRASE];
+                        let p = s.passphrase();
+                        b[..p.len()].copy_from_slice(p);
+                        (b, p.len())
+                    });
+                    if let Some((mut b, n)) = current {
+                        self.pass_in.set(&b[..n]);
+                        bp_crypto::secret::wipe(&mut b);
+                    }
+                    self.push(Screen::PassphraseEntry { slot });
+                }
                 Pick::Choose(_) => self.push(Screen::Confirm {
                     what: Confirm::DiscardSeed(slot),
                     sel: 0,
@@ -335,6 +444,176 @@ impl App {
                 Pick::Back => self.pop(),
                 Pick::None => {}
             },
+            Screen::PassphraseEntry { slot } => self.passphrase_key(slot, ev),
+            Screen::PassphraseReview { slot, sel } => match pick(ev.key, sel, 2) {
+                Pick::Move(s) => self.set_current(Screen::PassphraseReview { slot, sel: s }),
+                Pick::Choose(0) => {
+                    if let Some(p) = self.pending.take() {
+                        self.seeds[slot as usize] = Some(p);
+                    }
+                    self.pass_in.clear();
+                    self.go_seeds(Some(Screen::SeedOptions { slot, sel: 3 }));
+                }
+                Pick::Choose(_) | Pick::Back => {
+                    self.pending = None;
+                    self.pop();
+                }
+                Pick::None => {}
+            },
+            Screen::ScriptSelect { slot, explorer, sel } => {
+                let n = self.visible_scripts().len() as u8;
+                match pick(ev.key, sel, n) {
+                    Pick::Move(s) => self.set_current(Screen::ScriptSelect {
+                        slot,
+                        explorer,
+                        sel: s,
+                    }),
+                    Pick::Choose(s) => {
+                        let st = self.visible_scripts()[s as usize];
+                        if explorer {
+                            self.push(Screen::AddressList {
+                                slot,
+                                st,
+                                change: false,
+                                page: 0,
+                                sel: 0,
+                            });
+                        } else {
+                            self.push(Screen::XpubView { slot, st, account: 0 });
+                        }
+                    }
+                    Pick::Back => self.pop(),
+                    Pick::None => {}
+                }
+            }
+            Screen::XpubView { slot, st, account } => match ev.key {
+                Key::Left => self.set_current(Screen::XpubView {
+                    slot,
+                    st,
+                    account: account.saturating_sub(1),
+                }),
+                Key::Right => self.set_current(Screen::XpubView {
+                    slot,
+                    st,
+                    account: (account + 1).min(99),
+                }),
+                Key::Esc | Key::Backspace | Key::Enter => self.pop(),
+                _ => {}
+            },
+            Screen::AddressList {
+                slot,
+                st,
+                change,
+                page,
+                sel,
+            } => match ev.key {
+                Key::Up => {
+                    if sel > 0 {
+                        self.set_current(Screen::AddressList {
+                            slot,
+                            st,
+                            change,
+                            page,
+                            sel: sel - 1,
+                        });
+                    } else if page > 0 {
+                        self.set_current(Screen::AddressList {
+                            slot,
+                            st,
+                            change,
+                            page: page - 1,
+                            sel: 9,
+                        });
+                    }
+                }
+                Key::Down => {
+                    if sel < 9 {
+                        self.set_current(Screen::AddressList {
+                            slot,
+                            st,
+                            change,
+                            page,
+                            sel: sel + 1,
+                        });
+                    } else {
+                        self.set_current(Screen::AddressList {
+                            slot,
+                            st,
+                            change,
+                            page: page + 1,
+                            sel: 0,
+                        });
+                    }
+                }
+                Key::Left => self.set_current(Screen::AddressList {
+                    slot,
+                    st,
+                    change,
+                    page: page.saturating_sub(1),
+                    sel,
+                }),
+                Key::Right => self.set_current(Screen::AddressList {
+                    slot,
+                    st,
+                    change,
+                    page: page + 1,
+                    sel,
+                }),
+                Key::Tab => self.set_current(Screen::AddressList {
+                    slot,
+                    st,
+                    change: !change,
+                    page: 0,
+                    sel: 0,
+                }),
+                Key::Enter => self.push(Screen::AddressDetail {
+                    slot,
+                    st,
+                    change,
+                    index: page * 10 + sel as u32,
+                }),
+                Key::Esc | Key::Backspace => self.pop(),
+                _ => {}
+            },
+            Screen::AddressDetail {
+                slot,
+                st,
+                change,
+                index,
+            } => match ev.key {
+                Key::Left | Key::Up => self.set_current(Screen::AddressDetail {
+                    slot,
+                    st,
+                    change,
+                    index: index.saturating_sub(1),
+                }),
+                Key::Right | Key::Down => self.set_current(Screen::AddressDetail {
+                    slot,
+                    st,
+                    change,
+                    index: index + 1,
+                }),
+                Key::Esc | Key::Backspace | Key::Enter => self.pop(),
+                _ => {}
+            },
+            Screen::PickSeed { sel } => {
+                let n = self.seed_count() as u8;
+                match pick(ev.key, sel, n.max(1)) {
+                    Pick::Move(s) => self.set_current(Screen::PickSeed { sel: s }),
+                    Pick::Choose(s) => {
+                        if let Some(slot) = self.seed_row_slot(s as usize) {
+                            self.push(Screen::ScriptSelect {
+                                slot: slot as u8,
+                                explorer: true,
+                                sel: 0,
+                            });
+                        }
+                    }
+                    Pick::Back => self.pop(),
+                    Pick::None => {}
+                }
+            }
+            Screen::NoSeed => self.pop(),
             Screen::Confirm { what, sel } => match pick(ev.key, sel, 2) {
                 Pick::Move(s) => self.set_current(Screen::Confirm { what, sel: s }),
                 Pick::Choose(0) | Pick::Back => self.pop(),
@@ -347,6 +626,48 @@ impl App {
                 },
                 Pick::None => {}
             },
+        }
+    }
+
+    /// Script types offered: Native SegWit and Taproot, plus Nested SegWit
+    /// and Legacy when "Advanced features" is on.
+    pub fn visible_scripts(&self) -> &'static [ScriptType] {
+        if self.settings.advanced {
+            &ScriptType::ALL
+        } else {
+            &ScriptType::ALL[..2]
+        }
+    }
+
+    fn passphrase_key(&mut self, slot: u8, ev: KeyEvent) {
+        match ev.key {
+            Key::Char(c) if (' '..='~').contains(&c) => {
+                if self.pass_in.len < self.pass_in.buf.len() {
+                    self.pass_in.buf[self.pass_in.len] = c as u8;
+                    self.pass_in.len += 1;
+                }
+            }
+            Key::Backspace => {
+                if self.pass_in.len > 0 {
+                    self.pass_in.len -= 1;
+                    self.pass_in.buf[self.pass_in.len] = 0;
+                }
+            }
+            Key::Tab => self.pass_in.show = !self.pass_in.show,
+            Key::Enter => {
+                let Some(m) = self.seed(slot as usize).cloned() else {
+                    return;
+                };
+                self.pending = seeds::SeedSlot::new(m, self.pass_in.text());
+                if self.pending.is_some() {
+                    self.push(Screen::PassphraseReview { slot, sel: 0 });
+                }
+            }
+            Key::Esc => {
+                self.pass_in.clear();
+                self.pop();
+            }
+            _ => {}
         }
     }
 
@@ -423,6 +744,18 @@ impl App {
             }
             Action::CycleSetting => self.change_setting(row as u8, 1),
             Action::About => self.push(Screen::About),
+            Action::Explorer => match self.seed_count() {
+                0 => self.push(Screen::NoSeed),
+                1 => {
+                    let slot = self.seed_row_slot(0).unwrap_or(0) as u8;
+                    self.push(Screen::ScriptSelect {
+                        slot,
+                        explorer: true,
+                        sel: 0,
+                    });
+                }
+                _ => self.push(Screen::PickSeed { sel: 0 }),
+            },
             Action::PowerOff => {
                 self.flow = None;
                 self.seeds = [None, None, None];
@@ -547,7 +880,7 @@ impl App {
         let Some(m) = m else { return };
         match self.free_slot() {
             Some(slot) => {
-                self.seeds[slot] = Some(m);
+                self.seeds[slot] = seeds::SeedSlot::new(m, b"");
                 self.go_seeds(Some(Screen::SeedReady {
                     slot: slot as u8,
                     created,

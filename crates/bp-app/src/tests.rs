@@ -1,8 +1,10 @@
 //! Flow tests: drive the app with key events like a user would.
 
 use super::*;
+extern crate std;
 use bp_bitcoin::bip39::WORDS;
 use bp_hal::input::Key;
+use std::string::String;
 
 fn app() -> App {
     let mut a = App::new(b"test quiz seed");
@@ -432,4 +434,220 @@ fn qr_key_opens_scanner_placeholder_from_menus_only() {
     open_create(&mut a, false, false);
     press(&mut a, Key::Qr); // ignored while entering dice
     assert_eq!(a.current(), Screen::EntropyEntry);
+}
+
+// ---------- M2: keys, passphrase, xpub, addresses ----------
+
+/// Seeds > Load seed > Type words > 12: "abandon x11 about", then open its options.
+fn load_abandon(a: &mut App) {
+    press(a, Key::Char('2'));
+    press(a, Key::Char('2'));
+    press(a, Key::Char('1'));
+    press(a, Key::Char('1'));
+    for _ in 0..11 {
+        type_str(a, "aban");
+    }
+    type_str(a, "abou");
+    assert!(matches!(a.current(), Screen::SeedReady { .. }));
+    press(a, Key::Enter);
+    assert!(matches!(a.current(), Screen::SeedOptions { .. }));
+}
+
+fn xpub_string(a: &App, st: ScriptType, account: u32) -> String {
+    let net = a.settings.network;
+    let x = a.slot(0).unwrap().account_xpub(st, net, account).unwrap();
+    let mut o = [0u8; bp_bitcoin::bip32::XKEY_LEN];
+    let n = x.encode(st.key_version().public(net), &mut o);
+    String::from_utf8(o[..n].to_vec()).unwrap()
+}
+
+fn address_string(a: &App, st: ScriptType, change: bool, index: u32) -> String {
+    let mut o = [0u8; bp_bitcoin::address::MAX_ADDRESS_LEN];
+    let n = a
+        .slot(0)
+        .unwrap()
+        .address(st, a.settings.network, 0, change, index, &mut o)
+        .unwrap();
+    String::from_utf8(o[..n].to_vec()).unwrap()
+}
+
+#[test]
+fn loaded_seed_matches_bip84_and_bip86_vectors() {
+    let mut a = app();
+    load_abandon(&mut a);
+    assert_eq!(a.slot(0).unwrap().fingerprint, [0x73, 0xc5, 0xda, 0x0a]);
+    assert_eq!(
+        xpub_string(&a, ScriptType::NativeSegwit, 0),
+        "zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs"
+    );
+    assert_eq!(
+        address_string(&a, ScriptType::NativeSegwit, false, 0),
+        "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+    );
+    assert_eq!(
+        address_string(&a, ScriptType::Taproot, false, 0),
+        "bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr"
+    );
+    assert_eq!(
+        address_string(&a, ScriptType::NativeSegwit, true, 0),
+        "bc1q8c6fshw2dlwun7ekn9qwf37cu2rn755upcp6el"
+    );
+}
+
+#[test]
+fn testnet_setting_changes_prefixes() {
+    let mut a = app();
+    load_abandon(&mut a);
+    a.settings.network = bp_bitcoin::Network::Testnet;
+    assert!(xpub_string(&a, ScriptType::NativeSegwit, 0).starts_with("vpub"));
+    assert!(address_string(&a, ScriptType::NativeSegwit, false, 0).starts_with("tb1q"));
+    a.settings.network = bp_bitcoin::Network::Regtest;
+    assert!(address_string(&a, ScriptType::Taproot, false, 0).starts_with("bcrt1p"));
+}
+
+#[test]
+fn passphrase_review_shows_new_fingerprint_and_applies() {
+    let mut a = app();
+    load_abandon(&mut a);
+    press(&mut a, Key::Char('4')); // Passphrase
+    assert!(matches!(a.current(), Screen::PassphraseEntry { .. }));
+    type_str(&mut a, "TREZOR");
+    press(&mut a, Key::Enter);
+    assert!(matches!(a.current(), Screen::PassphraseReview { .. }));
+    // expected: fingerprint of the Trezor vector root key (passphrase "TREZOR")
+    let (root, _, _) = bp_bitcoin::bip32::Xpriv::decode(
+        "xprv9s21ZrQH143K3h3fDYiay8mocZ3afhfULfb5GX8kCBdno77K4HiA15Tg23wpbeF1pLfs1c5SPmYHrEpTuuRhxMwvKDwqdKiGJS9XFKzUsAF",
+    )
+    .unwrap();
+    assert_eq!(a.pending.as_ref().unwrap().fingerprint, root.fingerprint());
+    assert_eq!(
+        a.slot(0).unwrap().fingerprint,
+        [0x73, 0xc5, 0xda, 0x0a],
+        "not applied yet"
+    );
+    press(&mut a, Key::Char('1')); // Apply
+    assert_eq!(a.slot(0).unwrap().fingerprint, root.fingerprint());
+    assert!(a.slot(0).unwrap().has_passphrase());
+    assert_eq!(a.pass_in.len, 0, "input wiped after apply");
+}
+
+#[test]
+fn passphrase_edit_and_cancel_keep_old_wallet() {
+    let mut a = app();
+    load_abandon(&mut a);
+    press(&mut a, Key::Char('4'));
+    type_str(&mut a, "x y");
+    press(&mut a, Key::Tab); // hide
+    assert!(!a.pass_in.show);
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Char('2')); // Edit -> back to entry
+    assert!(matches!(a.current(), Screen::PassphraseEntry { .. }));
+    press(&mut a, Key::Esc);
+    assert_eq!(a.slot(0).unwrap().fingerprint, [0x73, 0xc5, 0xda, 0x0a]);
+    assert_eq!(a.pass_in.len, 0);
+}
+
+#[test]
+fn script_types_follow_advanced_setting() {
+    let mut a = app();
+    assert_eq!(a.visible_scripts().len(), 2);
+    a.settings.advanced = true;
+    assert_eq!(a.visible_scripts().len(), 4);
+}
+
+#[test]
+fn xpub_and_explorer_navigation() {
+    let mut a = app();
+    load_abandon(&mut a);
+    press(&mut a, Key::Char('2')); // Export xpub
+    press(&mut a, Key::Char('1')); // Native SegWit
+    assert!(matches!(a.current(), Screen::XpubView { account: 0, .. }));
+    press(&mut a, Key::Right);
+    assert!(matches!(a.current(), Screen::XpubView { account: 1, .. }));
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Char('3')); // Address explorer
+    press(&mut a, Key::Char('2')); // Taproot
+    assert!(matches!(
+        a.current(),
+        Screen::AddressList {
+            change: false,
+            page: 0,
+            sel: 0,
+            ..
+        }
+    ));
+    press(&mut a, Key::Tab);
+    assert!(matches!(a.current(), Screen::AddressList { change: true, .. }));
+    press(&mut a, Key::Right);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    assert!(matches!(
+        a.current(),
+        Screen::AddressDetail {
+            change: true,
+            index: 11,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn tools_explorer_needs_a_seed() {
+    let mut a = app();
+    press(&mut a, Key::Char('3')); // Tools
+    press(&mut a, Key::Char('2')); // Address explorer
+    assert_eq!(a.current(), Screen::NoSeed);
+}
+
+#[test]
+fn seeds_menu_shows_fingerprint_not_words() {
+    let mut a = app();
+    load_abandon(&mut a);
+    let label = view::seed_label(a.slot(0).unwrap());
+    assert_eq!(label.as_str(), "73c5da0a (12)");
+}
+
+#[test]
+fn m2_screens_render() {
+    struct Null;
+    impl bp_hal::Canvas for Null {
+        fn width(&self) -> u16 {
+            800
+        }
+        fn height(&self) -> u16 {
+            480
+        }
+        fn fill_rect(&mut self, _: i32, _: i32, _: i32, _: i32, _: bp_hal::Rgb) {}
+        fn blend_pixel(&mut self, _: i32, _: i32, _: bp_hal::Rgb, _: u8) {}
+    }
+    let mut a = app();
+    a.settings.advanced = true;
+    load_abandon(&mut a);
+    let mut c = Null;
+    for st in ScriptType::ALL {
+        a.push(Screen::XpubView {
+            slot: 0,
+            st,
+            account: 0,
+        });
+        a.render(&mut c);
+        a.push(Screen::AddressList {
+            slot: 0,
+            st,
+            change: false,
+            page: 0,
+            sel: 0,
+        });
+        a.render(&mut c);
+        a.push(Screen::AddressDetail {
+            slot: 0,
+            st,
+            change: false,
+            index: 0,
+        });
+        a.render(&mut c);
+    }
+    a.push(Screen::PassphraseEntry { slot: 0 });
+    a.render(&mut c);
 }

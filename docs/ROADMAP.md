@@ -48,7 +48,7 @@ CI(포맷·clippy·테스트·Cortex-M no_std 빌드·GitHub Pages 배포), Rust
 
 **완료 기준:** 공식 BIP-39 테스트 벡터 통과. 같은 주사위 입력으로 SeedSigner·Krux와 같은 엔트로피가 나옴. 엔트로피 부족·퀴즈 실패 시 생성 불가.
 
-## M2 — 키와 주소
+## M2 — 키와 주소 ✅ 구현 완료
 
 secp256k1(상수 시간), RIPEMD-160, BIP-32 파생, 지문(XFP), xpub/ypub/zpub/tpub(SLIP-132),
 Base58Check·Bech32·Bech32m 주소(P2PKH, P2SH-P2WPKH, P2WPKH, P2TR), BIP-39 패스프레이즈,
