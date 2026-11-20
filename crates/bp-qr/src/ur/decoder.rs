@@ -165,9 +165,10 @@ struct Mixed {
     used: bool,
 }
 
-/// Collects UR parts and reassembles the message.
-pub struct UrDecoder<'a> {
-    store: &'a mut [u8],
+/// UR decoder state. The fragments live in caller storage passed to each
+/// call (`UrDecoder` bundles the two for convenience).
+#[derive(Clone)]
+pub struct UrState {
     ur_type: [u8; MAX_TYPE],
     type_len: usize,
     started: bool,
@@ -183,10 +184,15 @@ pub struct UrDecoder<'a> {
     done: bool,
 }
 
-impl<'a> UrDecoder<'a> {
-    pub fn new(store: &'a mut [u8]) -> Self {
+impl Default for UrState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UrState {
+    pub const fn new() -> Self {
         Self {
-            store,
             ur_type: [0; MAX_TYPE],
             type_len: 0,
             started: false,
@@ -207,16 +213,9 @@ impl<'a> UrDecoder<'a> {
     }
 
     /// Forget everything (storage is wiped).
-    pub fn reset(&mut self) {
-        self.store.fill(0);
-        let store = core::mem::take(&mut self.store);
-        *self = Self::new(store);
-    }
-
-    /// Wipe and give the storage back.
-    pub fn into_store(mut self) -> &'a mut [u8] {
-        self.store.fill(0);
-        core::mem::take(&mut self.store)
+    pub fn reset(&mut self, store: &mut [u8]) {
+        store.fill(0);
+        *self = Self::new();
     }
 
     /// The UR type (lower case) once a part has been accepted.
@@ -251,12 +250,12 @@ impl<'a> UrDecoder<'a> {
     }
 
     /// The reassembled CBOR message once complete.
-    pub fn message(&self) -> Option<&[u8]> {
-        self.done.then(|| &self.store[..self.message_len])
+    pub fn message<'s>(&self, store: &'s [u8]) -> Option<&'s [u8]> {
+        self.done.then(|| &store[..self.message_len])
     }
 
     /// Feed one scanned part; returns true once the message is complete.
-    pub fn receive(&mut self, text: &[u8]) -> Result<bool, Error> {
+    pub fn receive(&mut self, store: &mut [u8], text: &[u8]) -> Result<bool, Error> {
         if self.done {
             return Ok(true);
         }
@@ -273,7 +272,7 @@ impl<'a> UrDecoder<'a> {
                 if self.started && self.multipart {
                     return Err(Error::Mismatch);
                 }
-                let n = decode_bytewords(p.body, self.store)?;
+                let n = decode_bytewords(p.body, store)?;
                 self.accept_type(&ty, p.ur_type.len());
                 self.message_len = n;
                 self.done = true;
@@ -281,7 +280,7 @@ impl<'a> UrDecoder<'a> {
                 Ok(true)
             }
             Some((seq, len)) => {
-                self.multipart_part(seq, len, p.body)?;
+                self.multipart_part(store, seq, len, p.body)?;
                 self.accept_type(&ty, p.ur_type.len());
                 self.parts_seen += 1;
                 Ok(self.done)
@@ -297,11 +296,6 @@ impl<'a> UrDecoder<'a> {
         }
     }
 
-    fn frag(&mut self, i: usize) -> &mut [u8] {
-        let fl = self.fragment_len;
-        &mut self.store[i * fl..(i + 1) * fl]
-    }
-
     /// Storage offset of mixed slot `k` (after the fragment area).
     fn mixed_range(&self, k: usize) -> core::ops::Range<usize> {
         let fl = self.fragment_len;
@@ -309,7 +303,7 @@ impl<'a> UrDecoder<'a> {
         base + k * fl..base + (k + 1) * fl
     }
 
-    fn multipart_part(&mut self, seq: u32, len: u32, body: &[u8]) -> Result<(), Error> {
+    fn multipart_part(&mut self, store: &mut [u8], seq: u32, len: u32, body: &[u8]) -> Result<(), Error> {
         // CBOR: [seq, seq_len, message_len, checksum, fragment]
         let mut cbor = [0u8; 4200];
         let n = decode_bytewords(body, &mut cbor)?;
@@ -342,7 +336,7 @@ impl<'a> UrDecoder<'a> {
             if self.started {
                 return Err(Error::Mismatch);
             }
-            if seq_len * fl + MAX_MIXED * fl > self.store.len() {
+            if seq_len * fl + MAX_MIXED * fl > store.len() {
                 return Err(Error::TooBig);
             }
             self.multipart = true;
@@ -364,12 +358,12 @@ impl<'a> UrDecoder<'a> {
             return Err(Error::TooBig);
         }
         buf[..fl].copy_from_slice(data);
-        self.reduce_and_add(&mut set, &mut buf[..fl]);
+        self.reduce_and_add(store, &mut set, &mut buf[..fl]);
         Ok(())
     }
 
     /// Reduce a part by known fragments and mixed parts, then store it.
-    fn reduce_and_add(&mut self, set: &mut Set, data: &mut [u8]) {
+    fn reduce_and_add(&mut self, store: &mut [u8], set: &mut Set, data: &mut [u8]) {
         // XOR out every known fragment it contains
         for w in 0..WORDS {
             let mut known = set[w] & self.solved[w];
@@ -377,7 +371,7 @@ impl<'a> UrDecoder<'a> {
                 let i = w * 64 + known.trailing_zeros() as usize;
                 known &= known - 1;
                 let fl = self.fragment_len;
-                for (d, f) in data.iter_mut().zip(&self.store[i * fl..(i + 1) * fl]) {
+                for (d, f) in data.iter_mut().zip(&store[i * fl..(i + 1) * fl]) {
                     *d ^= f;
                 }
                 set[w] &= !(1 << (i % 64));
@@ -387,7 +381,7 @@ impl<'a> UrDecoder<'a> {
         for k in 0..MAX_MIXED {
             if self.mixed[k].used && is_strict_subset(&self.mixed[k].set, set) {
                 let r = self.mixed_range(k);
-                for (d, m) in data.iter_mut().zip(&self.store[r]) {
+                for (d, m) in data.iter_mut().zip(&store[r]) {
                     *d ^= m;
                 }
                 let ms = self.mixed[k].set;
@@ -400,7 +394,7 @@ impl<'a> UrDecoder<'a> {
             0 => {}
             1 => {
                 let i = first(set).unwrap_or(0);
-                self.solve(i, data);
+                self.solve(store, i, data);
             }
             _ => {
                 if self.mixed.iter().any(|m| m.used && m.set == *set) {
@@ -410,7 +404,7 @@ impl<'a> UrDecoder<'a> {
                 for k in 0..MAX_MIXED {
                     if self.mixed[k].used && is_strict_subset(set, &self.mixed[k].set) {
                         let r = self.mixed_range(k);
-                        for (m, d) in self.store[r].iter_mut().zip(data.iter()) {
+                        for (m, d) in store[r].iter_mut().zip(data.iter()) {
                             *m ^= d;
                         }
                         for w in 0..WORDS {
@@ -420,29 +414,30 @@ impl<'a> UrDecoder<'a> {
                 }
                 if let Some(k) = self.mixed.iter().position(|m| !m.used) {
                     let r = self.mixed_range(k);
-                    self.store[r].copy_from_slice(data);
+                    store[r].copy_from_slice(data);
                     self.mixed[k] = Mixed {
                         set: *set,
                         used: true,
                     };
                 }
-                self.cascade();
+                self.cascade(store);
             }
         }
     }
 
     /// Record pure fragment `i`, then keep reducing mixed parts.
-    fn solve(&mut self, i: usize, data: &[u8]) {
+    fn solve(&mut self, store: &mut [u8], i: usize, data: &[u8]) {
         if !self.has_fragment(i) {
-            self.frag(i).copy_from_slice(data);
+            let fl = self.fragment_len;
+            store[i * fl..(i + 1) * fl].copy_from_slice(data);
             self.solved[i / 64] |= 1 << (i % 64);
             self.n_solved += 1;
         }
-        self.cascade();
+        self.cascade(store);
     }
 
     /// Reduce mixed parts by known fragments until nothing changes.
-    fn cascade(&mut self) {
+    fn cascade(&mut self, store: &mut [u8]) {
         loop {
             let mut progress = false;
             for k in 0..MAX_MIXED {
@@ -457,7 +452,7 @@ impl<'a> UrDecoder<'a> {
                         known &= known - 1;
                         let fl = self.fragment_len;
                         let r = self.mixed_range(k);
-                        let (frags, rest) = self.store.split_at_mut(r.start);
+                        let (frags, rest) = store.split_at_mut(r.start);
                         for (m, f) in rest[..fl].iter_mut().zip(&frags[i * fl..(i + 1) * fl]) {
                             *m ^= f;
                         }
@@ -473,7 +468,7 @@ impl<'a> UrDecoder<'a> {
                         if !self.has_fragment(i) {
                             let r = self.mixed_range(k);
                             let fl = self.fragment_len;
-                            self.store.copy_within(r, i * fl);
+                            store.copy_within(r, i * fl);
                             self.solved[i / 64] |= 1 << (i % 64);
                             self.n_solved += 1;
                             progress = true;
@@ -487,21 +482,74 @@ impl<'a> UrDecoder<'a> {
             }
         }
         if self.n_solved == self.seq_len && !self.done {
-            self.finish();
+            self.finish(store);
         }
     }
 
-    fn finish(&mut self) {
+    fn finish(&mut self, store: &mut [u8]) {
         // the message is the fragments in order, cut to its length
-        if crc32(&self.store[..self.message_len]) == self.checksum {
+        if crc32(&store[..self.message_len]) == self.checksum {
             let end = (self.seq_len + MAX_MIXED) * self.fragment_len;
-            let cap = self.store.len();
-            self.store[self.message_len..end.min(cap)].fill(0);
+            let cap = store.len();
+            store[self.message_len..end.min(cap)].fill(0);
             self.done = true;
         } else {
             // inconsistent parts: start over
-            self.reset();
+            self.reset(store);
         }
+    }
+}
+
+/// A UR decoder bound to its storage.
+pub struct UrDecoder<'a> {
+    state: UrState,
+    store: &'a mut [u8],
+}
+
+impl<'a> UrDecoder<'a> {
+    pub fn new(store: &'a mut [u8]) -> Self {
+        Self {
+            state: UrState::new(),
+            store,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.state.reset(self.store);
+    }
+
+    /// Wipe and give the storage back.
+    pub fn into_store(mut self) -> &'a mut [u8] {
+        self.store.fill(0);
+        core::mem::take(&mut self.store)
+    }
+
+    pub fn ur_type(&self) -> &str {
+        self.state.ur_type()
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.state.is_complete()
+    }
+
+    pub fn progress(&self) -> (usize, usize) {
+        self.state.progress()
+    }
+
+    pub fn parts_seen(&self) -> u32 {
+        self.state.parts_seen()
+    }
+
+    pub fn has_fragment(&self, i: usize) -> bool {
+        self.state.has_fragment(i)
+    }
+
+    pub fn message(&self) -> Option<&[u8]> {
+        self.state.message(self.store)
+    }
+
+    pub fn receive(&mut self, text: &[u8]) -> Result<bool, Error> {
+        self.state.receive(self.store, text)
     }
 }
 

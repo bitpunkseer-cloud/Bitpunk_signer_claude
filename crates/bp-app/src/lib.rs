@@ -5,6 +5,7 @@
 mod flow;
 mod menus;
 mod qrview;
+mod scan;
 mod seeds;
 mod settings;
 mod text;
@@ -182,6 +183,7 @@ pub enum Screen {
     },
     /// SeedQR transcription guide: 5x5-module blocks or one row at a time.
     Transcribe {
+        slot: u8,
         line: bool,
         x: u8,
         y: u8,
@@ -190,6 +192,20 @@ pub enum Screen {
         what: Confirm,
         sel: u8,
     },
+    /// Camera scanning (any code, a SeedQR, or checking a copied SeedQR).
+    Scan {
+        purpose: scan::Purpose,
+    },
+    /// A scanned seed: fingerprint, then load or discard.
+    ScanSeed {
+        sel: u8,
+    },
+    /// Result of checking a hand-copied SeedQR.
+    ScanVerify {
+        slot: u8,
+    },
+    /// What a scanned code was (PSBT, key, address, text...).
+    ScanResult,
 }
 
 pub struct App {
@@ -210,6 +226,11 @@ pub struct App {
     pending: Option<seeds::SeedSlot>,
     /// QR engine state for the QR screen on top (wiped when it closes).
     qr: Option<qrview::QrSession>,
+    /// Camera scanning state (wiped when scanning ends).
+    scan: scan::ScanState,
+    scan_live: bool,
+    /// A scanned seed with its master key, waiting for "Load".
+    scanned: Option<seeds::SeedSlot>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -266,6 +287,9 @@ impl App {
             pass_in: PassInput::new(),
             pending: None,
             qr: None,
+            scan: scan::ScanState::new(),
+            scan_live: false,
+            scanned: None,
         }
     }
 
@@ -356,6 +380,9 @@ impl App {
                 });
             }
         }
+        if matches!(self.current(), Screen::Scan { .. }) && self.scan.tick(dt_ms) {
+            self.dirty = true;
+        }
         if matches!(self.current(), Screen::QrShow { .. }) {
             if let Some(q) = self.qr.as_mut() {
                 if q.tick(dt_ms) {
@@ -376,6 +403,77 @@ impl App {
         {
             self.qr = None;
         }
+        self.end_scan_if_left();
+    }
+
+    fn end_scan_if_left(&mut self) {
+        let scanning = self.stack[..self.depth].iter().any(|s| {
+            matches!(
+                s,
+                Screen::Scan { .. }
+                    | Screen::ScanSeed { .. }
+                    | Screen::ScanVerify { .. }
+                    | Screen::ScanResult
+            )
+        });
+        if self.scan_live && !scanning {
+            self.scan.clear();
+            self.scanned = None;
+            self.scan_live = false;
+        }
+    }
+
+    /// True while the scan screen wants camera frames.
+    pub fn wants_camera(&self) -> bool {
+        matches!(self.current(), Screen::Scan { .. })
+    }
+
+    /// One camera frame (8-bit luma, row-major). Ignored unless scanning.
+    pub fn on_frame(&mut self, gray: &[u8], width: usize, height: usize) {
+        let Screen::Scan { purpose } = self.current() else {
+            return;
+        };
+        self.dirty = true;
+        if self.scan.frame(gray, width, height) {
+            self.finish_scan(purpose);
+        }
+    }
+
+    /// QR content typed or pasted (simulator). Ignored unless scanning.
+    pub fn on_qr_text(&mut self, text: &[u8]) {
+        let Screen::Scan { purpose } = self.current() else {
+            return;
+        };
+        self.dirty = true;
+        if self.scan.text(text) {
+            self.finish_scan(purpose);
+        }
+    }
+
+    fn start_scan(&mut self, purpose: scan::Purpose) {
+        self.scan.clear();
+        self.scanned = None;
+        self.scan_live = true;
+        self.push(Screen::Scan { purpose });
+    }
+
+    fn finish_scan(&mut self, purpose: scan::Purpose) {
+        self.scan.finish(purpose);
+        if let Some(m) = self.scan.seed.take() {
+            match purpose {
+                scan::Purpose::Verify { slot } => {
+                    self.scan.seed = Some(m);
+                    self.set_current(Screen::ScanVerify { slot });
+                }
+                _ => {
+                    // the master key (PBKDF2) is computed once, here
+                    self.scanned = seeds::SeedSlot::new(m, b"");
+                    self.set_current(Screen::ScanSeed { sel: 0 });
+                }
+            }
+        } else {
+            self.set_current(Screen::ScanResult);
+        }
     }
 
     fn handle_key(&mut self, ev: KeyEvent) {
@@ -387,11 +485,7 @@ impl App {
         // QR key: shortcut to the scanner from any menu.
         if ev.key == Key::Qr {
             if matches!(self.current(), Screen::Menu { .. }) {
-                let s = self.text();
-                self.push(Screen::Placeholder {
-                    title: s.scan_qr,
-                    phase: "Milestone M4 (QR input)",
-                });
+                self.start_scan(scan::Purpose::Any);
             }
             return;
         }
@@ -747,7 +841,35 @@ impl App {
                 Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
             },
-            Screen::Transcribe { line, x, y } => self.transcribe_key(line, x, y, ev),
+            Screen::Transcribe { slot, line, x, y } => self.transcribe_key(slot, line, x, y, ev),
+            Screen::Scan { .. } => {
+                if matches!(ev.key, Key::Esc | Key::Backspace) {
+                    self.pop();
+                }
+            }
+            Screen::ScanSeed { sel } => match pick(ev.key, sel, 2) {
+                Pick::Move(s) => self.set_current(Screen::ScanSeed { sel: s }),
+                Pick::Choose(0) => match (self.free_slot(), self.scanned.take()) {
+                    (Some(slot), Some(seed)) => {
+                        self.seeds[slot] = Some(seed);
+                        self.go_seeds(Some(Screen::SeedReady {
+                            slot: slot as u8,
+                            created: false,
+                        }));
+                    }
+                    (None, _) => self.go_seeds(Some(Screen::SlotsFull)),
+                    _ => self.pop(),
+                },
+                Pick::Choose(_) | Pick::Back => {
+                    self.scanned = None;
+                    self.pop();
+                }
+                Pick::None => {}
+            },
+            Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
+                Key::Enter | Key::Esc | Key::Backspace => self.pop(),
+                _ => {}
+            },
             Screen::Confirm { what, sel } => match pick(ev.key, sel, 2) {
                 Pick::Move(s) => self.set_current(Screen::Confirm { what, sel: s }),
                 Pick::Choose(0) | Pick::Back => self.pop(),
@@ -921,11 +1043,21 @@ impl App {
             Key::Enter => q.fullscreen = !q.fullscreen,
             Key::Esc if q.fullscreen => q.fullscreen = false,
             Key::Esc | Key::Backspace => self.close_qr(),
-            Key::Char('t' | 'T') if matches!(kind, QrKind::SeedQr { .. }) => self.push(Screen::Transcribe {
-                line: false,
-                x: 0,
-                y: 0,
-            }),
+            Key::Char('v' | 'V') => {
+                if let QrKind::SeedQr { slot, .. } = kind {
+                    self.start_scan(scan::Purpose::Verify { slot });
+                }
+            }
+            Key::Char('t' | 'T') => {
+                if let QrKind::SeedQr { slot, .. } = kind {
+                    self.push(Screen::Transcribe {
+                        slot,
+                        line: false,
+                        x: 0,
+                        y: 0,
+                    });
+                }
+            }
             Key::Char('d' | 'D') => {
                 if let QrKind::Xpub {
                     slot, st, account, ..
@@ -950,7 +1082,7 @@ impl App {
         self.dirty = true;
     }
 
-    fn transcribe_key(&mut self, line: bool, x: u8, y: u8, ev: KeyEvent) {
+    fn transcribe_key(&mut self, slot: u8, line: bool, x: u8, y: u8, ev: KeyEvent) {
         let Some(size) = self.qr.as_ref().and_then(|q| q.qr()).map(|q| q.size() as u8) else {
             self.pop();
             return;
@@ -968,10 +1100,15 @@ impl App {
             Key::Down => (x, (y + 1).min(my)),
             Key::Tab => {
                 self.set_current(Screen::Transcribe {
+                    slot,
                     line: !line,
                     x: 0,
                     y: 0,
                 });
+                return;
+            }
+            Key::Char('v' | 'V') => {
+                self.start_scan(scan::Purpose::Verify { slot });
                 return;
             }
             Key::Esc | Key::Backspace | Key::Enter => {
@@ -980,7 +1117,12 @@ impl App {
             }
             _ => (x, y),
         };
-        self.set_current(Screen::Transcribe { line, x: nx, y: ny });
+        self.set_current(Screen::Transcribe {
+            slot,
+            line,
+            x: nx,
+            y: ny,
+        });
     }
 
     fn confirm_cancel(&mut self) {
@@ -1056,6 +1198,7 @@ impl App {
             }
             Action::CycleSetting => self.change_setting(row as u8, 1),
             Action::About => self.push(Screen::About),
+            Action::Scan(purpose) => self.start_scan(purpose),
             Action::Explorer => match self.seed_count() {
                 0 => self.push(Screen::NoSeed),
                 1 => {

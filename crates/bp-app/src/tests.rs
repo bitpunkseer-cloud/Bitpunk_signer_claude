@@ -426,10 +426,10 @@ fn backspace_on_empty_coins_returns_to_words() {
 }
 
 #[test]
-fn qr_key_opens_scanner_placeholder_from_menus_only() {
+fn qr_key_opens_scanner_from_menus_only() {
     let mut a = app();
     press(&mut a, Key::Qr);
-    assert!(matches!(a.current(), Screen::Placeholder { .. }));
+    assert!(matches!(a.current(), Screen::Scan { .. }));
     press(&mut a, Key::Esc);
     open_create(&mut a, false, false);
     press(&mut a, Key::Qr); // ignored while entering dice
@@ -811,6 +811,7 @@ fn seedqr_backup_and_transcribe() {
     assert_eq!(
         a.current(),
         Screen::Transcribe {
+            slot: 0,
             line: false,
             x: 0,
             y: 0
@@ -824,6 +825,7 @@ fn seedqr_backup_and_transcribe() {
     assert_eq!(
         a.current(),
         Screen::Transcribe {
+            slot: 0,
             line: false,
             x: 4,
             y: 4
@@ -836,6 +838,7 @@ fn seedqr_backup_and_transcribe() {
     assert_eq!(
         a.current(),
         Screen::Transcribe {
+            slot: 0,
             line: true,
             x: 0,
             y: 24
@@ -914,4 +917,257 @@ fn qr_screens_render() {
         press(&mut a, Key::Down);
     }
     assert!(c.0 > 1000);
+}
+
+// ---------- M4: scanning ----------
+
+/// Render `q` as a camera-like greyscale frame (4 px modules, quiet zone).
+fn qr_frame(q: &bp_qr::QrCode) -> (std::vec::Vec<u8>, usize, usize) {
+    let (w, h) = (320usize, 240usize);
+    let px = 4usize;
+    let side = (q.size() + 8) * px;
+    let (ox, oy) = ((w - side) / 2, (h - side) / 2);
+    let mut img = std::vec![40u8; w * h];
+    for y in 0..side {
+        for x in 0..side {
+            let (mx, my) = (x / px, y / px);
+            let dark = mx >= 4 && my >= 4 && q.get(mx - 4, my - 4);
+            img[(oy + y) * w + ox + x] = if dark { 20 } else { 230 };
+        }
+    }
+    (img, w, h)
+}
+
+#[test]
+fn scan_opens_from_menu_and_qr_key() {
+    let mut a = app();
+    press(&mut a, Key::Char('1'));
+    assert_eq!(
+        a.current(),
+        Screen::Scan {
+            purpose: scan::Purpose::Any
+        }
+    );
+    assert!(a.wants_camera());
+    press(&mut a, Key::Esc);
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(!a.wants_camera());
+    press(&mut a, Key::Qr);
+    assert!(matches!(a.current(), Screen::Scan { .. }));
+}
+
+#[test]
+fn scanned_address_shows_and_state_is_wiped() {
+    let mut a = app();
+    press(&mut a, Key::Char('1'));
+    a.on_qr_text(b"bitcoin:bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?amount=1");
+    assert_eq!(a.current(), Screen::ScanResult);
+    assert!(matches!(
+        a.scan.outcome,
+        Some(scan::Outcome::Address {
+            len: 42,
+            network: bp_bitcoin::Network::Mainnet,
+            kind: bp_bitcoin::qrinput::AddressKind::SegwitV0
+        })
+    ));
+    assert_eq!(&a.scan.out[..42], b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
+    press(&mut a, Key::Enter);
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(!a.scan_live);
+    assert!(a.scan.out.iter().all(|&b| b == 0), "result buffer wiped");
+}
+
+#[test]
+fn scan_seedqr_from_camera_and_load_it() {
+    let mut a = app();
+    press(&mut a, Key::Char('2')); // Seeds
+    press(&mut a, Key::Char('2')); // Load seed
+    press(&mut a, Key::Char('3')); // Scan SeedQR
+    assert_eq!(
+        a.current(),
+        Screen::Scan {
+            purpose: scan::Purpose::Seed
+        }
+    );
+    // Compact SeedQR of "abandon x11 about": 16 zero bytes, byte mode
+    let q = bp_qr::QrCode::encode_mode(&[0u8; 16], bp_qr::Mode::Byte, bp_qr::Ecc::Low, 1, 40, None).unwrap();
+    let (img, w, h) = qr_frame(&q);
+    a.on_frame(&img, w, h);
+    assert_eq!(a.current(), Screen::ScanSeed { sel: 0 });
+    assert_eq!(a.scanned.as_ref().unwrap().fingerprint, [0x73, 0xc5, 0xda, 0x0a]);
+    press(&mut a, Key::Enter); // Load
+    assert!(matches!(a.current(), Screen::SeedReady { created: false, .. }));
+    assert_eq!(a.slot(0).unwrap().fingerprint, [0x73, 0xc5, 0xda, 0x0a]);
+    assert!(a.scanned.is_none());
+    assert!(!a.scan_live);
+}
+
+#[test]
+fn scan_seed_discard_and_not_a_seed() {
+    let mut a = app();
+    press(&mut a, Key::Char('1'));
+    a.on_qr_text(ABANDON_WORDS.as_bytes());
+    assert_eq!(a.current(), Screen::ScanSeed { sel: 0 });
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter); // Discard
+    assert!(matches!(a.current(), Screen::Menu { .. }));
+    assert_eq!(a.seed_count(), 0);
+    // Load seed > Scan SeedQR with an address: not a seed
+    press(&mut a, Key::Char('2'));
+    press(&mut a, Key::Char('2'));
+    press(&mut a, Key::Char('3'));
+    a.on_qr_text(b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
+    assert_eq!(a.scan.outcome, Some(scan::Outcome::NotASeed));
+}
+
+const ABANDON_WORDS: &str =
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+#[test]
+fn verify_copied_seedqr() {
+    let mut a = app();
+    load_abandon(&mut a);
+    press(&mut a, Key::Char('5')); // Backup SeedQR
+    press(&mut a, Key::Char('1')); // Standard
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Char('t'));
+    assert!(matches!(a.current(), Screen::Transcribe { slot: 0, .. }));
+    press(&mut a, Key::Char('v'));
+    assert_eq!(
+        a.current(),
+        Screen::Scan {
+            purpose: scan::Purpose::Verify { slot: 0 }
+        }
+    );
+    let digits = std::format!("{}0003", "0000".repeat(11));
+    a.on_qr_text(digits.as_bytes());
+    assert_eq!(a.current(), Screen::ScanVerify { slot: 0 });
+    let (copy, orig) = (a.scan.seed.as_ref().unwrap(), a.slot(0).unwrap());
+    assert_eq!(copy.indices(), orig.mnemonic.indices());
+    press(&mut a, Key::Enter);
+    assert!(matches!(a.current(), Screen::Transcribe { .. }));
+    // a copy with one wrong word
+    press(&mut a, Key::Char('v'));
+    let bad = std::format!("{}0001{}0003", "0000".repeat(2), "0000".repeat(8));
+    a.on_qr_text(bad.as_bytes());
+    if a.current() == (Screen::ScanVerify { slot: 0 }) {
+        let copy = a.scan.seed.as_ref().unwrap();
+        assert_ne!(copy.indices(), a.slot(0).unwrap().mnemonic.indices());
+    } else {
+        // the BIP-39 checksum rejected the copy: not a seed
+        assert_eq!(a.scan.outcome, Some(scan::Outcome::NotASeed));
+    }
+}
+
+#[test]
+fn animated_psbt_over_ur_text_frames() {
+    let mut a = app();
+    press(&mut a, Key::Char('1'));
+    // a valid PSBT (1 input, 2 outputs) padded with a large unknown field
+    let mut tx = std::vec::Vec::new();
+    tx.extend_from_slice(&2u32.to_le_bytes());
+    tx.push(1);
+    tx.extend_from_slice(&[0x11; 36]);
+    tx.push(0);
+    tx.extend_from_slice(&[0xFF; 4]);
+    tx.push(2);
+    for _ in 0..2 {
+        tx.extend_from_slice(&1000u64.to_le_bytes());
+        tx.push(1);
+        tx.push(0x51);
+    }
+    tx.extend_from_slice(&[0; 4]);
+    let mut p = b"psbt\xff".to_vec();
+    p.extend_from_slice(&[1, 0, tx.len() as u8]);
+    p.extend_from_slice(&tx);
+    p.push(0);
+    p.extend_from_slice(&[2, 0xFC, 0x01, 0xFD, 0x20, 0x03]);
+    p.extend(std::iter::repeat_n(7u8, 800));
+    p.extend_from_slice(&[0, 0, 0]);
+    let mut cb = std::vec![0u8; p.len() + 8];
+    let mut w = bp_qr::ur::cbor::Writer::new(&mut cb);
+    w.bytes(&p).unwrap();
+    let n = w.len();
+    let enc = bp_qr::ur::UrEncoder::new("crypto-psbt", &cb[..n], 100).unwrap();
+    let mut seq = 1;
+    while a.current() != Screen::ScanResult {
+        let mut buf = [0u8; 600];
+        let k = enc.part(seq, &mut buf).unwrap();
+        if seq % 3 != 0 {
+            a.on_qr_text(&buf[..k]);
+        }
+        if a.current()
+            == (Screen::Scan {
+                purpose: scan::Purpose::Any,
+            })
+        {
+            let pr = a.scan.progress();
+            assert_eq!(pr.source, Some(bp_bitcoin::qrinput::Source::Ur));
+        }
+        seq += 1;
+        assert!(seq < 200);
+    }
+    match a.scan.outcome {
+        Some(scan::Outcome::Psbt { len, summary, source }) => {
+            assert_eq!(&a.scan.out[..len], &p[..]);
+            assert_eq!((summary.inputs, summary.outputs), (1, 2));
+            assert_eq!(source, bp_bitcoin::qrinput::Source::Ur);
+        }
+        o => panic!("{o:?}"),
+    }
+}
+
+#[test]
+fn scan_screens_render() {
+    struct Count;
+    impl bp_hal::Canvas for Count {
+        fn width(&self) -> u16 {
+            800
+        }
+        fn height(&self) -> u16 {
+            480
+        }
+        fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, _: bp_hal::Rgb) {
+            assert!(
+                x >= 0 && y >= 0 && x + w <= 800 && y + h <= 480,
+                "{x},{y} {w}x{h}"
+            );
+        }
+        fn blend_pixel(&mut self, _: i32, _: i32, _: bp_hal::Rgb, _: u8) {}
+    }
+    let mut c = Count;
+    let mut a = app();
+    a.set_test_only(true);
+    press(&mut a, Key::Char('1'));
+    a.render(&mut c); // waiting for camera
+    let q = bp_qr::QrCode::encode(b"HELLO WORLD", bp_qr::Ecc::Low, 1, 40, None).unwrap();
+    let (img, w, h) = qr_frame(&q);
+    a.on_frame(&img, w, h);
+    a.render(&mut c); // text result
+    for text in [
+        &b"bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr"[..],
+        b"[73c5da0a/84h/0h/0h]zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs",
+        b"wsh(sortedmulti(2,[aa/48h/0h/0h/2h]xpub1,[bb]xpub2))",
+        b"ur:crypto-account/aeaeae",
+        &[0xFF, 0x00, 0x12][..],
+    ] {
+        press(&mut a, Key::Enter);
+        press(&mut a, Key::Char('1'));
+        a.on_qr_text(text);
+        a.render(&mut c);
+    }
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Char('1'));
+    a.on_qr_text(ABANDON_WORDS.as_bytes());
+    a.render(&mut c); // seed found
+                      // a partial animated code: progress grid
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Char('1'));
+    let data = [5u8; 600];
+    let enc = bp_qr::ur::UrEncoder::new("bytes", &data, 50).unwrap();
+    let mut buf = [0u8; 400];
+    let k = enc.part(2, &mut buf).unwrap();
+    a.on_qr_text(&buf[..k]);
+    a.on_frame(&img, w, h); // also a camera frame with a foreign code
+    a.render(&mut c);
 }

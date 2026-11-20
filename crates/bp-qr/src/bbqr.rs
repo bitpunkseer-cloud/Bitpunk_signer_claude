@@ -256,10 +256,10 @@ pub fn parse_header(part: &[u8]) -> Option<Header> {
     })
 }
 
-/// Collects BBQr parts in any order (repeats are ignored) and decodes the
-/// file once all have arrived. Part bodies are kept in `store`.
-pub struct Joiner<'a> {
-    store: &'a mut [u8],
+/// BBQr joining state; part bodies are kept in caller storage passed to
+/// each call (`Joiner` bundles the two).
+#[derive(Clone)]
+pub struct JoinState {
     used: usize,
     /// (offset, length + 1) per index; 0 = not received
     slots: [(u32, u32); MAX_JOIN_PARTS],
@@ -267,10 +267,15 @@ pub struct Joiner<'a> {
     received: usize,
 }
 
-impl<'a> Joiner<'a> {
-    pub fn new(store: &'a mut [u8]) -> Self {
+impl Default for JoinState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl JoinState {
+    pub const fn new() -> Self {
         Self {
-            store,
             used: 0,
             slots: [(0, 0); MAX_JOIN_PARTS],
             header: None,
@@ -278,19 +283,10 @@ impl<'a> Joiner<'a> {
         }
     }
 
-    pub fn reset(&mut self) {
-        self.store[..self.used].fill(0);
-        self.used = 0;
-        self.slots = [(0, 0); MAX_JOIN_PARTS];
-        self.header = None;
-        self.received = 0;
-    }
-
-    /// Wipe and give the storage back.
-    pub fn into_store(mut self) -> &'a mut [u8] {
-        self.store[..self.used].fill(0);
-        self.used = 0;
-        core::mem::take(&mut self.store)
+    pub fn reset(&mut self, store: &mut [u8]) {
+        let n = self.used.min(store.len());
+        store[..n].fill(0);
+        *self = Self::new();
     }
 
     /// (parts received, parts in the file); (0, 0) before the first part.
@@ -311,7 +307,7 @@ impl<'a> Joiner<'a> {
     }
 
     /// Add one scanned part; returns true when the file is complete.
-    pub fn add(&mut self, part: &[u8]) -> Result<bool, JoinError> {
+    pub fn add(&mut self, store: &mut [u8], part: &[u8]) -> Result<bool, JoinError> {
         let h = parse_header(part).ok_or(JoinError::NotBbqr)?;
         if h.count > MAX_JOIN_PARTS {
             return Err(JoinError::TooBig);
@@ -327,7 +323,7 @@ impl<'a> Joiner<'a> {
         let body = &part[HEADER_LEN..];
         let (off, len1) = self.slots[h.index];
         if len1 != 0 {
-            let old = &self.store[off as usize..off as usize + len1 as usize - 1];
+            let old = &store[off as usize..off as usize + len1 as usize - 1];
             return if old == body {
                 Ok(self.is_complete())
             } else {
@@ -335,29 +331,29 @@ impl<'a> Joiner<'a> {
             };
         }
         let end = self.used + body.len();
-        if end > self.store.len() {
+        if end > store.len() {
             return Err(JoinError::TooBig);
         }
-        self.store[self.used..end].copy_from_slice(body);
+        store[self.used..end].copy_from_slice(body);
         self.slots[h.index] = (self.used as u32, body.len() as u32 + 1);
         self.used = end;
         self.received += 1;
         Ok(self.is_complete())
     }
 
-    fn body(&self, i: usize) -> &[u8] {
+    fn body<'s>(&self, store: &'s [u8], i: usize) -> &'s [u8] {
         let (off, len1) = self.slots[i];
-        &self.store[off as usize..off as usize + len1 as usize - 1]
+        &store[off as usize..off as usize + len1 as usize - 1]
     }
 
     /// Decode the complete file into `out`; `work` holds the compressed
     /// bytes of Z-encoded files. Returns the file length.
-    pub fn finish(&self, work: &mut [u8], out: &mut [u8]) -> Result<usize, JoinError> {
+    pub fn finish(&self, store: &[u8], work: &mut [u8], out: &mut [u8]) -> Result<usize, JoinError> {
         let h = self.header.ok_or(JoinError::Incomplete)?;
         if !self.is_complete() {
             return Err(JoinError::Incomplete);
         }
-        let chars = (0..h.count).flat_map(|i| self.body(i).iter().copied());
+        let chars = (0..h.count).flat_map(|i| self.body(store, i).iter().copied());
         match h.encoding {
             b'H' => decode_hex(chars, out),
             b'2' => decode_base32(chars, out),
@@ -372,9 +368,59 @@ impl<'a> Joiner<'a> {
     }
 }
 
+/// Collects BBQr parts in any order (repeats are ignored) and decodes the
+/// file once all have arrived. Part bodies are kept in `store`.
+pub struct Joiner<'a> {
+    state: JoinState,
+    store: &'a mut [u8],
+}
+
+impl<'a> Joiner<'a> {
+    pub fn new(store: &'a mut [u8]) -> Self {
+        Self {
+            state: JoinState::new(),
+            store,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.state.reset(self.store);
+    }
+
+    /// Wipe and give the storage back.
+    pub fn into_store(mut self) -> &'a mut [u8] {
+        self.state.reset(self.store);
+        core::mem::take(&mut self.store)
+    }
+
+    pub fn progress(&self) -> (usize, usize) {
+        self.state.progress()
+    }
+
+    pub fn has_part(&self, index: usize) -> bool {
+        self.state.has_part(index)
+    }
+
+    pub fn header(&self) -> Option<Header> {
+        self.state.header()
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.state.is_complete()
+    }
+
+    pub fn add(&mut self, part: &[u8]) -> Result<bool, JoinError> {
+        self.state.add(self.store, part)
+    }
+
+    pub fn finish(&self, work: &mut [u8], out: &mut [u8]) -> Result<usize, JoinError> {
+        self.state.finish(self.store, work, out)
+    }
+}
+
 impl Drop for Joiner<'_> {
     fn drop(&mut self) {
-        self.store[..self.used].fill(0);
+        self.state.reset(self.store);
     }
 }
 
@@ -491,19 +537,24 @@ pub mod specter {
         (i >= 1 && i <= n).then_some((i, n, body))
     }
 
-    /// Collects Specter parts in any order and joins them.
-    pub struct Joiner<'a> {
-        store: &'a mut [u8],
+    /// Specter joining state; part bodies live in caller storage.
+    #[derive(Clone)]
+    pub struct JoinState {
         used: usize,
         slots: [(u32, u32); super::MAX_JOIN_PARTS],
         count: usize,
         received: usize,
     }
 
-    impl<'a> Joiner<'a> {
-        pub fn new(store: &'a mut [u8]) -> Self {
+    impl Default for JoinState {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl JoinState {
+        pub const fn new() -> Self {
             Self {
-                store,
                 used: 0,
                 slots: [(0, 0); super::MAX_JOIN_PARTS],
                 count: 0,
@@ -511,19 +562,10 @@ pub mod specter {
             }
         }
 
-        pub fn reset(&mut self) {
-            self.store[..self.used].fill(0);
-            self.used = 0;
-            self.slots = [(0, 0); super::MAX_JOIN_PARTS];
-            self.count = 0;
-            self.received = 0;
-        }
-
-        /// Wipe and give the storage back.
-        pub fn into_store(mut self) -> &'a mut [u8] {
-            self.store[..self.used].fill(0);
-            self.used = 0;
-            core::mem::take(&mut self.store)
+        pub fn reset(&mut self, store: &mut [u8]) {
+            let n = self.used.min(store.len());
+            store[..n].fill(0);
+            *self = Self::new();
         }
 
         pub fn progress(&self) -> (usize, usize) {
@@ -539,7 +581,7 @@ pub mod specter {
         }
 
         /// Add one scanned part; returns true when all parts are present.
-        pub fn add(&mut self, part: &[u8]) -> Result<bool, super::JoinError> {
+        pub fn add(&mut self, store: &mut [u8], part: &[u8]) -> Result<bool, super::JoinError> {
             use super::JoinError;
             let (i, n, body) = parse(part).ok_or(JoinError::NotBbqr)?;
             if n > super::MAX_JOIN_PARTS {
@@ -553,7 +595,7 @@ pub mod specter {
             let k = i - 1;
             let (off, len1) = self.slots[k];
             if len1 != 0 {
-                let old = &self.store[off as usize..off as usize + len1 as usize - 1];
+                let old = &store[off as usize..off as usize + len1 as usize - 1];
                 return if old == body {
                     Ok(self.is_complete())
                 } else {
@@ -561,10 +603,10 @@ pub mod specter {
                 };
             }
             let end = self.used + body.len();
-            if end > self.store.len() {
+            if end > store.len() {
                 return Err(JoinError::TooBig);
             }
-            self.store[self.used..end].copy_from_slice(body);
+            store[self.used..end].copy_from_slice(body);
             self.slots[k] = (self.used as u32, body.len() as u32 + 1);
             self.used = end;
             self.received += 1;
@@ -572,14 +614,14 @@ pub mod specter {
         }
 
         /// The joined text.
-        pub fn finish(&self, out: &mut [u8]) -> Result<usize, super::JoinError> {
+        pub fn finish(&self, store: &[u8], out: &mut [u8]) -> Result<usize, super::JoinError> {
             if !self.is_complete() {
                 return Err(super::JoinError::Incomplete);
             }
             let mut n = 0;
             for k in 0..self.count {
                 let (off, len1) = self.slots[k];
-                let body = &self.store[off as usize..off as usize + len1 as usize - 1];
+                let body = &store[off as usize..off as usize + len1 as usize - 1];
                 out.get_mut(n..n + body.len())
                     .ok_or(super::JoinError::BufferTooSmall)?
                     .copy_from_slice(body);
@@ -589,9 +631,54 @@ pub mod specter {
         }
     }
 
+    /// Collects Specter parts in any order and joins them.
+    pub struct Joiner<'a> {
+        state: JoinState,
+        store: &'a mut [u8],
+    }
+
+    impl<'a> Joiner<'a> {
+        pub fn new(store: &'a mut [u8]) -> Self {
+            Self {
+                state: JoinState::new(),
+                store,
+            }
+        }
+
+        pub fn reset(&mut self) {
+            self.state.reset(self.store);
+        }
+
+        /// Wipe and give the storage back.
+        pub fn into_store(mut self) -> &'a mut [u8] {
+            self.state.reset(self.store);
+            core::mem::take(&mut self.store)
+        }
+
+        pub fn progress(&self) -> (usize, usize) {
+            self.state.progress()
+        }
+
+        pub fn has_part(&self, index: usize) -> bool {
+            self.state.has_part(index)
+        }
+
+        pub fn is_complete(&self) -> bool {
+            self.state.is_complete()
+        }
+
+        pub fn add(&mut self, part: &[u8]) -> Result<bool, super::JoinError> {
+            self.state.add(self.store, part)
+        }
+
+        pub fn finish(&self, out: &mut [u8]) -> Result<usize, super::JoinError> {
+            self.state.finish(self.store, out)
+        }
+    }
+
     impl Drop for Joiner<'_> {
         fn drop(&mut self) {
-            self.store[..self.used].fill(0);
+            self.state.reset(self.store);
         }
     }
 }

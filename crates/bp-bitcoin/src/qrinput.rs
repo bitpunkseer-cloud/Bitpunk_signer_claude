@@ -10,7 +10,7 @@ use crate::bip39::{self, Mnemonic};
 use crate::{base58, base64, bech32, bip32, psbt, seedqr, Network};
 use bp_qr::bbqr::{self, specter};
 use bp_qr::ur::cbor::Reader;
-use bp_qr::ur::decoder::{self as urdec, UrDecoder};
+use bp_qr::ur::decoder::{self as urdec, UrState};
 
 /// Where a seed came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -322,13 +322,13 @@ pub fn classify_ur(ur_type: &str, message: &[u8], out: &mut [u8]) -> Result<Cont
 
 // ---------- assembling frames ----------
 
-enum Active<'a> {
-    Idle(&'a mut [u8]),
-    Static { store: &'a mut [u8], len: usize },
-    Ur(UrDecoder<'a>),
-    Bbqr(bbqr::Joiner<'a>),
-    Specter(specter::Joiner<'a>),
-    Taken,
+#[derive(Clone)]
+enum Active {
+    Idle,
+    Static(usize),
+    Ur(UrState),
+    Bbqr(bbqr::JoinState),
+    Specter(specter::JoinState),
 }
 
 /// What a frame did.
@@ -355,37 +355,33 @@ pub struct Progress {
 /// pointed the camera at another code).
 const SWITCH_AFTER: u8 = 3;
 
-pub struct Collector<'a> {
-    active: Active<'a>,
+/// Assembles scanned frames into one payload, in `N` bytes of its own
+/// storage (wiped on reset and drop).
+pub struct Collector<const N: usize> {
+    store: [u8; N],
+    active: Active,
     foreign: u8,
 }
 
-impl<'a> Collector<'a> {
-    pub fn new(store: &'a mut [u8]) -> Self {
-        Self {
-            active: Active::Idle(store),
-            foreign: 0,
-        }
+impl<const N: usize> Default for Collector<N> {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    fn store(&mut self) -> &'a mut [u8] {
-        match core::mem::replace(&mut self.active, Active::Taken) {
-            Active::Idle(s) => s,
-            Active::Static { store, len } => {
-                store[..len].fill(0);
-                store
-            }
-            Active::Ur(d) => d.into_store(),
-            Active::Bbqr(j) => j.into_store(),
-            Active::Specter(j) => j.into_store(),
-            Active::Taken => &mut [],
+impl<const N: usize> Collector<N> {
+    pub const fn new() -> Self {
+        Self {
+            store: [0; N],
+            active: Active::Idle,
+            foreign: 0,
         }
     }
 
     /// Drop everything collected (storage is wiped).
     pub fn reset(&mut self) {
-        let s = self.store();
-        self.active = Active::Idle(s);
+        self.store.fill(0);
+        self.active = Active::Idle;
         self.foreign = 0;
     }
 
@@ -394,8 +390,8 @@ impl<'a> Collector<'a> {
             Active::Ur(d) => (Some(Source::Ur), d.progress()),
             Active::Bbqr(j) => (Some(Source::Bbqr), j.progress()),
             Active::Specter(j) => (Some(Source::Specter), j.progress()),
-            Active::Static { .. } => (Some(Source::Static), (1, 1)),
-            _ => (None, (0, 0)),
+            Active::Static(_) => (Some(Source::Static), (1, 1)),
+            Active::Idle => (None, (0, 0)),
         };
         Progress {
             source,
@@ -410,8 +406,16 @@ impl<'a> Collector<'a> {
             Active::Ur(d) => d.has_fragment(i),
             Active::Bbqr(j) => j.has_part(i),
             Active::Specter(j) => j.has_part(i),
-            Active::Static { .. } => i == 0,
-            _ => false,
+            Active::Static(_) => i == 0,
+            Active::Idle => false,
+        }
+    }
+
+    /// UR type name while collecting a UR.
+    pub fn ur_type(&self) -> Option<&str> {
+        match &self.active {
+            Active::Ur(d) => Some(d.ur_type()),
+            _ => None,
         }
     }
 
@@ -420,8 +424,8 @@ impl<'a> Collector<'a> {
             Active::Ur(d) => d.is_complete(),
             Active::Bbqr(j) => j.is_complete(),
             Active::Specter(j) => j.is_complete(),
-            Active::Static { .. } => true,
-            _ => false,
+            Active::Static(_) => true,
+            Active::Idle => false,
         }
     }
 
@@ -430,17 +434,18 @@ impl<'a> Collector<'a> {
         if self.is_complete() {
             return Feed::Complete;
         }
+        let store = &mut self.store[..];
         let fits = match &mut self.active {
             Active::Ur(d) => Some(
-                d.receive(frame)
+                d.receive(store, frame)
                     .map_err(|e| e == urdec::Error::Mismatch || e == urdec::Error::NotUr),
             ),
             Active::Bbqr(j) => Some(
-                j.add(frame)
+                j.add(store, frame)
                     .map_err(|e| e == bbqr::JoinError::Mismatch || e == bbqr::JoinError::NotBbqr),
             ),
             Active::Specter(j) => Some(
-                j.add(frame)
+                j.add(store, frame)
                     .map_err(|e| e == bbqr::JoinError::Mismatch || e == bbqr::JoinError::NotBbqr),
             ),
             _ => None,
@@ -469,110 +474,89 @@ impl<'a> Collector<'a> {
     }
 
     fn start(&mut self, frame: &[u8]) -> Feed {
-        let store = self.store();
-        let is_ur = frame.len() > 3 && frame[..3].eq_ignore_ascii_case(b"ur:");
-        if is_ur {
-            let mut d = UrDecoder::new(store);
-            let r = d.receive(frame);
+        self.reset();
+        let store = &mut self.store[..];
+        let r = if frame.len() > 3 && frame[..3].eq_ignore_ascii_case(b"ur:") {
+            let mut d = UrState::new();
+            let r = d.receive(store, frame).map_err(|_| ());
             self.active = Active::Ur(d);
-            return match r {
-                Ok(true) => Feed::Complete,
-                Ok(false) => Feed::Progress,
-                Err(_) => {
-                    self.reset();
-                    Feed::Ignored
-                }
-            };
-        }
-        if bbqr::parse_header(frame).is_some() {
-            let mut j = bbqr::Joiner::new(store);
-            let r = j.add(frame);
+            r
+        } else if bbqr::parse_header(frame).is_some() {
+            let mut j = bbqr::JoinState::new();
+            let r = j.add(store, frame).map_err(|_| ());
             self.active = Active::Bbqr(j);
-            return match r {
-                Ok(true) => Feed::Complete,
-                Ok(false) => Feed::Progress,
-                Err(_) => {
-                    self.reset();
-                    Feed::Ignored
-                }
-            };
-        }
-        if specter::parse(frame).is_some() {
-            let mut j = specter::Joiner::new(store);
-            let r = j.add(frame);
+            r
+        } else if specter::parse(frame).is_some() {
+            let mut j = specter::JoinState::new();
+            let r = j.add(store, frame).map_err(|_| ());
             self.active = Active::Specter(j);
-            return match r {
-                Ok(true) => Feed::Complete,
-                Ok(false) => Feed::Progress,
-                Err(_) => {
-                    self.reset();
-                    Feed::Ignored
-                }
-            };
-        }
-        if frame.len() > store.len() {
-            self.active = Active::Idle(store);
-            return Feed::Ignored;
-        }
-        store[..frame.len()].copy_from_slice(frame);
-        self.active = Active::Static {
-            store,
-            len: frame.len(),
+            r
+        } else if frame.len() <= store.len() {
+            store[..frame.len()].copy_from_slice(frame);
+            self.active = Active::Static(frame.len());
+            Ok(true)
+        } else {
+            Err(())
         };
-        Feed::Complete
+        match r {
+            Ok(true) => Feed::Complete,
+            Ok(false) => Feed::Progress,
+            Err(()) => {
+                self.reset();
+                Feed::Ignored
+            }
+        }
     }
 
     /// Classify the complete payload. `work` holds intermediate bytes
     /// (joined text, compressed data); the result goes to `out`.
-    pub fn finish(&mut self, work: &mut [u8], out: &mut [u8]) -> Result<(Content, Source), Error> {
+    pub fn finish(&self, work: &mut [u8], out: &mut [u8]) -> Result<(Content, Source), Error> {
         if !self.is_complete() {
             return Err(Error::Incomplete);
         }
-        let r = match &self.active {
-            Active::Static { store, len } => classify(&store[..*len], out).map(|c| (c, Source::Static)),
+        let store = &self.store[..];
+        match &self.active {
+            Active::Static(len) => classify(&store[..*len], out).map(|c| (c, Source::Static)),
             Active::Ur(d) => {
-                let msg = d.message().ok_or(Error::Incomplete)?;
+                let msg = d.message(store).ok_or(Error::Incomplete)?;
                 classify_ur(d.ur_type(), msg, out).map(|c| (c, Source::Ur))
             }
             Active::Bbqr(j) => {
                 let h = j.header().ok_or(Error::Incomplete)?;
-                let n = j.finish(work, out).map_err(|e| match e {
+                let n = j.finish(store, work, out).map_err(|e| match e {
                     bbqr::JoinError::BufferTooSmall => Error::BufferTooSmall,
                     _ => Error::Corrupt,
                 })?;
                 // the joined bytes are in `out`; move them to `work` to classify
-                let (w, o) = (work, out);
-                let w = w.get_mut(..n).ok_or(Error::BufferTooSmall)?;
-                w.copy_from_slice(&o[..n]);
-                o[..n].fill(0);
+                let w = work.get_mut(..n).ok_or(Error::BufferTooSmall)?;
+                w.copy_from_slice(&out[..n]);
+                out[..n].fill(0);
                 let c = match h.file_type {
-                    b'P' => {
-                        let summary = psbt::summary(w).map_err(|_| Error::Corrupt)?;
-                        Content::Psbt {
-                            len: copy(o, w)?,
+                    b'P' => psbt::summary(w).map_err(|_| Error::Corrupt).and_then(|summary| {
+                        Ok(Content::Psbt {
+                            len: copy(out, w)?,
                             summary,
-                        }
-                    }
-                    b'U' | b'J' => classify(w, o)?,
-                    _ => Content::Binary { len: copy(o, w)? },
+                        })
+                    }),
+                    b'U' | b'J' => classify(w, out),
+                    _ => copy(out, w).map(|len| Content::Binary { len }),
                 };
                 w.fill(0);
-                Ok((c, Source::Bbqr))
+                c.map(|c| (c, Source::Bbqr))
             }
             Active::Specter(j) => {
-                let n = j.finish(work).map_err(|_| Error::BufferTooSmall)?;
+                let n = j.finish(store, work).map_err(|_| Error::BufferTooSmall)?;
                 let c = classify(&work[..n], out);
                 work[..n].fill(0);
                 c.map(|c| (c, Source::Specter))
             }
-            _ => Err(Error::Incomplete),
-        };
-        r
+            Active::Idle => Err(Error::Incomplete),
+        }
     }
 }
 
-impl Drop for Collector<'_> {
+impl<const N: usize> Drop for Collector<N> {
     fn drop(&mut self) {
-        self.reset();
+        self.store.fill(0);
     }
 }

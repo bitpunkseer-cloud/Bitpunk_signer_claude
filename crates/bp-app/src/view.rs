@@ -375,7 +375,11 @@ impl App {
                 widgets::message_at(c, STATUS_H + 70, s.seedqr_warn_title, theme::WARN, &s.seedqr_warn);
                 widgets::hint_bar(c, &[("Enter", s.h_display), ("Esc", s.h_back)]);
             }
-            Screen::Transcribe { line, x, y } => self.render_transcribe(c, line, x, y),
+            Screen::Transcribe { line, x, y, .. } => self.render_transcribe(c, line, x, y),
+            Screen::Scan { purpose } => self.render_scan(c, purpose),
+            Screen::ScanSeed { sel } => self.render_scan_seed(c, sel),
+            Screen::ScanVerify { slot } => self.render_scan_verify(c, slot),
+            Screen::ScanResult => self.render_scan_result(c),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
@@ -1218,7 +1222,262 @@ impl App {
             }
         }
         SMALL.draw(c, MARGIN, 410, s.transcribe_tip, theme::TEXT_FAINT);
-        widgets::hint_bar(c, &[("<>^v", s.h_move), ("Tab", s.h_mode), ("Esc", s.h_back)]);
+        widgets::hint_bar(
+            c,
+            &[
+                ("<>^v", s.h_move),
+                ("Tab", s.h_mode),
+                ("V", s.h_verify),
+                ("Esc", s.h_back),
+            ],
+        );
+    }
+
+    fn render_scan(&self, c: &mut dyn Canvas, purpose: crate::scan::Purpose) {
+        use crate::scan::{Purpose, PREVIEW_H, PREVIEW_W};
+        let s = self.text();
+        let title = match purpose {
+            Purpose::Any => s.scan_qr,
+            Purpose::Seed => s.scan_seedqr,
+            Purpose::Verify { .. } => s.verify_seedqr,
+        };
+        self.status(c, title);
+        let (bx, by) = (MARGIN, STATUS_H + 20);
+        let (bw, bh) = (PREVIEW_W as i32 * 2, PREVIEW_H as i32 * 2);
+        let sc = &self.scan;
+        if sc.has_preview {
+            for py in 0..PREVIEW_H {
+                let row = &sc.preview[py * PREVIEW_W..(py + 1) * PREVIEW_W];
+                let mut px = 0;
+                while px < PREVIEW_W {
+                    // merge runs of similar grey for speed
+                    let v = row[px] & 0xF8;
+                    let start = px;
+                    while px < PREVIEW_W && row[px] & 0xF8 == v {
+                        px += 1;
+                    }
+                    let g = row[start];
+                    c.fill_rect(
+                        bx + start as i32 * 2,
+                        by + py as i32 * 2,
+                        (px - start) as i32 * 2,
+                        2,
+                        bp_hal::Rgb(g, g, g),
+                    );
+                }
+            }
+            if let Some(q) = sc.found {
+                for k in 0..4 {
+                    let (a, b) = (q[k], q[(k + 1) % 4]);
+                    draw_line(
+                        c,
+                        bx + a.0 * 2,
+                        by + a.1 * 2,
+                        bx + b.0 * 2,
+                        by + b.1 * 2,
+                        theme::OK,
+                        (bx, by, bw, bh),
+                    );
+                }
+            }
+        } else {
+            bp_ui::draw::round_rect(c, bx, by, bw, bh, 8, theme::SURFACE);
+            BODY.draw_centered(c, bx, bw, by + bh / 2 - 30, s.scan_waiting, theme::TEXT_DIM);
+            if self.test_only {
+                SMALL.draw_centered(c, bx, bw, by + bh / 2 + 10, s.scan_sim_hint, theme::TEXT_FAINT);
+            }
+        }
+        bp_ui::draw::outline(c, bx - 1, by - 1, bw + 2, bh + 2, theme::LINE);
+
+        let x = bx + bw + 24;
+        let right = 800 - MARGIN;
+        let p = sc.progress();
+        widgets::label(c, x, by, s.scan_status);
+        let name: Buf<40> = match (p.source, sc.ur_type()) {
+            (None, _) => fill(s.scan_point, &[]),
+            (Some(bp_bitcoin::qrinput::Source::Ur), Some(t)) => bformat!(40, "UR {}", t),
+            (Some(src), _) => fill(s.res_via[src as usize], &[]),
+        };
+        // long status text wraps onto two lines
+        let ns = name.as_str();
+        let max = ((right - x) / BODY.width as i32) as usize;
+        let (l1, l2) = if ns.len() > max {
+            let cut = ns[..max].rfind(' ').unwrap_or(max);
+            (&ns[..cut], ns[cut..].trim_start())
+        } else {
+            (ns, "")
+        };
+        BODY.draw(c, x, by + 20, l1, theme::TEXT);
+        BODY.draw(c, x, by + 48, l2, theme::TEXT);
+        if p.total > 1 {
+            let parts: Buf<32> = fill(s.scan_parts, &[&p.received, &p.total]);
+            BODY.draw(c, x, by + 92, parts.as_str(), theme::ACCENT);
+            let w = right - x;
+            let done = (w as usize * p.received / p.total) as i32;
+            c.fill_rect(x, by + 126, w, 6, theme::SURFACE_HI);
+            c.fill_rect(x, by + 126, done, 6, theme::ACCENT);
+            if p.total <= 100 {
+                let cols = 10;
+                for i in 0..p.total {
+                    let (cx, cy) = ((i % cols) as i32, (i / cols) as i32);
+                    let col = if sc.has_part(i) {
+                        theme::OK
+                    } else {
+                        theme::SURFACE_HI
+                    };
+                    c.fill_rect(x + cx * 18, by + 146 + cy * 18, 14, 14, col);
+                }
+            }
+        }
+        for (i, tip) in s.scan_tips.iter().enumerate() {
+            SMALL.draw(c, bx, by + bh + 14 + i as i32 * 20, tip, theme::TEXT_FAINT);
+        }
+        widgets::hint_bar(c, &[("Esc", s.h_cancel)]);
+    }
+
+    fn render_scan_seed(&self, c: &mut dyn Canvas, sel: u8) {
+        let s = self.text();
+        self.status(c, s.scan_seed_title);
+        let Some(seed) = self.scanned.as_ref() else { return };
+        let fp = crate::seeds::fingerprint_hex(&seed.fingerprint);
+        widgets::label(c, MARGIN, STATUS_H + 20, s.fp_label);
+        HUGE.draw(c, MARGIN, STATUS_H + 42, fp.as_str(), theme::ACCENT);
+        let src = match self.scan.seed_source {
+            Some(bp_bitcoin::qrinput::SeedSource::SeedQrStandard) => s.scan_seed_sources[0],
+            Some(bp_bitcoin::qrinput::SeedSource::SeedQrCompact) => s.scan_seed_sources[1],
+            Some(bp_bitcoin::qrinput::SeedSource::Words) => s.scan_seed_sources[2],
+            _ => s.scan_seed_sources[3],
+        };
+        let info: Buf<48> = fill(
+            s.words_count,
+            &[&src, &fill::<16>(s.n_words, &[&seed.mnemonic.len()])],
+        );
+        BODY.draw(c, MARGIN, STATUS_H + 130, info.as_str(), theme::TEXT);
+        SMALL.draw(c, MARGIN, STATUS_H + 166, s.scan_seed_check, theme::WARN);
+        let items = [
+            MenuItem {
+                label: s.scan_load,
+                detail: "",
+            },
+            MenuItem {
+                label: s.discard,
+                detail: "",
+            },
+        ];
+        widgets::list(
+            c,
+            MARGIN,
+            STATUS_H + 210,
+            400,
+            2 * 52,
+            &items,
+            sel as usize,
+            false,
+        );
+        widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.discard)]);
+    }
+
+    fn render_scan_verify(&self, c: &mut dyn Canvas, slot: u8) {
+        let s = self.text();
+        self.status(c, s.verify_seedqr);
+        let (Some(copy), Some(orig)) = (self.scan.seed.as_ref(), self.slot(slot as usize)) else {
+            return;
+        };
+        let (a, b) = (copy.indices(), orig.mnemonic.indices());
+        if a == b {
+            widgets::message_at(c, STATUS_H + 90, s.verify_ok, theme::OK, &[s.verify_ok_1]);
+        } else if a.len() != b.len() {
+            widgets::message_at(c, STATUS_H + 90, s.verify_bad, theme::DANGER, &[s.verify_len]);
+        } else {
+            let mut list = Buf::<64>::new();
+            for (i, (x, y)) in a.iter().zip(b).enumerate() {
+                if x != y {
+                    if !list.as_str().is_empty() {
+                        list.push_str(", ");
+                    }
+                    list.push_str(bformat!(4, "{}", i + 1).as_str());
+                }
+            }
+            let line: Buf<96> = fill(s.verify_words, &[&list.as_str()]);
+            widgets::message_at(c, STATUS_H + 90, s.verify_bad, theme::DANGER, &[line.as_str()]);
+        }
+        widgets::hint_bar(c, &[("Enter", s.h_done)]);
+    }
+
+    fn render_scan_result(&self, c: &mut dyn Canvas) {
+        use crate::scan::Outcome;
+        let s = self.text();
+        let Some(o) = self.scan.outcome else { return };
+        let out = &self.scan.out;
+        let text = |len: usize| core::str::from_utf8(&out[..len.min(out.len())]).unwrap_or("");
+        let y0 = STATUS_H + 24;
+        match o {
+            Outcome::Psbt { len, summary, source } => {
+                self.status(c, s.res_psbt);
+                TITLE.draw(c, MARGIN, y0, s.res_psbt, theme::ACCENT);
+                let l1: Buf<32> = fill(s.res_psbt_lines[0], &[&summary.version]);
+                let l2: Buf<48> = fill(s.res_psbt_lines[1], &[&summary.inputs, &summary.outputs]);
+                let l3: Buf<48> = fill(s.res_psbt_lines[2], &[&len, &s.res_via[source as usize]]);
+                for (i, l) in [l1.as_str(), l2.as_str(), l3.as_str()].iter().enumerate() {
+                    BODY.draw(c, MARGIN, y0 + 60 + i as i32 * 36, l, theme::TEXT);
+                }
+                SMALL.draw(c, MARGIN, y0 + 190, s.res_m5, theme::TEXT_DIM);
+            }
+            Outcome::Xpub { len, network, depth } => {
+                self.status(c, s.res_xpub);
+                TITLE.draw(c, MARGIN, y0, s.res_xpub, theme::ACCENT);
+                let l: Buf<48> = fill(s.res_xpub_line, &[&network.name(), &depth]);
+                BODY.draw(c, MARGIN, y0 + 56, l.as_str(), theme::TEXT);
+                wrap(c, MARGIN, y0 + 96, text(len), 8);
+            }
+            Outcome::Address { len, network, kind } => {
+                self.status(c, s.res_address);
+                TITLE.draw(c, MARGIN, y0, s.res_address, theme::ACCENT);
+                let k = s.addr_kinds[kind as usize];
+                let l: Buf<48> = fill(s.words_count, &[&k, &network.name()]);
+                BODY.draw(c, MARGIN, y0 + 56, l.as_str(), theme::TEXT);
+                for (row, chunk) in text(len).as_bytes().chunks(32).enumerate() {
+                    let mut line = Buf::<48>::new();
+                    for (i, g) in chunk.chunks(4).enumerate() {
+                        if i > 0 {
+                            line.push_str(" ");
+                        }
+                        line.push_str(core::str::from_utf8(g).unwrap_or(""));
+                    }
+                    TITLE.draw(c, MARGIN, y0 + 100 + row as i32 * 46, line.as_str(), theme::TEXT);
+                }
+                SMALL.draw(c, MARGIN, y0 + 260, s.res_m6, theme::TEXT_DIM);
+            }
+            Outcome::Descriptor { len } => {
+                self.status(c, s.res_descriptor);
+                TITLE.draw(c, MARGIN, y0, s.res_descriptor, theme::ACCENT);
+                wrap(c, MARGIN, y0 + 56, text(len), 10);
+                SMALL.draw(c, MARGIN, y0 + 290, s.res_m7, theme::TEXT_DIM);
+            }
+            Outcome::UnknownUr { len } => {
+                self.status(c, s.res_unknown_ur);
+                widgets::message_at(c, STATUS_H + 90, s.res_unknown_ur, theme::WARN, &[text(len)]);
+            }
+            Outcome::Text { len } => {
+                self.status(c, s.res_text);
+                TITLE.draw(c, MARGIN, y0, s.res_text, theme::ACCENT);
+                wrap(c, MARGIN, y0 + 56, text(len), 13);
+            }
+            Outcome::Binary { len } => {
+                self.status(c, s.res_binary);
+                let l: Buf<32> = fill(s.res_bytes, &[&len]);
+                widgets::message_at(c, STATUS_H + 90, s.res_binary, theme::TEXT, &[l.as_str()]);
+            }
+            Outcome::NotASeed => {
+                self.status(c, s.res_not_seed);
+                widgets::message_at(c, STATUS_H + 90, s.res_not_seed, theme::WARN, &[s.res_not_seed_1]);
+            }
+            Outcome::Failed => {
+                self.status(c, s.res_failed);
+                widgets::message_at(c, STATUS_H + 90, s.res_failed, theme::DANGER, &[s.res_failed_1]);
+            }
+        }
+        widgets::hint_bar(c, &[("Enter", s.h_done)]);
     }
 
     fn render_summary(&self, c: &mut dyn Canvas) {
@@ -1488,6 +1747,51 @@ impl App {
             c,
             &[("Arrows", s.h_move), ("Enter", s.h_fix), ("Esc", s.h_cancel)],
         );
+    }
+}
+
+/// Thick line clipped to `clip` (x, y, w, h).
+fn draw_line(
+    c: &mut dyn Canvas,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    color: bp_hal::Rgb,
+    clip: (i32, i32, i32, i32),
+) {
+    let steps = (x1 - x0).abs().max((y1 - y0).abs()).max(1);
+    for k in 0..=steps {
+        let x = x0 + (x1 - x0) * k / steps;
+        let y = y0 + (y1 - y0) * k / steps;
+        if x >= clip.0 && y >= clip.1 && x < clip.0 + clip.2 - 2 && y < clip.1 + clip.3 - 2 {
+            c.fill_rect(x, y, 3, 3, color);
+        }
+    }
+}
+
+/// Printable text wrapped at the screen width, at most `max_lines`.
+fn wrap(c: &mut dyn Canvas, x: i32, y: i32, text: &str, max_lines: usize) {
+    let per = ((800 - 2 * x) / SMALL.width as i32) as usize;
+    let mut line = 0;
+    for raw in text.split('\n') {
+        let b = raw.as_bytes();
+        for chunk in b.chunks(per.max(1)) {
+            if line == max_lines {
+                SMALL.draw(c, x, y + line as i32 * 22, "...", theme::TEXT_DIM);
+                return;
+            }
+            let shown: Buf<128> = {
+                let mut s = Buf::<128>::new();
+                for &ch in chunk {
+                    let ch = if (0x20..0x7F).contains(&ch) { ch } else { b'.' };
+                    s.push_str(core::str::from_utf8(&[ch]).unwrap_or("."));
+                }
+                s
+            };
+            SMALL.draw(c, x, y + line as i32 * 22, shown.as_str(), theme::TEXT);
+            line += 1;
+        }
     }
 }
 

@@ -187,8 +187,7 @@ fn addresses_keys_descriptors_text() {
 }
 
 fn collect(frames: &[Vec<u8>]) -> (Content, Source, Vec<u8>) {
-    let mut store = vec![0u8; 64 * 1024];
-    let mut c = Collector::new(&mut store);
+    let mut c = Box::new(Collector::<{ 64 * 1024 }>::new());
     let mut last = Feed::Ignored;
     for f in frames {
         last = c.feed(f);
@@ -290,8 +289,7 @@ fn switching_codes_restarts_collection() {
     w.bytes(&p).unwrap();
     let n = w.len();
     let enc = UrEncoder::new("crypto-psbt", &cb[..n], 150).unwrap();
-    let mut store = vec![0u8; 64 * 1024];
-    let mut c = Collector::new(&mut store);
+    let mut c = Box::new(Collector::<{ 64 * 1024 }>::new());
     let mut b = vec![0u8; 1024];
     let k = enc.part(1, &mut b).unwrap();
     assert_eq!(c.feed(&b[..k]), Feed::Progress);

@@ -45,6 +45,8 @@ pub enum Action {
     CycleSetting,
     About,
     PowerOff,
+    /// Open the camera scanner.
+    Scan(crate::scan::Purpose),
 }
 
 macro_rules! todo_entry {
@@ -82,7 +84,11 @@ const fn setting(label: Label) -> Entry {
 }
 
 static MAIN: [Entry; 5] = [
-    todo_entry!(|s| s.scan_qr, "M4", "Milestone M4 (QR input)"),
+    Entry {
+        label: |s| s.scan_qr,
+        detail: ">",
+        action: Action::Scan(crate::scan::Purpose::Any),
+    },
     open(|s| s.seeds, MenuId::Seeds),
     open(|s| s.tools, MenuId::Tools),
     open(|s| s.settings, MenuId::Settings),
@@ -105,7 +111,11 @@ static NEW_SEED: [Entry; 3] = [
 static LOAD_SEED: [Entry; 6] = [
     start(|s| s.type_words, Start::TypeWords),
     start(|s| s.word_numbers, Start::WordNumbers),
-    todo_entry!(|s| s.scan_seedqr, "M4", "Milestone M4 (QR input)"),
+    Entry {
+        label: |s| s.scan_seedqr,
+        detail: ">",
+        action: Action::Scan(crate::scan::Purpose::Seed),
+    },
     todo_entry!(|s| s.tinyseed, "M10", "Milestone M10 (advanced backup)"),
     todo_entry!(|s| s.seed_xor, "M10", "Milestone M10 (advanced backup)"),
     todo_entry!(|s| s.encrypted_backup, "M10", "Milestone M10 (advanced backup)"),

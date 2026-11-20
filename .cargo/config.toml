@@ -1,0 +1,4 @@
+[env]
+# The app state includes the camera scanner and QR buffers (~200 KB) and
+# debug test builds copy it on the stack: give test threads room.
+RUST_MIN_STACK = "16777216"
