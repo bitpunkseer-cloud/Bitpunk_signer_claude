@@ -2,6 +2,7 @@
 //!
 //! | export | purpose |
 //! |---|---|
+//! | `bp_seed_buffer()` | 32-byte buffer JS fills with browser randomness before `bp_init` (quiz shuffling only, never seed material) |
 //! | `bp_init()` | create the app, draw the first frame |
 //! | `bp_width()/bp_height()` | framebuffer size |
 //! | `bp_framebuffer()` | pointer to RGBA8 pixels |
@@ -24,6 +25,14 @@ struct Sim {
 
 thread_local! {
     static SIM: RefCell<Option<Sim>> = const { RefCell::new(None) };
+    static QUIZ_SEED: RefCell<[u8; 32]> = const { RefCell::new([0u8; 32]) };
+}
+
+/// Buffer for JS to fill with `crypto.getRandomValues` before `bp_init`.
+/// Only shuffles backup-quiz questions; seeds come from dice and coins.
+#[no_mangle]
+pub extern "C" fn bp_seed_buffer() -> *mut u8 {
+    QUIZ_SEED.with(|b| b.borrow_mut().as_mut_ptr())
 }
 
 fn with_sim<R>(f: impl FnOnce(&mut Sim) -> R) -> Option<R> {
@@ -32,10 +41,12 @@ fn with_sim<R>(f: impl FnOnce(&mut Sim) -> R) -> Option<R> {
 
 #[no_mangle]
 pub extern "C" fn bp_init() {
+    let seed = QUIZ_SEED.with(|b| *b.borrow());
     let mut sim = Sim {
-        app: App::new(),
+        app: App::new(&seed),
         fb: Framebuffer::new(),
     };
+    sim.app.set_test_only(true); // a web page is not air-gapped
     sim.app.tick(0);
     sim.app.render(&mut sim.fb);
     SIM.with(|s| *s.borrow_mut() = Some(sim));

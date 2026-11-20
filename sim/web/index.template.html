@@ -118,9 +118,9 @@
     <div class="card">
       <h2>Controls</h2>
       <ul>
-        <li><kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>Enter</kbd> select</li>
-        <li><kbd>Esc</kbd> back, <kbd>←</kbd> <kbd>→</kbd> change a setting</li>
-        <li><kbd>1</kbd>–<kbd>9</kbd> jump to a menu row</li>
+        <li><kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>Enter</kbd> select, <kbd>Esc</kbd> back</li>
+        <li><kbd>1</kbd>–<kbd>6</kbd> dice, <kbd>H</kbd>/<kbd>T</kbd> coin, <kbd>Back</kbd> undo</li>
+        <li>Type 4 letters of a word; it completes itself</li>
       </ul>
     </div>
     <div class="card">
@@ -128,8 +128,8 @@
       <p>The HOME, PG UP, PG DN and END keys carry the ◄ ▲ ▼ ► arrows. The screen is drawn by the same Rust code the firmware runs.</p>
     </div>
     <div class="card">
-      <h2>This build</h2>
-      <p id="status">Phase 0: menu skeleton. Features show which roadmap phase builds them.</p>
+      <h2>This build · M1</h2>
+      <p id="status">Seeds from dice and coin flips only, with live entropy checks and a full backup quiz. Try Seeds → Create new seed. TEST ONLY: never use these seeds for real funds.</p>
     </div>
   </div>
 </div>
@@ -256,6 +256,9 @@
       const bin = Uint8Array.from(atob(WASM_B64), c => c.charCodeAt(0));
       const { instance } = await WebAssembly.instantiate(bin, {});
       wasm = instance.exports;
+      // Browser randomness only shuffles backup-quiz questions.
+      // Seeds are made exclusively from dice rolls and coin flips.
+      crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, wasm.bp_seed_buffer(), 32));
       wasm.bp_init();
       W = wasm.bp_width(); H = wasm.bp_height();
       canvas.width = W; canvas.height = H;
