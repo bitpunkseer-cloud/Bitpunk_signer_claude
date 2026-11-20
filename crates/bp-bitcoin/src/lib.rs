@@ -4,8 +4,10 @@
 //! PSBT v0/v2, output descriptors, miniscript.
 #![no_std]
 
+pub mod address;
 pub mod base58;
 pub mod bech32;
+pub mod bip32;
 pub mod bip39;
 pub mod entropy;
 
@@ -28,6 +30,37 @@ impl Network {
             Self::Testnet => "TEST",
             Self::Signet => "SIGNET",
             Self::Regtest => "REGTEST",
+        }
+    }
+
+    /// BIP-44 coin type: 0 on mainnet, 1 on every test network.
+    pub const fn coin_type(self) -> u32 {
+        match self {
+            Self::Mainnet => 0,
+            _ => 1,
+        }
+    }
+
+    /// Bech32 human-readable part.
+    pub const fn hrp(self) -> &'static str {
+        match self {
+            Self::Mainnet => "bc",
+            Self::Testnet | Self::Signet => "tb",
+            Self::Regtest => "bcrt",
+        }
+    }
+
+    pub const fn p2pkh_version(self) -> u8 {
+        match self {
+            Self::Mainnet => 0x00,
+            _ => 0x6f,
+        }
+    }
+
+    pub const fn p2sh_version(self) -> u8 {
+        match self {
+            Self::Mainnet => 0x05,
+            _ => 0xc4,
         }
     }
 

@@ -197,6 +197,14 @@ impl PublicKey {
         self.x.to_bytes()
     }
 
+    /// -P (same x, negated y).
+    pub fn negate(&self) -> PublicKey {
+        PublicKey {
+            x: self.x,
+            y: self.y.neg(),
+        }
+    }
+
     pub fn has_odd_y(&self) -> bool {
         self.y.is_odd().unwrap_public()
     }
