@@ -148,6 +148,7 @@ dependencies = [
  "bip39",
  "bitcoin",
  "bp-crypto",
+ "bp-qr",
 ]
 
 [[package]]
