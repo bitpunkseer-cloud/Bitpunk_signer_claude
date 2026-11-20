@@ -347,3 +347,78 @@ fn every_screen_renders_without_panicking() {
     press(&mut a, Key::Enter);
     a.render(&mut c);
 }
+
+/// Tools > Final word calculator > 12 words
+fn open_final_word(a: &mut App) {
+    press(a, Key::Char('3')); // Tools
+    press(a, Key::Char('1')); // Final word calculator
+    press(a, Key::Char('1')); // 12 words
+    assert_eq!(a.current(), Screen::FinalIntro);
+    press(a, Key::Enter);
+    assert_eq!(a.current(), Screen::WordEntry);
+}
+
+#[test]
+fn final_word_from_drawn_words_and_coins() {
+    let mut a = app();
+    open_final_word(&mut a);
+    assert_eq!(
+        a.flow.as_ref().unwrap().entry.n,
+        11,
+        "one word fewer than the seed"
+    );
+    for _ in 0..11 {
+        type_str(&mut a, "aban");
+    }
+    assert_eq!(a.current(), Screen::FinalCoins);
+    press(&mut a, Key::Enter); // no flips yet
+    assert_eq!(a.current(), Screen::FinalCoins);
+    // 7 tails -> free bits 0 -> checksum of all-zero entropy -> "about"
+    type_str(&mut a, "TTTTTTT");
+    type_str(&mut a, "H"); // an 8th flip is ignored
+    assert_eq!(a.flow.as_ref().unwrap().coin_len, 7);
+    press(&mut a, Key::Enter);
+    assert_eq!(a.current(), Screen::FinalResult);
+    let m = a.flow.as_ref().unwrap().mnemonic.as_ref().unwrap();
+    assert_eq!(m.word(11), "about");
+    // the backup check is still required
+    press(&mut a, Key::Enter); // warning
+    press(&mut a, Key::Enter); // words
+    press(&mut a, Key::Enter); // quiz intro
+    press(&mut a, Key::Enter); // quiz
+    assert_eq!(a.seed_count(), 0);
+    answer_all(&mut a, None);
+    assert_eq!(a.seed_count(), 1);
+}
+
+#[test]
+fn final_word_matches_bip39_for_random_flips() {
+    let mut a = app();
+    open_final_word(&mut a);
+    let words = [
+        "zoo", "abil", "wris", "cact", "lege", "noi", "orbi", "pupp", "quiz", "rhyt", "tube",
+    ];
+    for w in words {
+        type_str(&mut a, w);
+        if a.flow.as_ref().unwrap().entry.input_len > 0 {
+            press(&mut a, Key::Enter);
+        }
+    }
+    assert_eq!(a.current(), Screen::FinalCoins);
+    type_str(&mut a, "HTHHTTH");
+    press(&mut a, Key::Enter);
+    let f = a.flow.as_ref().unwrap();
+    let expected = bp_bitcoin::bip39::final_word(&f.entry.idx[..11], 0b1011001).unwrap();
+    assert_eq!(f.mnemonic.as_ref().unwrap().indices()[11], expected);
+}
+
+#[test]
+fn backspace_on_empty_coins_returns_to_words() {
+    let mut a = app();
+    open_final_word(&mut a);
+    for _ in 0..11 {
+        type_str(&mut a, "aban");
+    }
+    press(&mut a, Key::Backspace);
+    assert_eq!(a.current(), Screen::WordEntry);
+}

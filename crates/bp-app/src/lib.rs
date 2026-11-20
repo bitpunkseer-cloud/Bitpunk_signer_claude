@@ -8,7 +8,7 @@ mod settings;
 mod text;
 mod view;
 
-use bp_bitcoin::bip39::Mnemonic;
+use bp_bitcoin::bip39::{self, Mnemonic};
 use bp_crypto::drbg::Drbg;
 use bp_hal::input::{Key, KeyEvent};
 use flow::{Flow, Quiz};
@@ -55,6 +55,12 @@ pub enum Screen {
         sel: u8,
     },
     EntropyIntro,
+    /// Final-word calculator: explanation before entering words.
+    FinalIntro,
+    /// Coin flips for the last word's free bits.
+    FinalCoins,
+    /// Shows the computed last word.
+    FinalResult,
     EntropyEntry,
     EntropySummary,
     /// `view`: `None` during seed creation, `Some(slot)` to view a loaded seed.
@@ -290,6 +296,22 @@ impl App {
                 }
             }
             Screen::SlotsFull => self.pop(),
+            Screen::FinalIntro => match ev.key {
+                Key::Enter => self.set_current(Screen::WordEntry),
+                Key::Esc => self.pop(),
+                _ => {}
+            },
+            Screen::FinalCoins => self.final_coins_key(ev),
+            Screen::FinalResult => match ev.key {
+                Key::Enter => self.push(Screen::WordsWarning { view: None }),
+                Key::Esc | Key::Backspace => {
+                    if let Some(f) = self.flow.as_mut() {
+                        f.mnemonic = None;
+                    }
+                    self.pop();
+                }
+                _ => {}
+            },
             Screen::WordEntry => self.word_entry_key(ev),
             Screen::ChecksumError { sel } => self.checksum_key(sel, ev),
             Screen::SeedOptions { slot, sel } => match pick(ev.key, sel, 2) {
@@ -403,6 +425,57 @@ impl App {
         match kind {
             Start::Dice | Start::Coin => self.push(Screen::EntropyIntro),
             Start::TypeWords | Start::WordNumbers => self.push(Screen::WordEntry),
+            Start::FinalWord => self.push(Screen::FinalIntro),
+        }
+    }
+
+    fn final_coins_key(&mut self, ev: KeyEvent) {
+        let Some(flow) = self.flow.as_mut() else { return };
+        let free = flow.free_bits();
+        match ev.key {
+            Key::Char(c) => {
+                let bit = match c {
+                    '1' | 'h' | 'H' => Some(1),
+                    '0' | 't' | 'T' => Some(0),
+                    _ => None,
+                };
+                if let Some(b) = bit {
+                    if flow.coin_len < free {
+                        flow.coins[flow.coin_len] = b;
+                        flow.coin_len += 1;
+                    }
+                }
+            }
+            Key::Backspace => {
+                if flow.coin_len > 0 {
+                    flow.coin_len -= 1;
+                } else {
+                    // back to the words to edit the last one
+                    flow.entry.step_back();
+                    self.set_current(Screen::WordEntry);
+                }
+            }
+            Key::Enter => {
+                if flow.coin_len < free {
+                    self.notice = Some(self.text().not_ready);
+                    return;
+                }
+                let n = flow.entry.n;
+                let Ok(last) = bip39::final_word(&flow.entry.idx[..n], flow.coin_value()) else {
+                    return;
+                };
+                let mut all = [0u16; bip39::MAX_WORDS];
+                all[..n].copy_from_slice(&flow.entry.idx[..n]);
+                all[n] = last;
+                let m = Mnemonic::from_indices(&all[..n + 1]);
+                bp_crypto::secret::wipe_u16(&mut all);
+                if let Ok(m) = m {
+                    flow.mnemonic = Some(m);
+                    self.push(Screen::FinalResult);
+                }
+            }
+            Key::Esc => self.confirm_cancel(),
+            _ => {}
         }
     }
 
@@ -577,6 +650,11 @@ impl App {
         let Some(flow) = self.flow.as_ref() else { return };
         if !flow.entry.complete() {
             self.set_current(Screen::WordEntry);
+            return;
+        }
+        if flow.kind == Start::FinalWord {
+            // words drawn by the user; coin flips complete the last word
+            self.set_current(Screen::FinalCoins);
             return;
         }
         match Mnemonic::from_indices(flow.entry.indices()) {

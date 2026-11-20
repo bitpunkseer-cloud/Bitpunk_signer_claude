@@ -7,14 +7,17 @@ use bp_bitcoin::bip39::{Mnemonic, WORDS};
 use bp_bitcoin::entropy::{Analysis, Source, Status};
 use bp_hal::Canvas;
 use bp_ui::bformat;
-use bp_ui::fmt::Buf;
+use bp_ui::fmt::{fill, Buf};
 use bp_ui::font::{BODY, HUGE, SMALL, TITLE};
 use bp_ui::theme;
 use bp_ui::widgets::{self, CheckState, MenuItem, MARGIN, STATUS_H};
 
-/// "crew ... unique (12)"
+/// e.g. "crew ... unique (12)"
 pub fn seed_label(m: &Mnemonic) -> Buf<40> {
-    bformat!(40, "{} ... {} ({})", m.word(0), m.word(m.len() - 1), m.len())
+    fill(
+        crate::text::EN.seed_label,
+        &[&m.word(0), &m.word(m.len() - 1), &m.len()],
+    )
 }
 
 impl App {
@@ -57,11 +60,19 @@ impl App {
             Screen::ChooseWords { kind, sel } => {
                 self.status(c, start_title(self, kind));
                 TITLE.draw(c, MARGIN, STATUS_H + 20, s.how_many_words, theme::TEXT);
-                let (d12, d24) = match kind {
-                    Start::Dice => ("50+ rolls", "100+ rolls"),
-                    Start::Coin => ("128+ flips", "256+ flips"),
-                    _ => ("", ""),
+                let detail = |words: usize| -> Buf<32> {
+                    match kind {
+                        Start::Dice => fill(s.count_plus, &[&Source::Dice.min_count(words), &s.rolls]),
+                        Start::Coin => fill(s.count_plus, &[&Source::Coin.min_count(words), &s.flips]),
+                        Start::FinalWord => fill(
+                            s.final_detail,
+                            &[&(words - 1), &bp_bitcoin::bip39::final_word_free_bits(words)],
+                        ),
+                        _ => Buf::new(),
+                    }
                 };
+                let (b12, b24) = (detail(12), detail(24));
+                let (d12, d24) = (b12.as_str(), b24.as_str());
                 let items = [
                     MenuItem {
                         label: s.words_12,
@@ -96,17 +107,18 @@ impl App {
                 if let Some(f) = self.flow.as_ref() {
                     let src = if dice { Source::Dice } else { Source::Coin };
                     let unit = if dice { s.rolls } else { s.flips };
-                    let line = bformat!(
-                        48,
-                        "{} words: at least {} {}",
-                        f.words,
-                        src.min_count(f.words),
-                        unit
-                    );
+                    let line: Buf<48> = fill(s.intro_min, &[&f.words, &src.min_count(f.words), &unit]);
                     BODY.draw_centered(c, 0, w, 360, line.as_str(), theme::ACCENT);
                 }
                 widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
             }
+            Screen::FinalIntro => {
+                self.status(c, s.final_title);
+                widgets::message_at(c, STATUS_H + 36, s.final_title, theme::TEXT, &s.final_intro);
+                widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
+            }
+            Screen::FinalCoins => self.render_final_coins(c),
+            Screen::FinalResult => self.render_final_result(c),
             Screen::EntropyEntry => self.render_entropy(c),
             Screen::EntropySummary => self.render_summary(c),
             Screen::WordsWarning { view } => {
@@ -239,7 +251,7 @@ impl App {
             for l in labels.iter().take(self.seed_count()) {
                 items[n] = MenuItem {
                     label: l.as_str(),
-                    detail: "SEED",
+                    detail: s.seed_tag,
                 };
                 n += 1;
             }
@@ -280,11 +292,9 @@ impl App {
         // Left: count and recent values
         let lx = MARGIN;
         let unit = if dice { s.rolls } else { s.flips };
-        let head = bformat!(
-            40,
-            "{} - {} WORDS",
-            if dice { "DICE ROLLS" } else { "COIN FLIPS" },
-            f.words
+        let head: Buf<40> = fill(
+            s.entry_head,
+            &[&if dice { s.dice_head } else { s.coin_head }, &f.words],
         );
         widgets::label(c, lx, STATUS_H + 14, head.as_str());
         let count = bformat!(8, "{}", a.count);
@@ -326,13 +336,7 @@ impl App {
         }
         let keys = if dice { s.dice_keys } else { s.coin_keys };
         SMALL.draw(c, lx, 330, keys, theme::TEXT_DIM);
-        SMALL.draw(
-            c,
-            lx,
-            352,
-            "Back undo   Enter finish   Esc cancel",
-            theme::TEXT_FAINT,
-        );
+        SMALL.draw(c, lx, 352, s.entry_keys2, theme::TEXT_FAINT);
 
         // Right: frequency, entropy, checks
         let rx = 412;
@@ -360,12 +364,13 @@ impl App {
                 rw,
                 112,
                 &[a.counts[1], a.counts[0]],
-                &["Heads", "Tails"],
+                &[s.heads, s.tails],
                 expected,
             );
         }
         widgets::label(c, rx, 196, s.entropy_label);
-        let eb = bformat!(32, "{:.0} / {} bits", a.est_bits, a.target_bits);
+        let est = bformat!(16, "{:.0}", a.est_bits);
+        let eb: Buf<32> = fill(s.bits_of, &[&est, &a.target_bits]);
         let ok = a.entropy_status == Status::Pass;
         SMALL.draw(
             c,
@@ -404,20 +409,103 @@ impl App {
         }
         let hints: &[(&str, &str)] = if dice {
             &[
-                ("1-6", "Roll"),
+                ("1-6", s.h_roll),
                 ("Back", s.h_undo),
                 ("Enter", s.h_finish),
                 ("Esc", s.h_cancel),
             ]
         } else {
             &[
-                ("H/T", "Flip"),
+                ("H/T", s.h_flip),
                 ("Back", s.h_undo),
                 ("Enter", s.h_finish),
                 ("Esc", s.h_cancel),
             ]
         };
         widgets::hint_bar(c, hints);
+    }
+
+    fn render_final_coins(&self, c: &mut dyn Canvas) {
+        let s = self.text();
+        let Some(f) = self.flow.as_ref() else { return };
+        self.status(c, s.final_title);
+        let free = f.free_bits();
+        let cs = 11 - free;
+        widgets::label(c, MARGIN, STATUS_H + 14, s.final_coins_label);
+        let l1: Buf<64> = fill(s.final_coins_1, &[&free]);
+        let l2: Buf<64> = fill(s.final_coins_2, &[&cs]);
+        BODY.draw(c, MARGIN, STATUS_H + 40, l1.as_str(), theme::TEXT_DIM);
+        BODY.draw(c, MARGIN, STATUS_H + 68, l2.as_str(), theme::TEXT_DIM);
+
+        // one box per flip
+        let bw = 76;
+        let gap = 14;
+        let total = free as i32 * bw + (free as i32 - 1) * gap;
+        let x0 = (800 - total) / 2;
+        let y = 180;
+        for i in 0..free {
+            let x = x0 + i as i32 * (bw + gap);
+            let filled = i < f.coin_len;
+            let next = i == f.coin_len;
+            bp_ui::draw::round_rect(
+                c,
+                x,
+                y,
+                bw,
+                96,
+                12,
+                if filled { theme::SURFACE_HI } else { theme::SURFACE },
+            );
+            if next {
+                bp_ui::draw::outline(c, x, y, bw, 96, theme::ACCENT);
+            }
+            if filled {
+                let (face, bit) = if f.coins[i] == 1 { ("H", "1") } else { ("T", "0") };
+                TITLE.draw_centered(c, x, bw, y + 14, face, theme::TEXT);
+                SMALL.draw_centered(c, x, bw, y + 62, bit, theme::ACCENT);
+            }
+        }
+        let prog: Buf<16> = fill(s.progress, &[&f.coin_len, &free]);
+        BODY.draw_centered(c, 0, 800, 300, prog.as_str(), theme::TEXT);
+        if let Some(n) = self.notice {
+            BODY.draw(c, MARGIN, 404, n, theme::WARN);
+        }
+        widgets::hint_bar(
+            c,
+            &[
+                ("H/T", s.h_flip),
+                ("Back", s.h_undo),
+                ("Enter", s.h_finish),
+                ("Esc", s.h_cancel),
+            ],
+        );
+    }
+
+    fn render_final_result(&self, c: &mut dyn Canvas) {
+        let s = self.text();
+        let Some(f) = self.flow.as_ref() else { return };
+        let Some(m) = f.mnemonic.as_ref() else { return };
+        self.status(c, s.final_title);
+        let n = m.len();
+        let last = m.indices()[n - 1];
+        let free = f.free_bits();
+        let cs = 11 - free;
+        let head: Buf<32> = fill(s.words_count, &[&s.final_result_title, &n]);
+        widgets::label(c, MARGIN, STATUS_H + 14, head.as_str());
+        HUGE.draw_centered(c, 0, 800, STATUS_H + 50, m.word(n - 1), theme::ACCENT);
+        let mut bits = Buf::<16>::new();
+        for i in (0..11).rev() {
+            bits.push_str(if (last >> i) & 1 == 1 { "1" } else { "0" });
+        }
+        let b = bits.as_str();
+        let l1 = bformat!(48, "{}: {}", s.final_bits, &b[..free]);
+        let l2 = bformat!(48, "{}: {}", s.final_checksum, &b[free..free + cs]);
+        BODY.draw_centered(c, 0, 800, 230, l1.as_str(), theme::TEXT);
+        BODY.draw_centered(c, 0, 800, 262, l2.as_str(), theme::TEXT_DIM);
+        let num: Buf<24> = fill(s.word_number, &[&(last + 1)]);
+        SMALL.draw_centered(c, 0, 800, 300, num.as_str(), theme::TEXT_FAINT);
+        BODY.draw_centered(c, 0, 800, 360, s.final_next, theme::TEXT_DIM);
+        widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
     }
 
     fn render_summary(&self, c: &mut dyn Canvas) {
@@ -436,13 +524,10 @@ impl App {
         let a = pe.analyze();
         let w = 800;
         TITLE.draw_centered(c, 0, w, STATUS_H + 14, s.summary_title, theme::OK);
-        let info = bformat!(
-            64,
-            "{} {}  -  ~{:.0} bits estimated  -  {} words",
-            a.count,
-            if dice { s.rolls } else { s.flips },
-            a.est_bits,
-            f.words
+        let est = bformat!(16, "{:.0}", a.est_bits);
+        let info: Buf<64> = fill(
+            s.summary_info,
+            &[&a.count, &if dice { s.rolls } else { s.flips }, &est, &f.words],
         );
         BODY.draw_centered(c, 0, w, STATUS_H + 58, info.as_str(), theme::TEXT_DIM);
 
@@ -474,7 +559,7 @@ impl App {
             None => self.flow.as_ref().and_then(|f| f.mnemonic.as_ref()),
         };
         let Some(m) = m else { return };
-        let title = bformat!(32, "{} ({})", s.words_title, m.len());
+        let title: Buf<32> = fill(s.words_count, &[&s.words_title, &m.len()]);
         self.status(c, title.as_str());
         let words: [&str; 24] = core::array::from_fn(|i| if i < m.len() { m.word(i) } else { "" });
         if m.len() <= 12 {
@@ -503,7 +588,7 @@ impl App {
             );
         }
         if view.is_none() {
-            widgets::hint_bar(c, &[("Enter", "Start backup check"), ("Esc", s.h_cancel)]);
+            widgets::hint_bar(c, &[("Enter", s.h_start_check), ("Esc", s.h_cancel)]);
         } else {
             widgets::hint_bar(c, &[("Esc", s.h_back)]);
         }
@@ -517,7 +602,7 @@ impl App {
             return;
         }
         self.status(c, s.quiz_title);
-        let prog = bformat!(32, "{} / {}", q.q + 1, q.n);
+        let prog: Buf<32> = fill(s.progress, &[&(q.q + 1), &q.n]);
         widgets::label(c, MARGIN, STATUS_H + 14, prog.as_str());
         widgets::progress_bar(
             c,
@@ -562,8 +647,8 @@ impl App {
         );
 
         let head = match e.fixing {
-            Some(i) => bformat!(32, "{} {}", s.fixing_word, i + 1),
-            None => bformat!(32, "{} {} OF {}", s.word_n_of, e.pos + 1, e.n),
+            Some(i) => fill::<32>(s.fixing_word, &[&(i + 1)]),
+            None => fill::<32>(s.word_of, &[&(e.pos + 1), &e.n]),
         };
         widgets::label(c, MARGIN, STATUS_H + 12, head.as_str());
 
@@ -644,7 +729,7 @@ impl App {
             widgets::hint_bar(
                 c,
                 &[
-                    ("0-9", "Number"),
+                    ("0-9", s.h_number),
                     ("Enter", s.h_accept),
                     ("Back", s.h_delete),
                     ("Esc", s.h_cancel),
@@ -654,8 +739,8 @@ impl App {
             widgets::hint_bar(
                 c,
                 &[
-                    ("a-z", "Type"),
-                    ("^v", "Pick"),
+                    ("a-z", s.h_type),
+                    ("^v", s.h_pick),
                     ("Enter", s.h_accept),
                     ("Back", s.h_delete),
                     ("Esc", s.h_cancel),
@@ -700,6 +785,7 @@ fn start_title(app: &App, kind: Start) -> &'static str {
         Start::Coin => s.coin_intro_title,
         Start::TypeWords => s.entry_title_words,
         Start::WordNumbers => s.entry_title_numbers,
+        Start::FinalWord => s.final_title,
     }
 }
 
@@ -713,40 +799,40 @@ fn state(st: Status) -> CheckState {
 
 fn check_rows(s: &crate::Strings, a: &Analysis, src: Source) -> [(&'static str, CheckState, Buf<32>); 5] {
     let tested = a.count >= a.min_count;
-    let after = bformat!(32, "after {}", a.min_count);
+    let after = || -> Buf<32> { fill(s.after_n, &[&a.min_count]) };
+    let est = bformat!(16, "{:.0}", a.est_bits);
+    let chi2 = bformat!(16, "{:.1}", a.chi2);
+    let chi2_max = bformat!(16, "{:.1}", src.chi2_limit());
+    let z = bformat!(16, "{:.1}", a.autocorr_z);
     [
         (
             s.chk_count,
             state(a.count_status),
-            bformat!(32, "{} / {}", a.count, a.min_count),
+            fill(s.progress, &[&a.count, &a.min_count]),
         ),
         (
             s.chk_entropy,
             state(a.entropy_status),
-            bformat!(32, "{:.0} / {} bits", a.est_bits, a.target_bits),
+            fill(s.bits_of, &[&est, &a.target_bits]),
         ),
         (
             s.chk_bias,
             state(a.bias_status),
             if tested {
-                bformat!(32, "chi2 {:.1} (max {:.1})", a.chi2, src.chi2_limit())
+                fill(s.chi2_detail, &[&chi2, &chi2_max])
             } else {
-                after
+                after()
             },
         ),
         (
             s.chk_pattern,
             state(a.pattern_status),
-            if tested {
-                bformat!(32, "|z| {:.1} (max 4.0)", a.autocorr_z)
-            } else {
-                bformat!(32, "after {}", a.min_count)
-            },
+            if tested { fill(s.z_detail, &[&z]) } else { after() },
         ),
         (
             s.chk_repeat,
             state(a.repeat_status),
-            bformat!(32, "longest {} (max {})", a.longest_run, src.run_limit() - 1),
+            fill(s.longest_detail, &[&a.longest_run, &(src.run_limit() - 1)]),
         ),
     ]
 }
@@ -761,7 +847,7 @@ fn render_splash(c: &mut dyn Canvas) {
     let sy = y + HUGE.height as i32;
     BODY.draw_centered(c, 0, w, sy, "S I G N E R", theme::TEXT_DIM);
     c.fill_rect(w / 2 - 40, sy + BODY.height as i32 + 18, 80, 2, theme::ACCENT);
-    SMALL.draw_centered(c, 0, w, h - 60, "Air-gapped Bitcoin signer", theme::TEXT_FAINT);
+    SMALL.draw_centered(c, 0, w, h - 60, crate::text::EN.tagline, theme::TEXT_FAINT);
     let ver = bformat!(48, "v{} / {}", VERSION, GIT_HASH);
     SMALL.draw_centered(c, 0, w, h - 36, ver.as_str(), theme::TEXT_FAINT);
 }

@@ -15,6 +15,9 @@ pub struct Flow {
     pub mnemonic: Option<Mnemonic>,
     pub entry: WordEntry,
     pub quiz: Quiz,
+    /// Final-word calculator: coin flips for the last word's free bits.
+    pub coins: [u8; 7],
+    pub coin_len: usize,
 }
 
 impl Flow {
@@ -29,9 +32,27 @@ impl Flow {
             words,
             entropy,
             mnemonic: None,
-            entry: WordEntry::new(words),
+            // the final-word calculator asks for one word fewer
+            entry: WordEntry::new(if kind == Start::FinalWord {
+                words - 1
+            } else {
+                words
+            }),
             quiz: Quiz::default(),
+            coins: [0; 7],
+            coin_len: 0,
         }
+    }
+
+    /// Free (non-checksum) bits in the last word: 7 for 12 words, 3 for 24.
+    pub fn free_bits(&self) -> usize {
+        bp_bitcoin::bip39::final_word_free_bits(self.words)
+    }
+
+    pub fn coin_value(&self) -> u16 {
+        self.coins[..self.coin_len]
+            .iter()
+            .fold(0u16, |acc, &b| (acc << 1) | b as u16)
     }
 
     pub fn numbers_mode(&self) -> bool {

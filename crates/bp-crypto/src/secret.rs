@@ -12,6 +12,15 @@ pub fn wipe(bytes: &mut [u8]) {
     compiler_fence(Ordering::SeqCst);
 }
 
+/// Overwrite a u16 slice (e.g. word indices) with zeros.
+pub fn wipe_u16(values: &mut [u16]) {
+    for v in values.iter_mut() {
+        // SAFETY: `v` is a valid, aligned, exclusive reference to a u16.
+        unsafe { core::ptr::write_volatile(v, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
+}
+
 /// Fixed-size secret buffer. Zeroized on drop; `Debug` never shows contents.
 pub struct Secret<const N: usize>([u8; N]);
 

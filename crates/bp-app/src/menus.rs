@@ -30,6 +30,8 @@ pub enum Start {
     Coin,
     TypeWords,
     WordNumbers,
+    /// Words drawn by the user + coin flips for the last word's free bits.
+    FinalWord,
 }
 
 #[derive(Clone, Copy)]
@@ -107,7 +109,8 @@ static LOAD_SEED: [Entry; 6] = [
     todo_entry!(|s| s.encrypted_backup, "M10", "Milestone M10 (advanced backup)"),
 ];
 
-static TOOLS: [Entry; 6] = [
+static TOOLS: [Entry; 7] = [
+    start(|s| s.final_word, Start::FinalWord),
     todo_entry!(|s| s.address_explorer, "M2", "Milestone M2 (keys & addresses)"),
     todo_entry!(|s| s.verify_address, "M6", "Milestone M6 (signing extras)"),
     todo_entry!(|s| s.sign_message, "M6", "Milestone M6 (signing extras)"),

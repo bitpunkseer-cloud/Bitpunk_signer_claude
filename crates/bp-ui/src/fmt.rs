@@ -66,6 +66,29 @@ fn bp_hal_wipe(b: &mut [u8]) {
     }
 }
 
+impl<const N: usize> fmt::Display for Buf<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Substitute each `{}` in a translatable `template` with the next argument.
+/// Keeps word order in the string table, so translations can reorder text.
+pub fn fill<const N: usize>(template: &str, args: &[&dyn fmt::Display]) -> Buf<N> {
+    let mut out = Buf::<N>::new();
+    let mut rest = template;
+    let mut it = args.iter();
+    while let Some(pos) = rest.find("{}") {
+        out.push_str(&rest[..pos]);
+        if let Some(a) = it.next() {
+            let _ = fmt::Write::write_fmt(&mut out, format_args!("{a}"));
+        }
+        rest = &rest[pos + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// `format!`-like macro returning a `Buf<N>`.
 #[macro_export]
 macro_rules! bformat {
@@ -78,6 +101,12 @@ macro_rules! bformat {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn fill_substitutes_in_order() {
+        let b: super::Buf<32> = super::fill("{} of {} words", &[&3, &"12"]);
+        assert_eq!(b.as_str(), "3 of 12 words");
+    }
 
     #[test]
     fn formats_and_truncates() {
