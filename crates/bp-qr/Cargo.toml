@@ -6,7 +6,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+bp-crypto.workspace = true
 
 [dev-dependencies]
 qrcodegen = "1.8"
 rqrr = "0.8"
+ur = "0.4"

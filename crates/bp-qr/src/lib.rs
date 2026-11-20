@@ -4,5 +4,6 @@
 #![no_std]
 
 pub mod qr;
+pub mod ur;
 
 pub use qr::{Ecc, Mode, QrCode};
