@@ -737,7 +737,7 @@ impl App {
         } else {
             s.slip132_label
         };
-        let lab: Buf<32> = fill(tmpl, &[&prefix]);
+        let lab: Buf<32> = fill(tmpl, &[&prefix, &st.purpose()]);
         widgets::label(c, MARGIN, STATUS_H + 50, lab.as_str());
         for (row, chunk) in key.as_bytes().chunks(40).enumerate() {
             let mut line = Buf::<64>::new();

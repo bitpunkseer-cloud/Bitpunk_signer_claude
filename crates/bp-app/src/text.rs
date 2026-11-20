@@ -438,7 +438,7 @@ pub static EN: Strings = Strings {
     xpub_title: "Account xpub",
     fp_label: "FINGERPRINT",
     path_label: "PATH",
-    slip132_label: "{} (SLIP-132)",
+    slip132_label: "{} (BIP-{} / SLIP-132)",
     bip32_label: "{} (BIP-32)",
     descriptor_label: "DESCRIPTOR KEY",
     account_n: "Account {}",

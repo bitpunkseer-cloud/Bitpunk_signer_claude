@@ -64,44 +64,48 @@
   .led.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
   .led-label { font-family: var(--mono); font-size: .62rem; color: var(--legend-dim); letter-spacing: .08em; }
 
-  /* keyboard: M5Stack CardKB v1.1 (U035-B), drawn to scale on its white PCB.
-     Key positions follow the board: 4 staggered rows + a 4-key D-pad under the MCU. */
+  /* keyboard: M5Stack CardKB v1.1 with the black silicone keypad. Key centres are
+     measured from a straight-on product photo (percent of board width/height). */
   .kb { display: grid; }
   .cardkb {
-    position: relative; width: 100%; aspect-ratio: 88 / 54;
-    background: linear-gradient(160deg, #fbfbf8, #ecece6);
-    border-radius: 4.5% / 7.3%;
-    box-shadow: 0 10px 24px -10px #000a, inset 0 0 0 1px #ffffff, inset 0 -2px 0 #d6d6cf;
+    position: relative; width: 100%; aspect-ratio: 815 / 535;
+    background: radial-gradient(120% 90% at 50% 30%, #2c2d31, #1c1d20 75%);
+    border-radius: 3.2% / 4.9%;
+    box-shadow: 0 12px 26px -10px #000c, inset 0 1px 0 #ffffff14, inset 0 -2px 0 #0008;
     container-type: inline-size;
   }
-  .cardkb .hole { position: absolute; left: 3.2%; top: 4.5%; width: 4.2%; aspect-ratio: 1; border-radius: 50%;
-    background: var(--shell); box-shadow: inset 0 0 0 1px #cfcfc8; }
-  .cardkb .conn { position: absolute; left: -1.2%; top: 14%; width: 6.5%; height: 15%; background: #e9e2d0;
-    border: 1px solid #c9bfa6; border-radius: 3px; }
-  .cardkb .mcu { position: absolute; background: #1d1d1f; border-radius: 2px;
-    box-shadow: 0 0 0 2px #b9b9b2 inset, 0 0 0 1px #8a8a84; }
-  .cardkb .led { position: absolute; border-radius: 3px; background: radial-gradient(#ff8a8a, #b13f3f 60%, #5a2a2a); }
-  .cardkb .brand { position: absolute; right: 4%; bottom: 4%; font: 600 2.3cqw/1 var(--head); color: #222; letter-spacing: .02em; }
-  .ck { position: absolute; border: 0; padding: 0; background: transparent; cursor: pointer;
+  .cardkb .conn { position: absolute; left: .6%; top: 16.8%; width: 14.1%; height: 24.3%;
+    background: linear-gradient(90deg, #cfd2d4, #e6e8e9 40%, #c4c7c9); border-radius: 2px;
+    box-shadow: inset 0 0 0 1px #9ea2a5; }
+  .cardkb .conn::after { content: ""; position: absolute; right: 8%; top: 12%; width: 16%; height: 76%;
+    background: repeating-linear-gradient(180deg, #8d9194 0 12%, transparent 12% 25%); }
+  .cardkb .led { position: absolute; left: 17.9%; top: 58.6%; width: 1%; aspect-ratio: 1; border-radius: 50%;
+    background: #5a5b60; }
+  .cardkb .dpad-bg { position: absolute; left: 2.2%; top: 66%; width: 17.8%; height: 28.5%;
+    background:
+      linear-gradient(#26272b, #26272b) center / 34% 100% no-repeat,
+      linear-gradient(#26272b, #26272b) center / 100% 34% no-repeat;
+    border-radius: 6px; filter: drop-shadow(0 1px 0 #ffffff10); }
+  .ck { position: absolute; border: 0; padding: 0; cursor: pointer; aspect-ratio: 1;
+    border-radius: 16%;
+    background: linear-gradient(170deg, #34353a, #202125 70%);
+    box-shadow: inset 0 1px 0 #ffffff1c, inset 0 -2px 3px #0009, 0 2px 3px #0008;
+    display: flex; align-items: center; justify-content: center;
+    color: #ececea; font: 700 2.55cqw/1 var(--head);
     touch-action: manipulation; -webkit-user-select: none; user-select: none; }
-  .ck:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
-  .ck .sw {
-    position: absolute; left: 0; right: 0; bottom: 0; aspect-ratio: 1; border-radius: 18%;
-    background: linear-gradient(145deg, #e6e6e1, #a9a9a3);
-    box-shadow: inset 0 0 0 1px #8d8d87, 0 1px 1px #0005;
-  }
-  .ck .sw::after { content: ""; position: absolute; inset: 27%; border-radius: 50%;
-    background: radial-gradient(circle at 35% 35%, #f6dc8a, #c9a23c 60%, #8a6b1c); box-shadow: 0 0 0 1px #7a5f19; }
-  .ck.down .sw, .ck:active .sw { transform: translateY(1px); filter: brightness(.92); }
-  .ck .lg { position: absolute; left: -6%; right: -40%; top: 0; height: 42%; display: flex; align-items: flex-end;
-    font: 700 3.3cqw/1 var(--head); color: #111; white-space: nowrap; }
-  .ck .lg sup { font-size: .62em; margin-left: .08em; transform: translateY(-.35em); font-weight: 700; }
-  .ck .lg .box { font: 700 2.05cqw/1 var(--head); padding: .18em .3em; border: .17cqw solid #111; border-radius: .5cqw; }
-  .ck .lg .inv { font: 700 2.05cqw/1 var(--head); padding: .2em .32em; background: #111; color: #fff; border-radius: .5cqw; }
-  .ck .lg .small { font: 700 1.7cqw/1 var(--head); letter-spacing: .04em; }
-  .ck.latched .sw { box-shadow: inset 0 0 0 2px var(--accent), 0 0 6px var(--accent); }
-  .ck.locked .sw { box-shadow: inset 0 0 0 3px var(--accent), 0 0 10px var(--accent); }
-  .ck .arw { position: absolute; left: -30%; top: 0; font: 700 2.4cqw/1 var(--head); color: #777; }
+  .ck:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ck.down, .ck:active { transform: translateY(1px); background: linear-gradient(170deg, #2a2b2f, #19191c 70%); }
+  .ck sup { font-size: .55em; margin-left: .06em; transform: translateY(-.55em); }
+  .ck .stack { display: flex; flex-direction: column; align-items: center; line-height: .8; }
+  .ck .stack small { font-size: .6em; }
+  .ck .box { font: 700 1.35cqw/1 var(--head); padding: .25em .3em; border: .16cqw solid #ececea; border-radius: .45cqw; }
+  .ck .inv { font: 700 1.55cqw/1 var(--head); padding: .22em .3em; background: #ececea; color: #1c1d20; border-radius: .5cqw; }
+  .ck .inv.big { font-size: 1.9cqw; }
+  .ck .tiny { font: 700 1.05cqw/1 var(--head); letter-spacing: .03em; border-bottom: .16cqw solid #ececea; padding: 0 .2em .15em; }
+  .ck .icon { font-size: 3cqw; }
+  .ck.arrow { font-size: 2.1cqw; }
+  .ck.latched { box-shadow: inset 0 0 0 2px var(--accent), 0 0 6px var(--accent); }
+  .ck.locked { box-shadow: inset 0 0 0 3px var(--accent), 0 0 12px var(--accent); }
 
   .info { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .card { background: #ffffff08; border: 1px solid #ffffff10; border-radius: 12px; padding: 12px 14px; min-width: 0; }
@@ -165,16 +169,18 @@
     a: ";", s: ":", d: "`", f: "+", g: "-", h: "_", j: "=", k: "?",
     ",": "<", ".": ">",
   };
-  // [id, col, row, legend html, action]; positions in key pitches on the board
-  const PITCH_X = 100 / 15.6, PITCH_Y = 100 / 4.95, X0 = 3.05, Y0 = 0.42;
-  const K = [];
-  const row = (r, startCol, keys) => keys.forEach((k, i) => K.push([k, startCol + i, r]));
+  // Key centres in percent of the board, measured from the product photo.
+  const COL_X = c => 18.4 + c * 7.0;          // main grid, columns 0..11
+  const ROW_Y = [21.1, 43.0, 64.5, 86.0];     // rows 0..3
+  const KEY_W = 5.6, ARROW_W = 4.7, ASPECT = 815 / 535;
+  const K = []; // [id, centre x %, centre y %, width %]
+  const row = (r, startCol, keys) => keys.forEach((k, i) => K.push([k, COL_X(startCol + i), ROW_Y[r], KEY_W]));
   row(0, 0, ["Escape", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "Backspace"]);
   row(1, 0, ["Tab", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "fn"]);
   row(2, 1, ["shift", "a", "s", "d", "f", "g", "h", "j", "k", "l", "Enter"]);
   row(3, 1, ["sym", "z", "x", "c", "v", "b", "n", "m", ",", ".", " "]);
-  // D-pad diamond under the microcontroller
-  K.push(["ArrowUp", -1.0, 2.45], ["ArrowLeft", -1.95, 2.95], ["ArrowRight", -0.05, 2.95], ["ArrowDown", -1.0, 3.45]);
+  K.push(["ArrowUp", 11.0, 71.0, ARROW_W], ["ArrowLeft", 4.3, 80.4, ARROW_W],
+         ["ArrowRight", 17.8, 80.4, ARROW_W], ["ArrowDown", 11.0, 89.2, ARROW_W]);
 
   const status = document.getElementById("status");
   const canvas = document.getElementById("screen");
@@ -199,43 +205,38 @@
   const kb = document.getElementById("kb");
   const board = document.createElement("div");
   board.className = "cardkb";
-  board.innerHTML = '<span class="hole"></span><span class="conn"></span><span class="brand">www.M5Stack.com</span>';
-  const mcu = document.createElement("span");
-  mcu.className = "mcu";
-  Object.assign(mcu.style, { left: (X0 - 2.35) * PITCH_X + "%", top: (Y0 + 1.15) * PITCH_Y + "%", width: 1.45 * PITCH_X + "%", aspectRatio: "1" });
-  const led = document.createElement("span");
-  led.className = "led";
-  Object.assign(led.style, { left: (X0 + 0.05) * PITCH_X + "%", top: (Y0 + 1.95) * PITCH_Y + "%", width: 0.45 * PITCH_X + "%", aspectRatio: "1" });
-  board.append(mcu, led);
+  board.innerHTML = '<span class="conn"></span><span class="led"></span><span class="dpad-bg"></span>';
 
   const els = {};
   function legend(id) {
-    if (id === "Escape") return '<span class="box">Esc</span>';
-    if (id === "Tab") return '<span class="box">Tab</span>';
-    if (id === "Backspace") return '<span class="box">&#x232B;</span>';
-    if (id === "fn") return '<span class="inv">fn</span>';
-    if (id === "shift") return '<span class="inv">&#x21E7;</span>';
-    if (id === "sym") return '<span class="inv">Sym</span>';
-    if (id === "Enter") return '<span>&#x21B5;</span>';
-    if (id === " ") return '<span class="small">SPACE</span>';
-    if (id.startsWith("Arrow")) return "";
+    switch (id) {
+      case "Escape": return '<span class="box">Esc</span>';
+      case "Tab": return '<span class="box">Tab</span>';
+      case "Backspace": return '<span class="box">&#x232B;</span>';
+      case "fn": return '<span class="inv big">fn</span>';
+      case "shift": return '<span class="inv big">&#x2B06;</span>';
+      case "sym": return '<span class="inv">Sym</span>';
+      case "Enter": return '<span class="icon">&#x21B5;</span>';
+      case " ": return '<span class="tiny">SPACE</span>';
+      case "ArrowUp": return "&#x25B2;";
+      case "ArrowDown": return "&#x25BC;";
+      case "ArrowLeft": return "&#x25C0;";
+      case "ArrowRight": return "&#x25B6;";
+      case ",": return '<span class="stack"><small>&lt;</small>,</span>';
+      case ".": return '<span class="stack"><small>&gt;</small>.</span>';
+    }
     const face = /[a-z]/.test(id) ? id.toUpperCase() : id;
     return esc(face) + (SYM[id] ? "<sup>" + esc(SYM[id]) + "</sup>" : "");
   }
-  const ARW = { ArrowUp: "▲", ArrowDown: "▼", ArrowLeft: "◄", ArrowRight: "►" };
-  for (const [id, col, r] of K) {
+  for (const [id, cx, cy, w] of K) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "ck";
+    b.className = "ck" + (id.startsWith("Arrow") ? " arrow" : "");
     const name = { Escape: "Esc", Backspace: "Del", " ": "Space", fn: "Fn", shift: "Shift", sym: "Sym" }[id] || id;
     b.setAttribute("aria-label", name + (SYM[id] ? " / " + SYM[id] : ""));
-    Object.assign(b.style, {
-      left: (X0 + col) * PITCH_X + "%",
-      top: (Y0 + r) * PITCH_Y - (id.startsWith("Arrow") ? 0 : 0) + "%",
-      width: 0.8 * PITCH_X + "%",
-      height: (id.startsWith("Arrow") ? 0.62 : 0.98) * PITCH_Y + "%",
-    });
-    b.innerHTML = `<span class="lg">${legend(id)}</span><span class="sw"></span>` + (ARW[id] ? `<span class="arw">${ARW[id]}</span>` : "");
+    const h = w * ASPECT;
+    Object.assign(b.style, { left: cx - w / 2 + "%", top: cy - h / 2 + "%", width: w + "%" });
+    b.innerHTML = legend(id);
     b.addEventListener("pointerdown", e => { e.preventDefault(); press(id); });
     b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); press(id); } });
     els[id] = b;
