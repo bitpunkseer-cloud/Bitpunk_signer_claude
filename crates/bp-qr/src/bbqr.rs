@@ -286,6 +286,13 @@ impl<'a> Joiner<'a> {
         self.received = 0;
     }
 
+    /// Wipe and give the storage back.
+    pub fn into_store(mut self) -> &'a mut [u8] {
+        self.store[..self.used].fill(0);
+        self.used = 0;
+        core::mem::take(&mut self.store)
+    }
+
     /// (parts received, parts in the file); (0, 0) before the first part.
     pub fn progress(&self) -> (usize, usize) {
         (self.received, self.header.map_or(0, |h| h.count))
@@ -510,6 +517,13 @@ pub mod specter {
             self.slots = [(0, 0); super::MAX_JOIN_PARTS];
             self.count = 0;
             self.received = 0;
+        }
+
+        /// Wipe and give the storage back.
+        pub fn into_store(mut self) -> &'a mut [u8] {
+            self.store[..self.used].fill(0);
+            self.used = 0;
+            core::mem::take(&mut self.store)
         }
 
         pub fn progress(&self) -> (usize, usize) {

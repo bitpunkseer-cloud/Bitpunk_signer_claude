@@ -213,6 +213,12 @@ impl<'a> UrDecoder<'a> {
         *self = Self::new(store);
     }
 
+    /// Wipe and give the storage back.
+    pub fn into_store(mut self) -> &'a mut [u8] {
+        self.store.fill(0);
+        core::mem::take(&mut self.store)
+    }
+
     /// The UR type (lower case) once a part has been accepted.
     pub fn ur_type(&self) -> &str {
         core::str::from_utf8(&self.ur_type[..self.type_len]).unwrap_or("")

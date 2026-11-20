@@ -6,10 +6,13 @@
 
 pub mod address;
 pub mod base58;
+pub mod base64;
 pub mod bech32;
 pub mod bip32;
 pub mod bip39;
 pub mod entropy;
+pub mod psbt;
+pub mod qrinput;
 pub mod seedqr;
 pub mod urtypes;
 
