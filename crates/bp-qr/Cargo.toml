@@ -6,3 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+qrcodegen = "1.8"
+rqrr = "0.8"

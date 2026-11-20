@@ -1,5 +1,8 @@
-//! Bitpunk Signer QR layer.
+//! Bitpunk Signer QR layer: QR encoder, BC-UR, BBQr and Specter formats.
 //!
-//! Planned: QR encode/decode, SeedQR / CompactSeedQR, BC-UR (bytewords,
-//! fountain codes, CBOR registry types), BBQr, Specter "pM/N" format.
+//! Independent implementation; reference crates are dev-dependencies only.
 #![no_std]
+
+pub mod qr;
+
+pub use qr::{Ecc, Mode, QrCode};
