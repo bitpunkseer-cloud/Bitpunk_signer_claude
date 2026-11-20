@@ -12,3 +12,4 @@ bp-crypto.workspace = true
 qrcodegen = "1.8"
 rqrr = "0.8"
 ur = "0.4"
+miniz_oxide = "0.8"
