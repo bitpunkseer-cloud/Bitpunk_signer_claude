@@ -4,6 +4,8 @@
 //! PSBT v0/v2, output descriptors, miniscript.
 #![no_std]
 
+pub mod bip39;
+
 /// Bitcoin networks supported by the signer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Network {

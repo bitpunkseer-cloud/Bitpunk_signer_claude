@@ -7,3 +7,6 @@ repository.workspace = true
 
 [dependencies]
 bp-crypto.workspace = true
+
+[dev-dependencies]
+bip39_ref = { package = "bip39", version = "2.1" }
