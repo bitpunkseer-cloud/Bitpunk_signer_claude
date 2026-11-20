@@ -1,6 +1,8 @@
 // Extracted from BIP-32 (bitcoin/bips) by a one-off script.
-// (seed hex, [(path, xpub, xprv)])
-pub const VECTORS: &[(&str, &[(&str, &str, &str)])] = &[
+/// (path, xpub, xprv)
+pub type Chain = (&'static str, &'static str, &'static str);
+/// (seed hex, chains)
+pub const VECTORS: &[(&str, &[Chain])] = &[
     ("000102030405060708090a0b0c0d0e0f", &[
         ("m", "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8", "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi"),
         ("m/0'", "xpub68Gmy5EdvgibQVfPdqkBBCHxA5htiqg55crXYuXoQRKfDBFA1WEjWgP6LHhwBZeNK1VTsfTFUHCdrfp1bgwQ9xv5ski8PX9rL2dZXvgGDnw", "xprv9uHRZZhk6KAJC1avXpDAp4MDc3sQKNxDiPvvkX8Br5ngLNv1TxvUxt4cV1rGL5hj6KCesnDYUhd7oWgT11eZG7XnxHrnYeSvkzY7d2bhkJ7"),
