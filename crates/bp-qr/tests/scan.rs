@@ -347,3 +347,30 @@ fn frame_time() {
         );
     }
 }
+
+/// Random block patterns (QR-like statistics) and noise never panic.
+#[test]
+fn random_frames_never_panic() {
+    let mut rng = Rng(11);
+    let mut sc = Box::new(Scanner::new());
+    let mut out = vec![0u8; 512];
+    for i in 0..40 {
+        let (w, h) = (
+            160 + (rng.next() % 200) as usize,
+            120 + (rng.next() % 160) as usize,
+        );
+        let cell = 2 + (rng.next() % 6) as usize;
+        let img: Vec<u8> = (0..w * h)
+            .map(|k| {
+                let (x, y) = (k % w / cell, k / w / cell);
+                let v = ((x * 7919 + y * 104729 + i) as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 63;
+                if i % 2 == 0 {
+                    (v as u8) * 220 + 20
+                } else {
+                    (rng.next() >> 56) as u8
+                }
+            })
+            .collect();
+        let _ = sc.scan(Image::new(&img, w, h).unwrap(), &mut out);
+    }
+}

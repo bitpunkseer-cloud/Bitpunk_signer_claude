@@ -66,12 +66,14 @@ xpub QR 4형식, 주소 QR, SeedQR·Compact SeedQR + 옮겨 그리기 가이드(
 
 **결과:** 스캔 시험대 기준 98.2% (목표 95%), 결과와 결정 사항은 [QR_SCAN_BENCH.md](QR_SCAN_BENCH.md).
 
-## M4 — QR 입력
+## M4 — QR 입력 ✅ 구현 완료
 
 QR 디코더(흑백 프레임 → 데이터), UR fountain 디코딩, SeedQR 스캔, 범용 QR 형식 자동 판별,
 시뮬레이터 카메라(이미지 업로드 · QR 텍스트 붙여넣기).
 
 **완료 기준:** SeedSigner로 만든 SeedQR을 읽으면 같은 시드가 나옴.
+
+**결과:** 직접 만든 스캐너가 실사진 90.8% (rxing 86.6%, rqrr 67.9%), 스캔 시험대 기준 거리 98.2%. 상세: [M4_PLAN.md](milestones/M4_PLAN.md) 12장, [QR_SCAN_BENCH.md](QR_SCAN_BENCH.md).
 
 ## M5 — PSBT 서명 (MVP)
 
