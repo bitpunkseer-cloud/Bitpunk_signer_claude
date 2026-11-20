@@ -1,9 +1,89 @@
-//! Minimal deterministic CBOR writer (RFC 8949): unsigned integers, byte and
-//! text strings, arrays, maps, tags and booleans. Allocation-free.
+//! Minimal deterministic CBOR writer and reader (RFC 8949): unsigned
+//! integers, byte and text strings, arrays, maps, tags and booleans.
+//! Allocation-free.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     BufferTooSmall,
+    /// Truncated input or an item of an unexpected type.
+    Malformed,
+}
+
+/// Reads definite-length items from a CBOR buffer.
+pub struct Reader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    pub fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+
+    pub fn is_at_end(&self) -> bool {
+        self.pos == self.data.len()
+    }
+
+    /// Major type of the next item without consuming it.
+    pub fn peek_major(&self) -> Option<u8> {
+        self.data.get(self.pos).map(|b| b >> 5)
+    }
+
+    fn head(&mut self, major: u8) -> Result<u64, Error> {
+        let b = *self.data.get(self.pos).ok_or(Error::Malformed)?;
+        if b >> 5 != major {
+            return Err(Error::Malformed);
+        }
+        self.pos += 1;
+        let info = b & 0x1F;
+        let n = match info {
+            0..=23 => return Ok(info as u64),
+            24 => 1,
+            25 => 2,
+            26 => 4,
+            27 => 8,
+            _ => return Err(Error::Malformed), // indefinite lengths not used
+        };
+        let bytes = self.data.get(self.pos..self.pos + n).ok_or(Error::Malformed)?;
+        self.pos += n;
+        Ok(bytes.iter().fold(0u64, |a, &x| (a << 8) | x as u64))
+    }
+
+    pub fn uint(&mut self) -> Result<u64, Error> {
+        self.head(0)
+    }
+
+    pub fn bytes(&mut self) -> Result<&'a [u8], Error> {
+        let n = self.head(2)? as usize;
+        let s = self
+            .data
+            .get(self.pos..self.pos.checked_add(n).ok_or(Error::Malformed)?)
+            .ok_or(Error::Malformed)?;
+        self.pos += n;
+        Ok(s)
+    }
+
+    pub fn text(&mut self) -> Result<&'a [u8], Error> {
+        let n = self.head(3)? as usize;
+        let s = self
+            .data
+            .get(self.pos..self.pos.checked_add(n).ok_or(Error::Malformed)?)
+            .ok_or(Error::Malformed)?;
+        self.pos += n;
+        Ok(s)
+    }
+
+    pub fn array(&mut self) -> Result<u64, Error> {
+        self.head(4)
+    }
+
+    pub fn map(&mut self) -> Result<u64, Error> {
+        self.head(5)
+    }
+
+    pub fn tag(&mut self) -> Result<u64, Error> {
+        self.head(6)
+    }
 }
 
 pub struct Writer<'a> {

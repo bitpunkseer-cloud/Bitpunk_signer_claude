@@ -8,6 +8,7 @@
 use bp_crypto::Sha256;
 
 pub mod cbor;
+pub mod decoder;
 
 /// Fragment-count limit (keeps the sampler tables on the stack bounded).
 pub const MAX_FRAGMENTS: usize = 512;
