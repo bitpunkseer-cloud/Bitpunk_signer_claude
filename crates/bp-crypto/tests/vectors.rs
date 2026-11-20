@@ -157,3 +157,60 @@ fn drbg_below_is_in_range_and_deterministic() {
         assert_eq!(x, b.below(n));
     }
 }
+
+#[test]
+fn ripemd160_known_answers() {
+    use bp_crypto::Ripemd160;
+    // From the RIPEMD-160 reference page (Bosselaers).
+    let cases: [(&[u8], &str); 5] = [
+        (b"", "9c1185a5c5e9fc54612808977ee8f548b2258d31"),
+        (b"a", "0bdc9d2d256b3ee9daae347be6f4dc835a467ffe"),
+        (b"abc", "8eb208f7e05d987a9b044a8e98c6b087f15a0bfc"),
+        (b"message digest", "5d0689ef49d2fae572b881b123a85ffa21595f36"),
+        (
+            b"12345678901234567890123456789012345678901234567890123456789012345678901234567890",
+            "9b752e45573d4b39f4dbd3323cab82bf63326bfb",
+        ),
+    ];
+    for (m, d) in cases {
+        assert_eq!(hex(&Ripemd160::digest(m)), d);
+    }
+    let mut h = Ripemd160::new();
+    for _ in 0..1000 {
+        h.update(&[b'a'; 1000]);
+    }
+    assert_eq!(hex(&h.finalize()), "52783243c1697bdbe16d37f97f68f08325dc1528");
+}
+
+#[test]
+fn ripemd160_differential() {
+    use ripemd::Digest;
+    let mut rng = XorShift(0xABCDEF);
+    for len in (0..300).chain([1000, 4096]) {
+        let data = rng.bytes(len);
+        assert_eq!(
+            bp_crypto::Ripemd160::digest(&data).as_slice(),
+            ripemd::Ripemd160::digest(&data).as_slice(),
+            "len {len}"
+        );
+    }
+}
+
+#[test]
+fn hash160_and_tagged_hash() {
+    use bp_crypto::hashes::{hash160, tagged_hash};
+    // HASH160 of the BIP-84 test vector public key (m/84'/0'/0'/0/0)
+    let pk = "0330d54fd0dd420a6e5f8d3624f5f3482cae350f79d5f0753bf5beef9c2d91af3c";
+    let pk: Vec<u8> = (0..pk.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&pk[i..i + 2], 16).unwrap())
+        .collect();
+    assert_eq!(hex(&hash160(&pk)), "c0cebcd6c3d3ca8c75dc5ec62ebe55330ef910e2");
+    // tagged hash = sha256(sha256(tag)||sha256(tag)||msg)
+    let t = Sha256::digest(b"TapTweak");
+    let mut h = Sha256::new();
+    h.update(&t);
+    h.update(&t);
+    h.update(b"x");
+    assert_eq!(tagged_hash(b"TapTweak", &[b"x"]), h.finalize());
+}
