@@ -7,6 +7,7 @@
 pub mod bbqr;
 pub mod decode;
 pub mod deflate;
+pub mod inflate;
 pub mod qr;
 pub mod rs;
 pub mod scan;

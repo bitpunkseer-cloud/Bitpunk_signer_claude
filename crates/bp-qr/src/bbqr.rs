@@ -1,7 +1,8 @@
 //! BBQr (Coinkite "Better Bitcoin QR"): split a file across QR codes with an
 //! 8-character header `B$` + encoding + file type + count + index (base 36).
 //! Encodings: H = hex, 2 = Base32, Z = raw deflate (2^10 window) + Base32.
-//! Allocation-free; follows the reference `split_qrs` exactly.
+//! Splitting follows the reference `split_qrs` exactly; `Joiner` collects
+//! scanned parts in any order and decodes the file. Allocation-free.
 
 use crate::deflate;
 use crate::qr::{capacity, Ecc, Mode};
@@ -197,6 +198,226 @@ impl<'a> Bbqr<'a> {
     }
 }
 
+// ---------- joining scanned parts ----------
+
+/// Parts a joiner can hold (the format allows up to 1295).
+pub const MAX_JOIN_PARTS: usize = 512;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JoinError {
+    /// Not a BBQr part (bad header).
+    NotBbqr,
+    /// The part belongs to a different file (encoding, type or count
+    /// differ, or the same index arrived with other content).
+    Mismatch,
+    /// More parts than `MAX_JOIN_PARTS`, or the store is full.
+    TooBig,
+    /// The output buffer is too small.
+    BufferTooSmall,
+    /// Bad hex / Base32 characters or a corrupt compressed stream.
+    Corrupt,
+    /// `finish` before every part arrived.
+    Incomplete,
+}
+
+/// Header of one part.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Header {
+    pub encoding: u8,
+    pub file_type: u8,
+    pub count: usize,
+    pub index: usize,
+}
+
+fn from_base36(c: u8) -> Option<usize> {
+    match c {
+        b'0'..=b'9' => Some((c - b'0') as usize),
+        b'A'..=b'Z' => Some((c - b'A') as usize + 10),
+        _ => None,
+    }
+}
+
+/// Parse the 8-character header; `None` if `part` is not BBQr.
+pub fn parse_header(part: &[u8]) -> Option<Header> {
+    if part.len() < HEADER_LEN || &part[..2] != b"B$" {
+        return None;
+    }
+    let encoding = part[2];
+    if !matches!(encoding, b'H' | b'2' | b'Z') || !part[3].is_ascii_uppercase() {
+        return None;
+    }
+    let count = from_base36(part[4])? * 36 + from_base36(part[5])?;
+    let index = from_base36(part[6])? * 36 + from_base36(part[7])?;
+    (count >= 1 && index < count).then_some(Header {
+        encoding,
+        file_type: part[3],
+        count,
+        index,
+    })
+}
+
+/// Collects BBQr parts in any order (repeats are ignored) and decodes the
+/// file once all have arrived. Part bodies are kept in `store`.
+pub struct Joiner<'a> {
+    store: &'a mut [u8],
+    used: usize,
+    /// (offset, length + 1) per index; 0 = not received
+    slots: [(u32, u32); MAX_JOIN_PARTS],
+    header: Option<Header>,
+    received: usize,
+}
+
+impl<'a> Joiner<'a> {
+    pub fn new(store: &'a mut [u8]) -> Self {
+        Self {
+            store,
+            used: 0,
+            slots: [(0, 0); MAX_JOIN_PARTS],
+            header: None,
+            received: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.store[..self.used].fill(0);
+        self.used = 0;
+        self.slots = [(0, 0); MAX_JOIN_PARTS];
+        self.header = None;
+        self.received = 0;
+    }
+
+    /// (parts received, parts in the file); (0, 0) before the first part.
+    pub fn progress(&self) -> (usize, usize) {
+        (self.received, self.header.map_or(0, |h| h.count))
+    }
+
+    pub fn has_part(&self, index: usize) -> bool {
+        self.slots.get(index).is_some_and(|s| s.1 != 0)
+    }
+
+    pub fn header(&self) -> Option<Header> {
+        self.header
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.header.is_some_and(|h| self.received == h.count)
+    }
+
+    /// Add one scanned part; returns true when the file is complete.
+    pub fn add(&mut self, part: &[u8]) -> Result<bool, JoinError> {
+        let h = parse_header(part).ok_or(JoinError::NotBbqr)?;
+        if h.count > MAX_JOIN_PARTS {
+            return Err(JoinError::TooBig);
+        }
+        match self.header {
+            None => self.header = Some(h),
+            Some(cur) => {
+                if (cur.encoding, cur.file_type, cur.count) != (h.encoding, h.file_type, h.count) {
+                    return Err(JoinError::Mismatch);
+                }
+            }
+        }
+        let body = &part[HEADER_LEN..];
+        let (off, len1) = self.slots[h.index];
+        if len1 != 0 {
+            let old = &self.store[off as usize..off as usize + len1 as usize - 1];
+            return if old == body {
+                Ok(self.is_complete())
+            } else {
+                Err(JoinError::Mismatch)
+            };
+        }
+        let end = self.used + body.len();
+        if end > self.store.len() {
+            return Err(JoinError::TooBig);
+        }
+        self.store[self.used..end].copy_from_slice(body);
+        self.slots[h.index] = (self.used as u32, body.len() as u32 + 1);
+        self.used = end;
+        self.received += 1;
+        Ok(self.is_complete())
+    }
+
+    fn body(&self, i: usize) -> &[u8] {
+        let (off, len1) = self.slots[i];
+        &self.store[off as usize..off as usize + len1 as usize - 1]
+    }
+
+    /// Decode the complete file into `out`; `work` holds the compressed
+    /// bytes of Z-encoded files. Returns the file length.
+    pub fn finish(&self, work: &mut [u8], out: &mut [u8]) -> Result<usize, JoinError> {
+        let h = self.header.ok_or(JoinError::Incomplete)?;
+        if !self.is_complete() {
+            return Err(JoinError::Incomplete);
+        }
+        let chars = (0..h.count).flat_map(|i| self.body(i).iter().copied());
+        match h.encoding {
+            b'H' => decode_hex(chars, out),
+            b'2' => decode_base32(chars, out),
+            _ => {
+                let n = decode_base32(chars, work)?;
+                crate::inflate::inflate(&work[..n], out).map_err(|e| match e {
+                    crate::inflate::Error::OutputFull => JoinError::BufferTooSmall,
+                    _ => JoinError::Corrupt,
+                })
+            }
+        }
+    }
+}
+
+impl Drop for Joiner<'_> {
+    fn drop(&mut self) {
+        self.store[..self.used].fill(0);
+    }
+}
+
+fn decode_hex(chars: impl Iterator<Item = u8>, out: &mut [u8]) -> Result<usize, JoinError> {
+    let nib = |c: u8| match c {
+        b'0'..=b'9' => Ok(c - b'0'),
+        b'A'..=b'F' => Ok(c - b'A' + 10),
+        b'a'..=b'f' => Ok(c - b'a' + 10),
+        _ => Err(JoinError::Corrupt),
+    };
+    let mut n = 0;
+    let mut hi: Option<u8> = None;
+    for c in chars {
+        let v = nib(c)?;
+        match hi.take() {
+            None => hi = Some(v),
+            Some(h) => {
+                *out.get_mut(n).ok_or(JoinError::BufferTooSmall)? = h << 4 | v;
+                n += 1;
+            }
+        }
+    }
+    if hi.is_some() {
+        return Err(JoinError::Corrupt);
+    }
+    Ok(n)
+}
+
+fn decode_base32(chars: impl Iterator<Item = u8>, out: &mut [u8]) -> Result<usize, JoinError> {
+    let mut acc: u32 = 0;
+    let mut bits = 0;
+    let mut n = 0;
+    for c in chars {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'2'..=b'7' => c - b'2' + 26,
+            _ => return Err(JoinError::Corrupt),
+        };
+        acc = (acc << 5) | v as u32;
+        bits += 5;
+        if bits >= 8 {
+            bits -= 8;
+            *out.get_mut(n).ok_or(JoinError::BufferTooSmall)? = (acc >> bits) as u8;
+            n += 1;
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Ok(n)
+}
+
 /// Specter "pM/N" animated text: `p1of3 <chunk>`; one part is plain text.
 pub mod specter {
     /// Number of parts for `len` characters with `chunk` characters each.
@@ -241,5 +462,122 @@ pub mod specter {
             }
         }
         &buf[i..]
+    }
+
+    /// Parse `p<i>of<n> <body>` (1-based i); `None` if not a Specter part.
+    pub fn parse(part: &[u8]) -> Option<(usize, usize, &[u8])> {
+        let rest = part.strip_prefix(b"p")?;
+        let num = |s: &[u8]| -> Option<(usize, usize)> {
+            let digits = s.iter().take_while(|c| c.is_ascii_digit()).count();
+            if digits == 0 || digits > 4 {
+                return None;
+            }
+            let v = s[..digits]
+                .iter()
+                .fold(0usize, |a, &c| a * 10 + (c - b'0') as usize);
+            Some((v, digits))
+        };
+        let (i, d1) = num(rest)?;
+        let rest = rest[d1..].strip_prefix(b"of")?;
+        let (n, d2) = num(rest)?;
+        let body = rest[d2..].strip_prefix(b" ")?;
+        (i >= 1 && i <= n).then_some((i, n, body))
+    }
+
+    /// Collects Specter parts in any order and joins them.
+    pub struct Joiner<'a> {
+        store: &'a mut [u8],
+        used: usize,
+        slots: [(u32, u32); super::MAX_JOIN_PARTS],
+        count: usize,
+        received: usize,
+    }
+
+    impl<'a> Joiner<'a> {
+        pub fn new(store: &'a mut [u8]) -> Self {
+            Self {
+                store,
+                used: 0,
+                slots: [(0, 0); super::MAX_JOIN_PARTS],
+                count: 0,
+                received: 0,
+            }
+        }
+
+        pub fn reset(&mut self) {
+            self.store[..self.used].fill(0);
+            self.used = 0;
+            self.slots = [(0, 0); super::MAX_JOIN_PARTS];
+            self.count = 0;
+            self.received = 0;
+        }
+
+        pub fn progress(&self) -> (usize, usize) {
+            (self.received, self.count)
+        }
+
+        pub fn has_part(&self, index: usize) -> bool {
+            self.slots.get(index).is_some_and(|s| s.1 != 0)
+        }
+
+        pub fn is_complete(&self) -> bool {
+            self.count > 0 && self.received == self.count
+        }
+
+        /// Add one scanned part; returns true when all parts are present.
+        pub fn add(&mut self, part: &[u8]) -> Result<bool, super::JoinError> {
+            use super::JoinError;
+            let (i, n, body) = parse(part).ok_or(JoinError::NotBbqr)?;
+            if n > super::MAX_JOIN_PARTS {
+                return Err(JoinError::TooBig);
+            }
+            if self.count == 0 {
+                self.count = n;
+            } else if self.count != n {
+                return Err(JoinError::Mismatch);
+            }
+            let k = i - 1;
+            let (off, len1) = self.slots[k];
+            if len1 != 0 {
+                let old = &self.store[off as usize..off as usize + len1 as usize - 1];
+                return if old == body {
+                    Ok(self.is_complete())
+                } else {
+                    Err(JoinError::Mismatch)
+                };
+            }
+            let end = self.used + body.len();
+            if end > self.store.len() {
+                return Err(JoinError::TooBig);
+            }
+            self.store[self.used..end].copy_from_slice(body);
+            self.slots[k] = (self.used as u32, body.len() as u32 + 1);
+            self.used = end;
+            self.received += 1;
+            Ok(self.is_complete())
+        }
+
+        /// The joined text.
+        pub fn finish(&self, out: &mut [u8]) -> Result<usize, super::JoinError> {
+            if !self.is_complete() {
+                return Err(super::JoinError::Incomplete);
+            }
+            let mut n = 0;
+            for k in 0..self.count {
+                let (off, len1) = self.slots[k];
+                let body = &self.store[off as usize..off as usize + len1 as usize - 1];
+                out.get_mut(n..n + body.len())
+                    .ok_or(super::JoinError::BufferTooSmall)?
+                    .copy_from_slice(body);
+                n += body.len();
+            }
+            Ok(n)
+        }
+    }
+
+    impl Drop for Joiner<'_> {
+        fn drop(&mut self) {
+            self.store[..self.used].fill(0);
+        }
     }
 }
