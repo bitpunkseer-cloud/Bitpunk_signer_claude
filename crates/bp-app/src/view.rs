@@ -731,7 +731,13 @@ impl App {
         let n = x.encode(kv.public(net), &mut out);
         let key = core::str::from_utf8(&out[..n]).unwrap_or("");
         let prefix = &key[..4];
-        let lab: Buf<32> = fill(s.slip132_label, &[&prefix]);
+        // ypub/zpub/upub/vpub are SLIP-132; xpub/tpub are plain BIP-32
+        let tmpl = if kv == bp_bitcoin::bip32::KeyVersion::X {
+            s.bip32_label
+        } else {
+            s.slip132_label
+        };
+        let lab: Buf<32> = fill(tmpl, &[&prefix]);
         widgets::label(c, MARGIN, STATUS_H + 50, lab.as_str());
         for (row, chunk) in key.as_bytes().chunks(40).enumerate() {
             let mut line = Buf::<64>::new();
