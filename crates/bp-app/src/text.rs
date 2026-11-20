@@ -564,7 +564,7 @@ pub static EN: Strings = Strings {
     transcribe_tip: "Dark cells = filled squares on your template.",
     verify_seedqr: "Verify SeedQR",
     scan_waiting: "Waiting for the camera...",
-    scan_sim_hint: "Simulator: use Camera, Image or Paste below the screen.",
+    scan_sim_hint: "Simulator: Webcam, Image or Paste below.",
     scan_point: "Point the camera at a QR code",
     scan_status: "STATUS",
     scan_parts: "Parts {} / {}",

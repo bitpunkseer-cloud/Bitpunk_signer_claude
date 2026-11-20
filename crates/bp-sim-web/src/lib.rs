@@ -8,6 +8,10 @@
 //! | `bp_framebuffer()` | pointer to RGBA8 pixels |
 //! | `bp_key(code, ch, mods)` | key event (see `KeyEvent::from_code`) |
 //! | `bp_tick(ms) -> u32` | advance time; 1 = framebuffer changed |
+//! | `bp_frame_buffer()` | greyscale camera frame JS fills (up to 1024 x 768) |
+//! | `bp_frame(w, h)` | hand the frame to the scanner (only while scanning) |
+//! | `bp_text_buffer()` / `bp_text(len)` | pasted QR content (UTF-8, up to 8 KB) |
+//! | `bp_wants_camera() -> u32` | 1 while the scan screen is open |
 //!
 //! No wasm-bindgen: JS reads the framebuffer straight from linear memory.
 
@@ -18,9 +22,16 @@ use bp_hal::input::KeyEvent;
 use framebuffer::Framebuffer;
 use std::cell::RefCell;
 
+/// Largest camera frame the page may send (the scanner limit is 1024).
+const FRAME_W: usize = 1024;
+const FRAME_H: usize = 768;
+const TEXT_MAX: usize = 8192;
+
 struct Sim {
     app: App,
     fb: Framebuffer,
+    frame: Vec<u8>,
+    text: Vec<u8>,
 }
 
 thread_local! {
@@ -45,6 +56,8 @@ pub extern "C" fn bp_init() {
     let mut sim = Sim {
         app: App::new(&seed),
         fb: Framebuffer::new(),
+        frame: vec![0; FRAME_W * FRAME_H],
+        text: vec![0; TEXT_MAX],
     };
     sim.app.set_test_only(true); // a web page is not air-gapped
     sim.app.tick(0);
@@ -87,6 +100,43 @@ pub extern "C" fn bp_tick(ms: u32) -> u32 {
     .unwrap_or(0)
 }
 
+#[no_mangle]
+pub extern "C" fn bp_frame_buffer() -> *mut u8 {
+    with_sim(|s| s.frame.as_mut_ptr()).unwrap_or(core::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn bp_frame(width: u32, height: u32) {
+    let (w, h) = (width as usize, height as usize);
+    if w == 0 || h == 0 || w > FRAME_W || h > FRAME_H {
+        return;
+    }
+    with_sim(|s| {
+        let Sim { app, frame, .. } = s;
+        app.on_frame(&frame[..w * h], w, h);
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn bp_text_buffer() -> *mut u8 {
+    with_sim(|s| s.text.as_mut_ptr()).unwrap_or(core::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn bp_text(len: u32) {
+    let n = (len as usize).min(TEXT_MAX);
+    with_sim(|s| {
+        let Sim { app, text, .. } = s;
+        app.on_qr_text(&text[..n]);
+        text[..n].fill(0);
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn bp_wants_camera() -> u32 {
+    with_sim(|s| s.app.wants_camera() as u32).unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +148,13 @@ mod tests {
         bp_key(1, 0, 0); // Enter: leave splash
         assert_eq!(bp_tick(16), 1);
         assert_eq!(bp_tick(16), 0);
+        // main menu 1 = Scan QR; pasted text arrives through the buffer
+        bp_key(0, '1' as u32, 0);
+        assert_eq!(bp_wants_camera(), 1);
+        let addr = b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
+        unsafe { core::ptr::copy_nonoverlapping(addr.as_ptr(), bp_text_buffer(), addr.len()) };
+        bp_text(addr.len() as u32);
+        assert_eq!(bp_wants_camera(), 0); // result screen
+        bp_frame(640, 480); // ignored outside the scan screen
     }
 }

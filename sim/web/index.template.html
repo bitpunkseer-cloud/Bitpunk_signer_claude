@@ -114,6 +114,23 @@
   .card ul { margin: 0; padding-left: 1.1em; }
   kbd { font-family: var(--mono); font-size: .78rem; background: #ffffff12; border: 1px solid #ffffff1c; border-radius: 4px; padding: 0 5px; }
   .err { color: #ff6b6b; font-family: var(--mono); font-size: .85rem; }
+  /* camera input (simulator only: the device has its own camera module) */
+  .cam { background: #ffffff08; border: 1px solid #ffffff10; border-radius: 12px; padding: 12px 14px; display: grid; gap: 10px; }
+  .cam-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 14px; }
+  .cam h2 { margin: 0; font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); }
+  .cam-state { font-size: .84rem; color: var(--text-dim); }
+  .cam-state.live { color: var(--ok); }
+  .cam-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .btn { font: 600 .86rem/1 var(--head); color: var(--text); background: #ffffff10; border: 1px solid #ffffff22;
+    border-radius: 8px; padding: .55em .9em; cursor: pointer; }
+  .btn:hover { background: #ffffff18; }
+  .btn.on { border-color: var(--ok); color: var(--ok); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cam video { width: min(240px, 100%); border-radius: 8px; background: #000; }
+  .cam textarea { width: 100%; box-sizing: border-box; min-height: 5.5em; resize: vertical; font: .8rem/1.4 var(--mono);
+    color: var(--text); background: #0b0b0d; border: 1px solid #ffffff22; border-radius: 8px; padding: 8px; }
+  .cam-note { font-size: .78rem; color: var(--text-dim); margin: 0; }
+  [hidden] { display: none !important; }
   @media (prefers-reduced-motion: reduce) { .key { transition: none; } }
 </style>
 
@@ -133,6 +150,25 @@
     <div class="kb" id="kb"></div>
   </div>
 
+  <section class="cam" aria-label="Camera input for the simulator">
+    <div class="cam-head">
+      <h2>Camera input</h2>
+      <span class="cam-state" id="camState">Open Scan QR on the device: main menu 1, or Fn + Q.</span>
+    </div>
+    <div class="cam-row">
+      <button class="btn" id="camBtn" type="button">Webcam</button>
+      <label class="btn" for="camFile">Image…</label>
+      <input type="file" id="camFile" accept="image/*" hidden>
+      <button class="btn" id="pasteBtn" type="button" aria-expanded="false">Paste text</button>
+    </div>
+    <video id="camVideo" playsinline muted hidden></video>
+    <div id="pasteBox" hidden>
+      <textarea id="pasteText" spellcheck="false" placeholder="QR content. For animated codes put one part per line (UR or BBQr parts)."></textarea>
+      <div class="cam-row"><button class="btn" id="pasteSend" type="button">Send to scanner</button></div>
+    </div>
+    <p class="cam-note">Simulator only. The real device reads QR codes with its own camera module; it has no webcam, radio or USB data.</p>
+  </section>
+
   <div class="info">
     <div class="card">
       <h2>Controls</h2>
@@ -148,8 +184,8 @@
       <p>The layout of the real CardKB v1.1 (50 keys). <kbd>Sym</kbd> types the small symbol beside a letter; <kbd>⇧</kbd> once for a capital, twice for caps lock. <kbd>Fn</kbd> + <kbd>Q</kbd> opens the QR scanner.</p>
     </div>
     <div class="card">
-      <h2>This build · M2</h2>
-      <p id="status">Keys and addresses: load a seed, then Export xpub, Address explorer or Passphrase. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
+      <h2>This build · M4</h2>
+      <p id="status">QR input: Scan QR reads SeedQRs, seed words, PSBTs (UR, BBQr, Specter, Base64), keys and addresses. QR output: Export xpub, address QR, Backup SeedQR. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
     </div>
   </div>
 </div>
@@ -297,6 +333,124 @@
     const el = els[id];
     if (el) { el.classList.add("down"); setTimeout(() => el.classList.remove("down"), 110); }
   }
+
+  // ---------- camera input ----------
+  const FW = 1024, FH = 768;
+  const camState = document.getElementById("camState");
+  const camBtn = document.getElementById("camBtn");
+  const camVideo = document.getElementById("camVideo");
+  const camFile = document.getElementById("camFile");
+  const pasteBtn = document.getElementById("pasteBtn");
+  const pasteBox = document.getElementById("pasteBox");
+  const pasteText = document.getElementById("pasteText");
+  const grab = document.createElement("canvas");
+  const gctx = grab.getContext("2d", { willReadFrequently: true });
+  let stream = null, still = null, stillUntil = 0, note = "";
+
+  function scanning() { return wasm && wasm.bp_wants_camera() === 1; }
+
+  // Draw `src` (video or bitmap) fitted into at most 1024 x 768, convert to
+  // grey and hand it to the scanner.
+  function sendFrame(src, sw, sh) {
+    if (!scanning() || !sw || !sh) return;
+    const k = Math.min(1, FW / sw, FH / sh);
+    const w = Math.max(40, Math.round(sw * k)), h = Math.max(40, Math.round(sh * k));
+    grab.width = w; grab.height = h;
+    gctx.drawImage(src, 0, 0, w, h);
+    const rgba = gctx.getImageData(0, 0, w, h).data;
+    const grey = new Uint8Array(wasm.memory.buffer, wasm.bp_frame_buffer(), w * h);
+    for (let i = 0, j = 0; i < grey.length; i++, j += 4) {
+      grey[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8;
+    }
+    wasm.bp_frame(w, h);
+    if (wasm.bp_tick(0)) blit();
+  }
+
+  function updateState() {
+    const live = scanning();
+    camState.classList.toggle("live", live && !!stream);
+    if (note) { camState.textContent = note; return; }
+    camState.textContent = live
+      ? (stream ? "Scanning: hold a QR code up to the webcam." : "Scanning: send a webcam picture, an image or pasted text.")
+      : "Open Scan QR on the device: main menu 1, or Fn + Q.";
+  }
+
+  async function startWebcam() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } });
+      camVideo.srcObject = stream;
+      camVideo.hidden = false;
+      await camVideo.play();
+      camBtn.classList.add("on");
+      camBtn.textContent = "Stop webcam";
+      note = "";
+    } catch (e) {
+      stream = null;
+      note = "Webcam not available on this page (the host may block cameras). Try the GitHub Pages version, or use Image / Paste.";
+    }
+    updateState();
+  }
+
+  function stopWebcam() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    camVideo.hidden = true;
+    camBtn.classList.remove("on");
+    camBtn.textContent = "Webcam";
+    updateState();
+  }
+
+  camBtn.addEventListener("click", () => (stream ? stopWebcam() : startWebcam()));
+  camFile.addEventListener("change", async () => {
+    const f = camFile.files && camFile.files[0];
+    camFile.value = "";
+    if (!f) return;
+    try {
+      still = await createImageBitmap(f);
+      stillUntil = performance.now() + 2500; // retry the picture for a moment
+      note = scanning() ? "" : "Image loaded: open Scan QR on the device, then choose it again.";
+      if (scanning()) sendFrame(still, still.width, still.height);
+    } catch (e) {
+      note = "That file is not an image the browser can read.";
+    }
+    updateState();
+  });
+  pasteBtn.addEventListener("click", () => {
+    pasteBox.hidden = !pasteBox.hidden;
+    pasteBtn.setAttribute("aria-expanded", String(!pasteBox.hidden));
+    if (!pasteBox.hidden) pasteText.focus();
+  });
+  document.getElementById("pasteSend").addEventListener("click", () => {
+    if (!scanning()) { note = "Open Scan QR on the device first."; updateState(); return; }
+    note = "";
+    const enc = new TextEncoder();
+    const lines = pasteText.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    // one line = one QR frame (animated codes); a single line may also be
+    // multi-line text such as seed words separated by newlines
+    const frames = lines.length > 1 && lines.every(l => /^(ur:|B\$|p\d+of\d+ )/i.test(l)) ? lines : [pasteText.value.trim()];
+    for (const t of frames) {
+      if (!scanning()) break;
+      const bytes = enc.encode(t).slice(0, 8192);
+      new Uint8Array(wasm.memory.buffer, wasm.bp_text_buffer(), bytes.length).set(bytes);
+      wasm.bp_text(bytes.length);
+    }
+    if (wasm.bp_tick(0)) blit();
+    updateState();
+  });
+  // keystrokes in the paste box must not reach the device
+  pasteText.addEventListener("keydown", e => e.stopPropagation());
+
+  setInterval(() => {
+    if (!wasm) return;
+    if (scanning()) {
+      if (stream && camVideo.videoWidth) sendFrame(camVideo, camVideo.videoWidth, camVideo.videoHeight);
+      else if (still && performance.now() < stillUntil) sendFrame(still, still.width, still.height);
+    } else {
+      still = null; // a picture is used for one scan only
+      if (stream) stopWebcam(); // the camera runs only while the device is scanning
+    }
+    updateState();
+  }, 120);
 
   // Boot
   (async () => {
