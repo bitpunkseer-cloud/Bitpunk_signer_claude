@@ -246,6 +246,14 @@ impl<'a> UrEncoder<'a> {
 
     /// Write the next part as a lowercase UR string; returns its length.
     pub fn next_part(&mut self, out: &mut [u8]) -> Result<usize, Error> {
+        if !self.is_single_part() {
+            self.seq_num = self.seq_num.wrapping_add(1);
+        }
+        self.part(self.seq_num.max(1), out)
+    }
+
+    /// Write part `seq_num` (1-based) without changing the encoder state.
+    pub fn part(&self, seq_num: u32, out: &mut [u8]) -> Result<usize, Error> {
         let mut w = Writer { buf: out, len: 0 };
         w.push(b"ur:")?;
         w.push(self.ur_type.as_bytes())?;
@@ -254,16 +262,16 @@ impl<'a> UrEncoder<'a> {
             let n = bytewords_minimal(self.message, &mut w.buf[w.len..])?;
             return Ok(w.len + n);
         }
-        self.seq_num = self.seq_num.wrapping_add(1);
+        let seq = seq_num.max(1);
         let mut num = [0u8; 10];
-        w.push(fmt_u32(self.seq_num, &mut num))?;
+        w.push(fmt_u32(seq, &mut num))?;
         w.push(b"-")?;
         w.push(fmt_u32(self.seq_len as u32, &mut num))?;
         w.push(b"/")?;
 
         // mixed fragment
         let mut chosen = [false; MAX_FRAGMENTS];
-        choose_fragments(self.seq_num, self.seq_len, self.checksum, &mut chosen);
+        choose_fragments(seq, self.seq_len, self.checksum, &mut chosen);
         let mut part = [0u8; 2048 + 32];
         let fl = self.fragment_len;
         if fl > 2048 {
@@ -272,7 +280,7 @@ impl<'a> UrEncoder<'a> {
         let mut c = cbor::Writer::new(&mut part);
         let r = (|| {
             c.array(5)?;
-            c.uint(self.seq_num as u64)?;
+            c.uint(seq as u64)?;
             c.uint(self.seq_len as u64)?;
             c.uint(self.message.len() as u64)?;
             c.uint(self.checksum as u64)?;

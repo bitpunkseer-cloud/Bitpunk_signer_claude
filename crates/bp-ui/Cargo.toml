@@ -7,3 +7,4 @@ repository.workspace = true
 
 [dependencies]
 bp-hal.workspace = true
+bp-qr.workspace = true

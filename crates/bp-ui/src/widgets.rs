@@ -338,3 +338,53 @@ pub fn chips(c: &mut dyn Canvas, x: i32, y: i32, w: i32, items: &[&str], selecte
         cx += cw + 10;
     }
 }
+
+/// How a QR symbol is drawn.
+#[derive(Clone, Copy)]
+pub struct QrStyle {
+    /// Brightness of the light modules (255 = full white). Lower values
+    /// reduce glare for the scanning camera.
+    pub light: u8,
+    /// Swap dark and light (some cameras read inverted codes better).
+    pub invert: bool,
+}
+
+/// Draw `q` centred in the box (x, y, w, h) at the largest integer module
+/// size, with a 4-module quiet zone. Returns the module size in pixels.
+pub fn qr_code(c: &mut dyn Canvas, q: &bp_qr::QrCode, x: i32, y: i32, w: i32, h: i32, style: QrStyle) -> i32 {
+    let modules = q.size() as i32 + 8;
+    let px = (w.min(h) / modules).max(1);
+    let side = px * modules;
+    let ox = x + (w - side) / 2;
+    let oy = y + (h - side) / 2;
+    let light = Rgb(style.light, style.light, style.light);
+    let dark = Rgb(0, 0, 0);
+    let (bg, fg) = if style.invert {
+        (dark, light)
+    } else {
+        (light, dark)
+    };
+    c.fill_rect(ox, oy, side, side, bg);
+    for my in 0..q.size() {
+        // merge horizontal runs of dark modules into one rectangle
+        let mut mx = 0;
+        while mx < q.size() {
+            if q.get(mx, my) {
+                let start = mx;
+                while mx < q.size() && q.get(mx, my) {
+                    mx += 1;
+                }
+                c.fill_rect(
+                    ox + (start as i32 + 4) * px,
+                    oy + (my as i32 + 4) * px,
+                    (mx - start) as i32 * px,
+                    px,
+                    fg,
+                );
+            } else {
+                mx += 1;
+            }
+        }
+    }
+    px
+}

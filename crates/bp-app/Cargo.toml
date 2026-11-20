@@ -10,3 +10,4 @@ bp-hal.workspace = true
 bp-ui.workspace = true
 bp-bitcoin.workspace = true
 bp-crypto.workspace = true
+bp-qr.workspace = true

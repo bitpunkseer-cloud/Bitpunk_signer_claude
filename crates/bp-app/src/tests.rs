@@ -561,9 +561,7 @@ fn xpub_and_explorer_navigation() {
     load_abandon(&mut a);
     press(&mut a, Key::Char('2')); // Export xpub
     press(&mut a, Key::Char('1')); // Native SegWit
-    assert!(matches!(a.current(), Screen::XpubView { account: 0, .. }));
-    press(&mut a, Key::Right);
-    assert!(matches!(a.current(), Screen::XpubView { account: 1, .. }));
+    assert!(matches!(a.current(), Screen::XpubFormat { sel: 0, .. }));
     press(&mut a, Key::Esc);
     press(&mut a, Key::Esc);
     press(&mut a, Key::Char('3')); // Address explorer
@@ -650,4 +648,270 @@ fn m2_screens_render() {
     }
     a.push(Screen::PassphraseEntry { slot: 0 });
     a.render(&mut c);
+}
+
+const ABANDON_ZPUB: &str = "zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs";
+
+fn qr_text(a: &App) -> String {
+    let mut buf = [0u8; qrview::TEXT_MAX];
+    let n = a.qr.as_ref().unwrap().text(&mut buf);
+    String::from_utf8(buf[..n].to_vec()).unwrap()
+}
+
+/// Seed options > Export xpub > Native SegWit > format `n` (1-4).
+fn open_xpub_qr(a: &mut App, n: char) {
+    press(a, Key::Char('2'));
+    press(a, Key::Char('1'));
+    press(a, Key::Char(n));
+    assert!(matches!(
+        a.current(),
+        Screen::QrShow {
+            kind: QrKind::Xpub { .. }
+        }
+    ));
+}
+
+#[test]
+fn xpub_qr_formats() {
+    let mut a = app();
+    load_abandon(&mut a);
+    open_xpub_qr(&mut a, '3'); // text with key origin
+    assert_eq!(qr_text(&a), std::format!("[73c5da0a/84h/0h/0h]{ABANDON_ZPUB}"));
+    let q = a.qr.as_ref().unwrap();
+    assert_eq!(q.density, qrview::Density::Low);
+    assert_eq!(q.speed, qrview::Speed::Slow);
+    assert!(!q.is_animated());
+    press(&mut a, Key::Esc);
+    assert!(a.qr.is_none(), "closing the QR drops the session");
+
+    // UR crypto-account: payload is the registry encoding of the account
+    press(&mut a, Key::Char('1'));
+    assert!(matches!(a.current(), Screen::QrShow { .. }));
+    let t = qr_text(&a);
+    assert!(t.starts_with("UR:CRYPTO-ACCOUNT/"), "{t}");
+    let seed = a.slot(0).unwrap();
+    let net = a.settings.network;
+    let st = ScriptType::NativeSegwit;
+    let xpub = seed.account_xpub(st, net, 0).unwrap();
+    let path = st.account_path(net, 0);
+    let key = bp_bitcoin::urtypes::AccountKey {
+        xpub: &xpub,
+        master_fingerprint: seed.fingerprint,
+        path: &path,
+        script: st,
+        network: net,
+    };
+    let mut want = [0u8; 512];
+    let n = bp_bitcoin::urtypes::crypto_account(&key, &mut want).unwrap();
+    assert_eq!(a.qr.as_ref().unwrap().payload(), &want[..n]);
+    press(&mut a, Key::Esc);
+
+    press(&mut a, Key::Char('2')); // UR crypto-output
+    assert!(qr_text(&a).starts_with("UR:CRYPTO-OUTPUT/"));
+    press(&mut a, Key::Esc);
+
+    press(&mut a, Key::Char('4')); // Specter pM/N, 40 chars per part at Low
+    let q = a.qr.as_ref().unwrap();
+    assert_eq!(q.frames(), 4);
+    assert!(qr_text(&a).starts_with("p1of4 [73c5da0a/84h/0h/0h]"));
+}
+
+#[test]
+fn qr_display_controls() {
+    let mut a = app();
+    load_abandon(&mut a);
+    open_xpub_qr(&mut a, '4');
+    // animation follows the speed setting and pauses
+    a.tick(0); // clear the redraw flag from the key presses
+    assert!(!a.tick(799));
+    assert!(a.tick(1));
+    assert_eq!(a.qr.as_ref().unwrap().frame, 1);
+    assert!(qr_text(&a).starts_with("p2of4 "));
+    press(&mut a, Key::Char(' '));
+    a.tick(0);
+    assert!(!a.tick(5000));
+    press(&mut a, Key::Char(' '));
+    press(&mut a, Key::Tab);
+    assert_eq!(a.qr.as_ref().unwrap().speed, qrview::Speed::Normal);
+    // density: Low -> Medium (65 chars per part) restarts from the first part
+    press(&mut a, Key::Right);
+    let q = a.qr.as_ref().unwrap();
+    assert_eq!(q.density, qrview::Density::Medium);
+    assert_eq!((q.frames(), q.frame), (3, 0));
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Down);
+    assert_eq!(a.qr.as_ref().unwrap().light(), 175);
+    for _ in 0..10 {
+        press(&mut a, Key::Down);
+    }
+    assert_eq!(a.qr.as_ref().unwrap().light(), 95);
+    press(&mut a, Key::Char('i'));
+    assert!(a.qr.as_ref().unwrap().invert);
+    press(&mut a, Key::Enter);
+    assert!(a.qr.as_ref().unwrap().fullscreen);
+    press(&mut a, Key::Esc); // leaves full screen only
+    assert!(matches!(a.current(), Screen::QrShow { .. }));
+    assert!(!a.qr.as_ref().unwrap().fullscreen);
+
+    // account via digits keeps the viewer settings
+    press(&mut a, Key::Char('3'));
+    assert!(matches!(
+        a.current(),
+        Screen::QrShow {
+            kind: QrKind::Xpub { account: 3, .. }
+        }
+    ));
+    let q = a.qr.as_ref().unwrap();
+    assert!(q.invert && q.light() == 95);
+    assert!(qr_text(&a).contains("/84h/0h/3h]"));
+
+    // details screen, account change there follows back to the QR
+    press(&mut a, Key::Char('d'));
+    assert!(matches!(a.current(), Screen::XpubView { account: 3, .. }));
+    press(&mut a, Key::Right);
+    press(&mut a, Key::Esc);
+    assert!(matches!(
+        a.current(),
+        Screen::QrShow {
+            kind: QrKind::Xpub { account: 4, .. }
+        }
+    ));
+    press(&mut a, Key::Esc);
+    assert!(matches!(a.current(), Screen::XpubFormat { .. }));
+    assert!(a.qr.is_none());
+}
+
+#[test]
+fn seedqr_backup_and_transcribe() {
+    let mut a = app();
+    load_abandon(&mut a);
+    press(&mut a, Key::Char('5')); // Backup SeedQR
+    assert!(matches!(a.current(), Screen::SeedQrSelect { .. }));
+    press(&mut a, Key::Char('1')); // Standard
+    assert!(matches!(
+        a.current(),
+        Screen::SeedQrWarning { compact: false, .. }
+    ));
+    assert!(a.qr.is_none(), "nothing is shown before the warning is accepted");
+    press(&mut a, Key::Enter);
+    assert!(matches!(
+        a.current(),
+        Screen::QrShow {
+            kind: QrKind::SeedQr { compact: false, .. }
+        }
+    ));
+    assert_eq!(qr_text(&a), std::format!("{}0003", "0000".repeat(11)));
+    let sym = a.qr.as_ref().unwrap().qr().unwrap();
+    assert_eq!(sym.size(), 25);
+    // density keys do nothing on a static SeedQR
+    press(&mut a, Key::Right);
+    assert_eq!(a.qr.as_ref().unwrap().density, qrview::Density::Auto);
+
+    press(&mut a, Key::Char('t'));
+    assert_eq!(
+        a.current(),
+        Screen::Transcribe {
+            line: false,
+            x: 0,
+            y: 0
+        }
+    );
+    for _ in 0..10 {
+        press(&mut a, Key::Right);
+        press(&mut a, Key::Down);
+    }
+    // 25 modules = 5 x 5 blocks
+    assert_eq!(
+        a.current(),
+        Screen::Transcribe {
+            line: false,
+            x: 4,
+            y: 4
+        }
+    );
+    press(&mut a, Key::Tab);
+    for _ in 0..30 {
+        press(&mut a, Key::Down);
+    }
+    assert_eq!(
+        a.current(),
+        Screen::Transcribe {
+            line: true,
+            x: 0,
+            y: 24
+        }
+    );
+    press(&mut a, Key::Esc);
+    assert!(matches!(a.current(), Screen::QrShow { .. }));
+    press(&mut a, Key::Esc);
+    assert!(matches!(a.current(), Screen::SeedQrSelect { .. }));
+    assert!(a.qr.is_none());
+
+    press(&mut a, Key::Char('2')); // Compact
+    press(&mut a, Key::Enter);
+    let q = a.qr.as_ref().unwrap();
+    assert_eq!(q.payload(), &[0u8; 16]);
+    assert_eq!(q.qr().unwrap().size(), 21);
+    // leaving to the main menu from anywhere wipes the session
+    a.reset_to(Screen::Menu {
+        id: MenuId::Main,
+        sel: 0,
+    });
+    press(&mut a, Key::Down);
+    assert!(a.qr.is_none());
+}
+
+#[test]
+fn qr_screens_render() {
+    struct Count(usize);
+    impl bp_hal::Canvas for Count {
+        fn width(&self) -> u16 {
+            800
+        }
+        fn height(&self) -> u16 {
+            480
+        }
+        fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, _: bp_hal::Rgb) {
+            assert!(
+                x >= -8 && y >= -8 && x + w <= 808 && y + h <= 488,
+                "{x},{y} {w}x{h}"
+            );
+            self.0 += 1;
+        }
+        fn blend_pixel(&mut self, _: i32, _: i32, _: bp_hal::Rgb, _: u8) {}
+    }
+    let mut a = app();
+    load_abandon(&mut a);
+    let mut c = Count(0);
+    for f in ['1', '2', '3', '4'] {
+        open_xpub_qr(&mut a, f);
+        for _ in 0..4 {
+            a.render(&mut c);
+            press(&mut a, Key::Right);
+        }
+        press(&mut a, Key::Enter);
+        a.render(&mut c);
+        press(&mut a, Key::Esc);
+        press(&mut a, Key::Esc);
+        press(&mut a, Key::Esc);
+        press(&mut a, Key::Esc);
+    }
+    press(&mut a, Key::Char('5'));
+    a.render(&mut c);
+    press(&mut a, Key::Char('2'));
+    a.render(&mut c);
+    press(&mut a, Key::Enter);
+    a.render(&mut c);
+    press(&mut a, Key::Char('t'));
+    for _ in 0..6 {
+        a.render(&mut c);
+        press(&mut a, Key::Right);
+        press(&mut a, Key::Down);
+    }
+    press(&mut a, Key::Tab);
+    for _ in 0..25 {
+        a.render(&mut c);
+        press(&mut a, Key::Down);
+    }
+    assert!(c.0 > 1000);
 }

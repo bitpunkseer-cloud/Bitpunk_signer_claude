@@ -4,6 +4,7 @@
 
 mod flow;
 mod menus;
+mod qrview;
 mod seeds;
 mod settings;
 mod text;
@@ -37,6 +38,37 @@ pub enum Confirm {
     CancelFlow,
     /// Discard a loaded seed.
     DiscardSeed(u8),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QrKind {
+    Xpub {
+        slot: u8,
+        st: ScriptType,
+        account: u32,
+        format: XpubFormat,
+    },
+    SeedQr {
+        slot: u8,
+        compact: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum XpubFormat {
+    UrAccount,
+    UrOutput,
+    StaticText,
+    Specter,
+}
+
+impl XpubFormat {
+    pub const ALL: [XpubFormat; 4] = [
+        XpubFormat::UrAccount,
+        XpubFormat::UrOutput,
+        XpubFormat::StaticText,
+        XpubFormat::Specter,
+    ];
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,6 +162,30 @@ pub enum Screen {
         sel: u8,
     },
     NoSeed,
+    /// Choose the xpub QR format.
+    XpubFormat {
+        slot: u8,
+        st: ScriptType,
+        sel: u8,
+    },
+    /// Any QR (xpub, SeedQR) shown through the shared QR engine.
+    QrShow {
+        kind: QrKind,
+    },
+    SeedQrSelect {
+        slot: u8,
+        sel: u8,
+    },
+    SeedQrWarning {
+        slot: u8,
+        compact: bool,
+    },
+    /// SeedQR transcription guide: 5x5-module blocks or one row at a time.
+    Transcribe {
+        line: bool,
+        x: u8,
+        y: u8,
+    },
     Confirm {
         what: Confirm,
         sel: u8,
@@ -152,6 +208,8 @@ pub struct App {
     pass_in: PassInput,
     /// Seed recomputed with the typed passphrase, waiting for "Apply".
     pending: Option<seeds::SeedSlot>,
+    /// QR engine state for the QR screen on top (wiped when it closes).
+    qr: Option<qrview::QrSession>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -207,6 +265,7 @@ impl App {
             notice: None,
             pass_in: PassInput::new(),
             pending: None,
+            qr: None,
         }
     }
 
@@ -297,10 +356,29 @@ impl App {
                 });
             }
         }
+        if matches!(self.current(), Screen::QrShow { .. }) {
+            if let Some(q) = self.qr.as_mut() {
+                if q.tick(dt_ms) {
+                    self.dirty = true;
+                }
+            }
+        }
         core::mem::take(&mut self.dirty)
     }
 
     pub fn on_key(&mut self, ev: KeyEvent) {
+        self.handle_key(ev);
+        // the QR session (and any SeedQR payload) lives only while a QR
+        // screen is on the stack
+        if !self.stack[..self.depth]
+            .iter()
+            .any(|s| matches!(s, Screen::QrShow { .. }))
+        {
+            self.qr = None;
+        }
+    }
+
+    fn handle_key(&mut self, ev: KeyEvent) {
         self.dirty = true;
         if self.notice.take().is_some() {
             self.dirty = true;
@@ -411,7 +489,7 @@ impl App {
             },
             Screen::WordEntry => self.word_entry_key(ev),
             Screen::ChecksumError { sel } => self.checksum_key(sel, ev),
-            Screen::SeedOptions { slot, sel } => match pick(ev.key, sel, 5) {
+            Screen::SeedOptions { slot, sel } => match pick(ev.key, sel, 6) {
                 Pick::Move(s) => self.set_current(Screen::SeedOptions { slot, sel: s }),
                 Pick::Choose(0) => self.push(Screen::WordsWarning { view: Some(slot) }),
                 Pick::Choose(1) => self.push(Screen::ScriptSelect {
@@ -437,6 +515,7 @@ impl App {
                     }
                     self.push(Screen::PassphraseEntry { slot });
                 }
+                Pick::Choose(4) => self.push(Screen::SeedQrSelect { slot, sel: 0 }),
                 Pick::Choose(_) => self.push(Screen::Confirm {
                     what: Confirm::DiscardSeed(slot),
                     sel: 0,
@@ -479,7 +558,7 @@ impl App {
                                 sel: 0,
                             });
                         } else {
-                            self.push(Screen::XpubView { slot, st, account: 0 });
+                            self.push(Screen::XpubFormat { slot, st, sel: 0 });
                         }
                     }
                     Pick::Back => self.pop(),
@@ -497,7 +576,29 @@ impl App {
                     st,
                     account: (account + 1).min(99),
                 }),
-                Key::Esc | Key::Backspace | Key::Enter => self.pop(),
+                Key::Esc | Key::Backspace | Key::Enter => {
+                    self.pop();
+                    // details opened from an xpub QR: follow the account change
+                    if let Screen::QrShow {
+                        kind:
+                            QrKind::Xpub {
+                                slot: s,
+                                st: t,
+                                account: a,
+                                format,
+                            },
+                    } = self.current()
+                    {
+                        if a != account {
+                            self.open_qr(QrKind::Xpub {
+                                slot: s,
+                                st: t,
+                                account,
+                                format,
+                            });
+                        }
+                    }
+                }
                 _ => {}
             },
             Screen::AddressList {
@@ -614,6 +715,39 @@ impl App {
                 }
             }
             Screen::NoSeed => self.pop(),
+            Screen::XpubFormat { slot, st, sel } => match pick(ev.key, sel, 4) {
+                Pick::Move(s) => self.set_current(Screen::XpubFormat { slot, st, sel: s }),
+                Pick::Choose(s) => {
+                    let format = XpubFormat::ALL[s as usize];
+                    self.open_qr(QrKind::Xpub {
+                        slot,
+                        st,
+                        account: 0,
+                        format,
+                    });
+                }
+                Pick::Back => self.pop(),
+                Pick::None => {}
+            },
+            Screen::QrShow { kind } => self.qr_key(kind, ev),
+            Screen::SeedQrSelect { slot, sel } => match pick(ev.key, sel, 2) {
+                Pick::Move(s) => self.set_current(Screen::SeedQrSelect { slot, sel: s }),
+                Pick::Choose(s) => self.push(Screen::SeedQrWarning {
+                    slot,
+                    compact: s == 1,
+                }),
+                Pick::Back => self.pop(),
+                Pick::None => {}
+            },
+            Screen::SeedQrWarning { slot, compact } => match ev.key {
+                Key::Enter => {
+                    self.depth -= 1; // the warning is replaced by the QR
+                    self.open_qr(QrKind::SeedQr { slot, compact });
+                }
+                Key::Esc | Key::Backspace => self.pop(),
+                _ => {}
+            },
+            Screen::Transcribe { line, x, y } => self.transcribe_key(line, x, y, ev),
             Screen::Confirm { what, sel } => match pick(ev.key, sel, 2) {
                 Pick::Move(s) => self.set_current(Screen::Confirm { what, sel: s }),
                 Pick::Choose(0) | Pick::Back => self.pop(),
@@ -669,6 +803,184 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Build the QR session for `kind` and show it.
+    fn open_qr(&mut self, kind: QrKind) {
+        let net = self.settings.network;
+        let session = match kind {
+            QrKind::Xpub {
+                slot,
+                st,
+                account,
+                format,
+            } => {
+                let Some(seed) = self.slot(slot as usize) else {
+                    return;
+                };
+                let Some(xpub) = seed.account_xpub(st, net, account) else {
+                    return;
+                };
+                let path = st.account_path(net, account);
+                let key = bp_bitcoin::urtypes::AccountKey {
+                    xpub: &xpub,
+                    master_fingerprint: seed.fingerprint,
+                    path: &path,
+                    script: st,
+                    network: net,
+                };
+                let mut buf = [0u8; qrview::PAYLOAD_MAX];
+                let (fmt, n) = match format {
+                    XpubFormat::UrAccount => (
+                        qrview::Format::Ur(bp_bitcoin::urtypes::UR_ACCOUNT),
+                        bp_bitcoin::urtypes::crypto_account(&key, &mut buf).unwrap_or(0),
+                    ),
+                    XpubFormat::UrOutput => (
+                        qrview::Format::Ur(bp_bitcoin::urtypes::UR_OUTPUT),
+                        bp_bitcoin::urtypes::crypto_output(&key, &mut buf).unwrap_or(0),
+                    ),
+                    XpubFormat::StaticText | XpubFormat::Specter => {
+                        let n = view::xpub_origin_text(seed.fingerprint, &xpub, st, net, account, &mut buf);
+                        let f = if format == XpubFormat::Specter {
+                            qrview::Format::Specter
+                        } else {
+                            qrview::Format::Static
+                        };
+                        (f, n)
+                    }
+                };
+                // Jade policy: xpub exports start at low density and slow speed.
+                qrview::QrSession::new(fmt, &buf[..n], qrview::Density::Low, qrview::Speed::Slow)
+            }
+            QrKind::SeedQr { slot, compact } => {
+                let Some(m) = self.seed(slot as usize) else { return };
+                let mut digits = [0u8; bp_bitcoin::seedqr::MAX_DIGITS];
+                let mut ent = [0u8; 32];
+                let s = if compact {
+                    let n = bp_bitcoin::seedqr::compact_bytes(m, &mut ent);
+                    qrview::QrSession::new(
+                        qrview::Format::SeedCompact,
+                        &ent[..n],
+                        qrview::Density::Auto,
+                        qrview::Speed::Slow,
+                    )
+                } else {
+                    let n = bp_bitcoin::seedqr::standard_digits(m, &mut digits);
+                    qrview::QrSession::new(
+                        qrview::Format::SeedStandard,
+                        &digits[..n],
+                        qrview::Density::Auto,
+                        qrview::Speed::Slow,
+                    )
+                };
+                bp_crypto::secret::wipe(&mut digits);
+                bp_crypto::secret::wipe(&mut ent);
+                s
+            }
+        };
+        // keep the viewer's display preferences when only the content changes
+        let keep = self
+            .qr
+            .as_ref()
+            .map(|q| (q.brightness, q.invert, q.fullscreen, q.speed));
+        self.qr = session;
+        if let (Some(q), Some((b, i, f, sp))) = (self.qr.as_mut(), keep) {
+            q.brightness = b;
+            q.invert = i;
+            q.fullscreen = f;
+            q.speed = sp;
+        }
+        if self.qr.is_some() {
+            if matches!(self.current(), Screen::QrShow { .. }) {
+                self.set_current(Screen::QrShow { kind });
+            } else {
+                self.push(Screen::QrShow { kind });
+            }
+        }
+    }
+
+    fn close_qr(&mut self) {
+        self.qr = None; // wipes the payload
+        self.pop();
+    }
+
+    fn qr_key(&mut self, kind: QrKind, ev: KeyEvent) {
+        let Some(q) = self.qr.as_mut() else {
+            self.pop();
+            return;
+        };
+        let animatable = matches!(q.format, qrview::Format::Ur(_) | qrview::Format::Specter);
+        match ev.key {
+            Key::Left if animatable => q.set_density(q.density.step(-1)),
+            Key::Right if animatable => q.set_density(q.density.step(1)),
+            Key::Up => q.brightness = q.brightness.saturating_sub(1),
+            Key::Down => q.brightness = (q.brightness + 1).min(qrview::QrSession::brightness_levels() - 1),
+            Key::Tab => q.speed = q.speed.next(),
+            Key::Char(' ') => q.paused = !q.paused,
+            Key::Char('i' | 'I') => q.invert = !q.invert,
+            Key::Enter => q.fullscreen = !q.fullscreen,
+            Key::Esc if q.fullscreen => q.fullscreen = false,
+            Key::Esc | Key::Backspace => self.close_qr(),
+            Key::Char('t' | 'T') if matches!(kind, QrKind::SeedQr { .. }) => self.push(Screen::Transcribe {
+                line: false,
+                x: 0,
+                y: 0,
+            }),
+            Key::Char('d' | 'D') => {
+                if let QrKind::Xpub {
+                    slot, st, account, ..
+                } = kind
+                {
+                    self.push(Screen::XpubView { slot, st, account });
+                }
+            }
+            Key::Char(c @ '0'..='9') => {
+                if let QrKind::Xpub { slot, st, format, .. } = kind {
+                    let account = c as u32 - '0' as u32;
+                    self.open_qr(QrKind::Xpub {
+                        slot,
+                        st,
+                        account,
+                        format,
+                    });
+                }
+            }
+            _ => {}
+        }
+        self.dirty = true;
+    }
+
+    fn transcribe_key(&mut self, line: bool, x: u8, y: u8, ev: KeyEvent) {
+        let Some(size) = self.qr.as_ref().and_then(|q| q.qr()).map(|q| q.size() as u8) else {
+            self.pop();
+            return;
+        };
+        let blocks = size.div_ceil(5);
+        let (mx, my) = if line {
+            (0, size - 1)
+        } else {
+            (blocks - 1, blocks - 1)
+        };
+        let (nx, ny) = match ev.key {
+            Key::Left => (x.saturating_sub(1), y),
+            Key::Right => ((x + 1).min(mx), y),
+            Key::Up => (x, y.saturating_sub(1)),
+            Key::Down => (x, (y + 1).min(my)),
+            Key::Tab => {
+                self.set_current(Screen::Transcribe {
+                    line: !line,
+                    x: 0,
+                    y: 0,
+                });
+                return;
+            }
+            Key::Esc | Key::Backspace | Key::Enter => {
+                self.pop();
+                return;
+            }
+            _ => (x, y),
+        };
+        self.set_current(Screen::Transcribe { line, x: nx, y: ny });
     }
 
     fn confirm_cancel(&mut self) {

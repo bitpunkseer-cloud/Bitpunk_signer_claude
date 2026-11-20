@@ -2,7 +2,8 @@
 
 use crate::flow::Flow;
 use crate::menus::{self, Start};
-use crate::{App, Confirm, MenuId, Screen, GIT_HASH, VERSION};
+use crate::qrview::{Format, QrSession};
+use crate::{App, Confirm, MenuId, QrKind, Screen, GIT_HASH, VERSION};
 use bp_bitcoin::address::{self, ScriptType};
 use bp_bitcoin::bip32::XKEY_LEN;
 use bp_bitcoin::bip39::WORDS;
@@ -13,6 +14,30 @@ use bp_ui::fmt::{fill, Buf};
 use bp_ui::font::{BODY, HUGE, SMALL, TITLE};
 use bp_ui::theme;
 use bp_ui::widgets::{self, CheckState, MenuItem, MARGIN, STATUS_H};
+
+/// `[73c5da0a/84h/0h/0h]zpub...`: the account key with its origin, in the
+/// SLIP-132 form (xpub/tpub for taproot). Returns the length written.
+pub fn xpub_origin_text(
+    fp: [u8; 4],
+    xpub: &bp_bitcoin::bip32::Xpub,
+    st: ScriptType,
+    net: bp_bitcoin::Network,
+    account: u32,
+    out: &mut [u8],
+) -> usize {
+    let fp = crate::seeds::fingerprint_hex(&fp);
+    let origin = bformat!(48, "[{}/{}h/{}h/{}h]", fp, st.purpose(), net.coin_type(), account);
+    let mut key = [0u8; XKEY_LEN];
+    let n = xpub.encode(st.key_version().public(net), &mut key);
+    let o = origin.as_str().as_bytes();
+    let total = o.len() + n;
+    if out.len() < total {
+        return 0;
+    }
+    out[..o.len()].copy_from_slice(o);
+    out[o.len()..total].copy_from_slice(&key[..n]);
+    total
+}
 
 /// e.g. "73c5da0a (12)" or "73c5da0a (12) +PP" with a passphrase.
 pub fn seed_label(slot: &crate::seeds::SeedSlot) -> Buf<40> {
@@ -212,6 +237,10 @@ impl App {
                         detail: ">",
                     },
                     MenuItem {
+                        label: s.backup_seedqr,
+                        detail: ">",
+                    },
+                    MenuItem {
                         label: s.discard_seed,
                         detail: "",
                     },
@@ -299,6 +328,54 @@ impl App {
                 );
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
+            Screen::XpubFormat { slot, st, sel } => {
+                let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
+                self.status(c, label.as_str());
+                let head: Buf<48> = fill(s.words_count, &[&s.xpub_as, &st.name()]);
+                TITLE.draw(c, MARGIN, STATUS_H + 16, head.as_str(), theme::TEXT);
+                let items: [MenuItem; 4] = core::array::from_fn(|i| MenuItem {
+                    label: s.xpub_formats[i].0,
+                    detail: s.xpub_formats[i].1,
+                });
+                widgets::list(
+                    c,
+                    MARGIN,
+                    STATUS_H + 70,
+                    w - 2 * MARGIN,
+                    4 * 52,
+                    &items,
+                    sel as usize,
+                    false,
+                );
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_display), ("Esc", s.h_back)]);
+            }
+            Screen::QrShow { kind } => self.render_qr(c, kind),
+            Screen::SeedQrSelect { slot, sel } => {
+                let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
+                self.status(c, label.as_str());
+                TITLE.draw(c, MARGIN, STATUS_H + 16, s.backup_seedqr, theme::TEXT);
+                let items: [MenuItem; 2] = core::array::from_fn(|i| MenuItem {
+                    label: s.seedqr_kinds[i].0,
+                    detail: s.seedqr_kinds[i].1,
+                });
+                widgets::list(
+                    c,
+                    MARGIN,
+                    STATUS_H + 70,
+                    w - 2 * MARGIN,
+                    2 * 52,
+                    &items,
+                    sel as usize,
+                    false,
+                );
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+            }
+            Screen::SeedQrWarning { .. } => {
+                self.status(c, s.backup_seedqr);
+                widgets::message_at(c, STATUS_H + 70, s.seedqr_warn_title, theme::WARN, &s.seedqr_warn);
+                widgets::hint_bar(c, &[("Enter", s.h_display), ("Esc", s.h_back)]);
+            }
+            Screen::Transcribe { line, x, y } => self.render_transcribe(c, line, x, y),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
@@ -648,7 +725,7 @@ impl App {
             c,
             &[
                 ("Sym", "!@#"),
-                ("Tab", s.h_show),
+                ("Tab", s.h_display),
                 ("Enter", s.h_review),
                 ("Esc", s.h_back),
             ],
@@ -777,7 +854,6 @@ impl App {
                 theme::TEXT_DIM,
             );
         }
-        SMALL.draw(c, MARGIN, 410, s.qr_later, theme::TEXT_FAINT);
         widgets::hint_bar(c, &[("<>", s.h_account), ("Esc", s.h_back)]);
     }
 
@@ -880,28 +956,311 @@ impl App {
         let Some(n) = seed.address(st, net, 0, change, index, &mut out) else {
             return;
         };
-        // groups of four, eight groups per line (Coldcard-style readability)
-        for (row, chunk) in out[..n].chunks(32).enumerate() {
-            let mut line = Buf::<48>::new();
+        // QR on the left: bech32 is upper-cased so it fits alphanumeric mode
+        let mut qr_text = out;
+        if address_is_bech32(st) {
+            qr_text[..n].make_ascii_uppercase();
+        }
+        if let Ok(q) = bp_qr::QrCode::encode(&qr_text[..n], bp_qr::qr::Ecc::Medium, 1, 40, None) {
+            let style = widgets::QrStyle {
+                light: 255,
+                invert: false,
+            };
+            widgets::qr_code(c, &q, MARGIN - 8, STATUS_H + 40, 330, 330, style);
+        }
+        // groups of four, four groups per line (Coldcard-style readability)
+        let tx = MARGIN + 340;
+        for (row, chunk) in out[..n].chunks(16).enumerate() {
+            let mut line = Buf::<24>::new();
             for (i, g) in chunk.chunks(4).enumerate() {
                 if i > 0 {
                     line.push_str(" ");
                 }
                 line.push_str(core::str::from_utf8(g).unwrap_or(""));
             }
-            TITLE.draw_centered(
-                c,
-                0,
-                800,
-                STATUS_H + 70 + row as i32 * 50,
-                line.as_str(),
-                theme::TEXT,
-            );
+            TITLE.draw(c, tx, STATUS_H + 70 + row as i32 * 50, line.as_str(), theme::TEXT);
         }
         let fp = crate::seeds::fingerprint_hex(&seed.fingerprint);
         let info = bformat!(64, "{}  -  {}  -  {}", st.name(), net.name(), fp);
-        SMALL.draw_centered(c, 0, 800, 360, info.as_str(), theme::TEXT_DIM);
+        SMALL.draw(c, tx, 380, info.as_str(), theme::TEXT_DIM);
         widgets::hint_bar(c, &[("<>", s.h_prev_next), ("Esc", s.h_back)]);
+    }
+
+    fn qr_title(&self, kind: QrKind) -> Buf<64> {
+        let s = self.text();
+        match kind {
+            QrKind::Xpub { st, account, .. } => fill(
+                s.words_count,
+                &[&st.name(), &fill::<16>(s.account_n, &[&account])],
+            ),
+            QrKind::SeedQr { slot, compact } => {
+                let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
+                fill(
+                    s.words_count,
+                    &[&s.seedqr_kinds[compact as usize].0, &label.as_str()],
+                )
+            }
+        }
+    }
+
+    fn render_qr(&self, c: &mut dyn Canvas, kind: QrKind) {
+        let s = self.text();
+        let Some(q) = self.qr.as_ref() else { return };
+        let Some(sym) = q.qr() else { return };
+        let style = widgets::QrStyle {
+            light: q.light(),
+            invert: q.invert,
+        };
+        let (w, h) = (c.width() as i32, c.height() as i32);
+        if q.fullscreen {
+            c.fill_rect(0, 0, w, h, bp_hal::Rgb(0, 0, 0));
+            widgets::qr_code(c, &sym, 0, 0, w, h, style);
+            return;
+        }
+        let title = self.qr_title(kind);
+        self.status(c, title.as_str());
+        let box_h = h - STATUS_H - widgets::HINT_H - 12;
+        let px = widgets::qr_code(c, &sym, 12, STATUS_H + 6, box_h, box_h, style);
+
+        // information panel
+        let x = 12 + box_h + 24;
+        let mut y = STATUS_H + 14;
+        let row = |c: &mut dyn Canvas, y: &mut i32, label: &str, value: &str, color| {
+            widgets::label(c, x, *y, label);
+            BODY.draw(c, x, *y + 20, value, color);
+            *y += 56;
+        };
+        let fmt_name = match q.format {
+            Format::Ur(t) => bformat!(40, "UR {}", t),
+            Format::Specter => bformat!(40, "{}", s.fmt_specter),
+            Format::SeedStandard | Format::SeedCompact => {
+                bformat!(
+                    40,
+                    "{}",
+                    s.seedqr_kinds[matches!(q.format, Format::SeedCompact) as usize].0
+                )
+            }
+            Format::Static => bformat!(40, "{}", s.fmt_text),
+        };
+        row(c, &mut y, s.qr_format, fmt_name.as_str(), theme::TEXT);
+
+        let frames = q.frames();
+        let frame_s: Buf<40> = match q.format {
+            _ if frames <= 1 => fill(s.single_qr, &[]),
+            Format::Specter => fill(s.part_n, &[&(q.frame + 1), &frames]),
+            _ if q.frame as usize <= frames => fill(s.part_n, &[&q.frame, &frames]),
+            _ => fill(s.part_fountain, &[&q.frame, &frames]),
+        };
+        widgets::label(c, x, y, s.qr_frame);
+        if q.paused {
+            let pw = widgets::badge_width(s.paused);
+            widgets::badge(
+                c,
+                w - MARGIN - pw,
+                y - 4,
+                s.paused,
+                theme::WARN,
+                theme::ACCENT_TEXT,
+            );
+        }
+        BODY.draw(c, x, y + 20, frame_s.as_str(), theme::TEXT);
+        if frames > 1 {
+            // one segment per pure part; fountain parts light the whole bar
+            let bw = w - MARGIN - x;
+            let n = frames.min(bw as usize / 3).max(1) as i32;
+            let seg = bw / n;
+            let cur = match q.format {
+                Format::Specter => q.frame as i32,
+                _ => q.frame as i32 - 1,
+            };
+            for i in 0..n {
+                let on = if cur >= frames as i32 {
+                    true
+                } else {
+                    i == cur * n / frames as i32
+                };
+                let col = if on { theme::ACCENT } else { theme::SURFACE_HI };
+                c.fill_rect(x + i * seg, y + 50, (seg - 2).max(1), 4, col);
+            }
+        }
+        y += 66;
+
+        let animatable = matches!(q.format, Format::Ur(_) | Format::Specter);
+        widgets::label(c, x, y, s.qr_density_lbl);
+        let di = q.density.index();
+        for i in 0..4 {
+            let col = match (animatable, i == di) {
+                (false, _) => theme::SURFACE_HI,
+                (true, true) => theme::ACCENT,
+                (true, false) => theme::TEXT_FAINT,
+            };
+            bp_ui::draw::round_rect(c, x + i as i32 * 18, y + 26, 12, 12, 6, col);
+        }
+        BODY.draw(
+            c,
+            x + 84,
+            y + 20,
+            s.densities[di],
+            if animatable {
+                theme::TEXT
+            } else {
+                theme::TEXT_FAINT
+            },
+        );
+        y += 56;
+
+        let speed = s.speeds[q.speed as usize];
+        row(
+            c,
+            &mut y,
+            s.qr_speed,
+            speed,
+            if frames > 1 {
+                theme::TEXT
+            } else {
+                theme::TEXT_FAINT
+            },
+        );
+
+        widgets::label(c, x, y, s.qr_brightness);
+        let levels = QrSession::brightness_levels();
+        for i in 0..levels {
+            let on = i < levels - q.brightness;
+            c.fill_rect(
+                x + i as i32 * 26,
+                y + 24,
+                22,
+                14,
+                if on { theme::TEXT } else { theme::SURFACE_HI },
+            );
+        }
+        if q.invert {
+            let iw = widgets::badge_width(s.inverted);
+            widgets::badge(
+                c,
+                w - MARGIN - iw,
+                y + 18,
+                s.inverted,
+                theme::SURFACE_HI,
+                theme::TEXT,
+            );
+        }
+        y += 56;
+
+        let info: Buf<48> = fill(s.qr_info, &[&sym.version(), &sym.size(), &sym.size(), &px]);
+        row(c, &mut y, s.qr_symbol, info.as_str(), theme::TEXT_DIM);
+
+        for (i, k) in s.qr_keys.iter().enumerate() {
+            SMALL.draw(c, x, y + i as i32 * 22, k, theme::TEXT_FAINT);
+        }
+
+        match kind {
+            QrKind::Xpub { .. } => widgets::hint_bar(
+                c,
+                &[
+                    ("Enter", s.h_fullscreen),
+                    ("D", s.h_details),
+                    ("0-9", s.h_account),
+                    ("Esc", s.h_back),
+                ],
+            ),
+            QrKind::SeedQr { .. } => widgets::hint_bar(
+                c,
+                &[
+                    ("Enter", s.h_fullscreen),
+                    ("T", s.h_transcribe),
+                    ("Esc", s.h_back),
+                ],
+            ),
+        }
+    }
+
+    fn render_transcribe(&self, c: &mut dyn Canvas, line: bool, bx: u8, by: u8) {
+        let s = self.text();
+        let Some(sym) = self.qr.as_ref().and_then(|q| q.qr()) else {
+            return;
+        };
+        self.status(c, s.transcribe);
+        let n = sym.size() as i32;
+        let w = c.width() as i32;
+        let white = bp_hal::Rgb(255, 255, 255);
+        let black = bp_hal::Rgb(0, 0, 0);
+
+        // overview with the current block / row outlined
+        // smaller overview in row mode to leave room for the big strip
+        let mpx = (if line { 150 } else { 232 } / n).max(2);
+        let (ox, oy) = (MARGIN, STATUS_H + 40);
+        c.fill_rect(ox - 2 * mpx, oy - 2 * mpx, (n + 4) * mpx, (n + 4) * mpx, white);
+        for my in 0..n {
+            for mx in 0..n {
+                if sym.get(mx as usize, my as usize) {
+                    c.fill_rect(ox + mx * mpx, oy + my * mpx, mpx, mpx, black);
+                }
+            }
+        }
+        let (sx, sy, sw, sh) = if line {
+            (0, by as i32, n, 1)
+        } else {
+            let x0 = bx as i32 * 5;
+            let y0 = by as i32 * 5;
+            (x0, y0, (n - x0).min(5), (n - y0).min(5))
+        };
+        let hl = theme::ACCENT;
+        let (hx, hy, hw, hh) = (ox + sx * mpx, oy + sy * mpx, sw * mpx, sh * mpx);
+        for t in 1..3 {
+            bp_ui::draw::outline(c, hx - t, hy - t, hw + 2 * t, hh + 2 * t, hl);
+        }
+
+        let tx = ox + (n + 4) * mpx + 24;
+        if line {
+            let head: Buf<32> = fill(s.row_n, &[&(by + 1), &n]);
+            TITLE.draw(c, tx, STATUS_H + 30, head.as_str(), theme::TEXT);
+            // the row, big, with column numbers every 5 cells
+            let cell = ((w - 2 * MARGIN) / n).min(30);
+            let rx = (w - cell * n) / 2;
+            let ry = 320;
+            // grey grid behind the cells so dark cells stay visible
+            c.fill_rect(rx - 1, ry - 1, cell * n + 1, cell + 1, theme::TEXT_FAINT);
+            for mx in 0..n {
+                let dark = sym.get(mx as usize, by as usize);
+                c.fill_rect(
+                    rx + mx * cell,
+                    ry,
+                    cell - 1,
+                    cell - 1,
+                    if dark { black } else { white },
+                );
+                if mx % 5 == 0 {
+                    let num = bformat!(4, "{}", mx + 1);
+                    SMALL.draw(c, rx + mx * cell, ry - 24, num.as_str(), theme::TEXT_DIM);
+                }
+            }
+        } else {
+            let col = (b'A' + bx) as char;
+            let head: Buf<32> = fill(s.block_n, &[&col, &(by + 1)]);
+            TITLE.draw(c, tx, STATUS_H + 30, head.as_str(), theme::TEXT);
+            let cr: Buf<40> = fill(s.block_cols_rows, &[&(sx + 1), &(sx + sw), &(sy + 1), &(sy + sh)]);
+            SMALL.draw(c, tx, STATUS_H + 76, cr.as_str(), theme::TEXT_DIM);
+            // 5x5 zoom with a grid; cells outside the symbol stay empty
+            let cell = 48;
+            let (zx, zy) = (tx, STATUS_H + 110);
+            c.fill_rect(zx - 1, zy - 1, cell * 5 + 1, cell * 5 + 1, theme::TEXT_FAINT);
+            for dy in 0..5 {
+                for dx in 0..5 {
+                    let (mx, my) = (sx + dx, sy + dy);
+                    let color = if mx >= n || my >= n {
+                        theme::SURFACE
+                    } else if sym.get(mx as usize, my as usize) {
+                        black
+                    } else {
+                        white
+                    };
+                    c.fill_rect(zx + dx * cell, zy + dy * cell, cell - 1, cell - 1, color);
+                }
+            }
+        }
+        SMALL.draw(c, MARGIN, 410, s.transcribe_tip, theme::TEXT_FAINT);
+        widgets::hint_bar(c, &[("<>^v", s.h_move), ("Tab", s.h_mode), ("Esc", s.h_back)]);
     }
 
     fn render_summary(&self, c: &mut dyn Canvas) {
@@ -1172,6 +1531,10 @@ impl App {
             &[("Arrows", s.h_move), ("Enter", s.h_fix), ("Esc", s.h_cancel)],
         );
     }
+}
+
+fn address_is_bech32(st: ScriptType) -> bool {
+    matches!(st, ScriptType::NativeSegwit | ScriptType::Taproot)
 }
 
 fn start_title(app: &App, kind: Start) -> &'static str {

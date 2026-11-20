@@ -144,6 +144,7 @@ dependencies = [
  "bp-bitcoin",
  "bp-crypto",
  "bp-hal",
+ "bp-qr",
  "bp-ui",
 ]
 
@@ -196,6 +197,7 @@ name = "bp-ui"
 version = "0.0.1"
 dependencies = [
  "bp-hal",
+ "bp-qr",
 ]
 
 [[package]]
