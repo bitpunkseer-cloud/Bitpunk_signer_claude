@@ -52,7 +52,7 @@ impl App {
             Screen::Placeholder { title, phase } => {
                 self.status(c, title);
                 widgets::message_panel(c, title, &[s.not_built, "", phase, s.see_roadmap]);
-                widgets::hint_bar(c, &[("CANCEL", s.h_back)]);
+                widgets::hint_bar(c, &[("Esc", s.h_back)]);
             }
             Screen::About => {
                 self.status(c, s.about);
@@ -60,7 +60,7 @@ impl App {
                 rows[0].1 = VERSION;
                 rows[1].1 = GIT_HASH;
                 widgets::info_rows(c, &rows);
-                widgets::hint_bar(c, &[("CANCEL", s.h_back)]);
+                widgets::hint_bar(c, &[("Esc", s.h_back)]);
             }
             Screen::ChooseWords { kind, sel } => {
                 self.status(c, start_title(self, kind));
@@ -98,10 +98,7 @@ impl App {
                     sel as usize,
                     false,
                 );
-                widgets::hint_bar(
-                    c,
-                    &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.h_back)],
-                );
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
             Screen::EntropyIntro => {
                 let dice = self.flow_kind() == Some(Start::Dice);
@@ -118,12 +115,12 @@ impl App {
                     let line: Buf<48> = fill(s.intro_min, &[&f.words, &src.min_count(f.words), &unit]);
                     BODY.draw_centered(c, 0, w, 360, line.as_str(), theme::ACCENT);
                 }
-                widgets::hint_bar(c, &[("ENTER", s.h_continue), ("CANCEL", s.h_back)]);
+                widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
             }
             Screen::FinalIntro => {
                 self.status(c, s.final_title);
                 widgets::message_at(c, STATUS_H + 36, s.final_title, theme::TEXT, &s.final_intro);
-                widgets::hint_bar(c, &[("ENTER", s.h_continue), ("CANCEL", s.h_back)]);
+                widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
             }
             Screen::FinalCoins => self.render_final_coins(c),
             Screen::FinalResult => self.render_final_result(c),
@@ -137,13 +134,13 @@ impl App {
                     &s.warn_lines
                 };
                 widgets::message_at(c, STATUS_H + 60, s.warn_title, theme::WARN, lines);
-                widgets::hint_bar(c, &[("ENTER", s.show_words), ("CANCEL", s.h_back)]);
+                widgets::hint_bar(c, &[("Enter", s.show_words), ("Esc", s.h_back)]);
             }
             Screen::ShowWords { view } => self.render_words(c, view),
             Screen::QuizIntro => {
                 self.status(c, s.quiz_title);
                 widgets::message_at(c, STATUS_H + 60, s.quiz_intro_title, theme::TEXT, &s.quiz_intro);
-                widgets::hint_bar(c, &[("ENTER", s.h_continue), ("CANCEL", s.h_back)]);
+                widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
             }
             Screen::Quiz { sel } => self.render_quiz(c, sel),
             Screen::QuizFailed { sel } => {
@@ -166,7 +163,7 @@ impl App {
                     },
                 ];
                 widgets::list(c, 120, 240, w - 240, 110, &items, sel as usize, false);
-                widgets::hint_bar(c, &[("^v", s.h_move), ("ENTER", s.h_select)]);
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select)]);
             }
             Screen::SeedReady { slot, created } => {
                 self.status(c, s.seeds);
@@ -179,7 +176,7 @@ impl App {
                     theme::OK,
                     &[label.as_str(), "", s.seed_ready_1],
                 );
-                widgets::hint_bar(c, &[("ENTER", s.h_continue)]);
+                widgets::hint_bar(c, &[("Enter", s.h_continue)]);
             }
             Screen::SlotsFull => {
                 self.status(c, s.seeds);
@@ -190,7 +187,7 @@ impl App {
                     theme::WARN,
                     &[s.slots_full_1],
                 );
-                widgets::hint_bar(c, &[("CANCEL", s.h_back)]);
+                widgets::hint_bar(c, &[("Esc", s.h_back)]);
             }
             Screen::WordEntry => self.render_word_entry(c),
             Screen::ChecksumError { sel } => self.render_checksum(c, sel),
@@ -220,10 +217,7 @@ impl App {
                     },
                 ];
                 widgets::menu_list(c, &items, sel as usize);
-                widgets::hint_bar(
-                    c,
-                    &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.h_back)],
-                );
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
             Screen::PassphraseEntry { slot } => self.render_passphrase(c, slot),
             Screen::PassphraseReview { slot, sel } => self.render_pp_review(c, slot, sel),
@@ -262,10 +256,7 @@ impl App {
                     sel as usize,
                     false,
                 );
-                widgets::hint_bar(
-                    c,
-                    &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.h_back)],
-                );
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
             Screen::XpubView { slot, st, account } => self.render_xpub(c, slot, st, account),
             Screen::AddressList {
@@ -306,15 +297,12 @@ impl App {
                     sel as usize,
                     false,
                 );
-                widgets::hint_bar(
-                    c,
-                    &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.h_back)],
-                );
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
-                widgets::hint_bar(c, &[("CANCEL", s.h_back)]);
+                widgets::hint_bar(c, &[("Esc", s.h_back)]);
             }
             Screen::Confirm { what, sel } => {
                 self.status(c, s.seeds);
@@ -334,7 +322,7 @@ impl App {
                     },
                 ];
                 widgets::list(c, 200, 220, w - 400, 110, &items, sel as usize, false);
-                widgets::hint_bar(c, &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.keep)]);
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.keep)]);
             }
         }
     }
@@ -380,14 +368,11 @@ impl App {
         }
         widgets::menu_list(c, &items[..n], sel as usize);
         if menus::is_settings(id) {
-            widgets::hint_bar(c, &[("^v", s.h_move), ("<>", s.h_change), ("CANCEL", s.h_back)]);
+            widgets::hint_bar(c, &[("^v", s.h_move), ("<>", s.h_change), ("Esc", s.h_back)]);
         } else if id == MenuId::Main {
-            widgets::hint_bar(c, &[("^v", s.h_move), ("ENTER", s.h_select), ("1-9", s.h_jump)]);
+            widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("1-9", s.h_jump)]);
         } else {
-            widgets::hint_bar(
-                c,
-                &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.h_back)],
-            );
+            widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
         }
     }
 
@@ -527,16 +512,16 @@ impl App {
         let hints: &[(&str, &str)] = if dice {
             &[
                 ("1-6", s.h_roll),
-                ("DEL", s.h_undo),
-                ("ENTER", s.h_finish),
-                ("CANCEL", s.h_cancel),
+                ("Del", s.h_undo),
+                ("Enter", s.h_finish),
+                ("Esc", s.h_cancel),
             ]
         } else {
             &[
                 ("H/T", s.h_flip),
-                ("DEL", s.h_undo),
-                ("ENTER", s.h_finish),
-                ("CANCEL", s.h_cancel),
+                ("Del", s.h_undo),
+                ("Enter", s.h_finish),
+                ("Esc", s.h_cancel),
             ]
         };
         widgets::hint_bar(c, hints);
@@ -591,9 +576,9 @@ impl App {
             c,
             &[
                 ("H/T", s.h_flip),
-                ("DEL", s.h_undo),
-                ("ENTER", s.h_finish),
-                ("CANCEL", s.h_cancel),
+                ("Del", s.h_undo),
+                ("Enter", s.h_finish),
+                ("Esc", s.h_cancel),
             ],
         );
     }
@@ -622,7 +607,7 @@ impl App {
         let num: Buf<24> = fill(s.word_number, &[&(last + 1)]);
         SMALL.draw_centered(c, 0, 800, 300, num.as_str(), theme::TEXT_FAINT);
         BODY.draw_centered(c, 0, 800, 360, s.final_next, theme::TEXT_DIM);
-        widgets::hint_bar(c, &[("ENTER", s.h_continue), ("CANCEL", s.h_back)]);
+        widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
     }
 
     fn render_passphrase(&self, c: &mut dyn Canvas, slot: u8) {
@@ -662,10 +647,10 @@ impl App {
         widgets::hint_bar(
             c,
             &[
-                ("SYM", "!@#"),
-                ("TAB", s.h_show),
-                ("ENTER", s.h_review),
-                ("CANCEL", s.h_back),
+                ("Sym", "!@#"),
+                ("Tab", s.h_show),
+                ("Enter", s.h_review),
+                ("Esc", s.h_back),
             ],
         );
     }
@@ -715,7 +700,7 @@ impl App {
             },
         ];
         widgets::list(c, 200, 336, 400, 104, &items, sel as usize, false);
-        widgets::hint_bar(c, &[("^v", s.h_move), ("ENTER", s.h_select), ("CANCEL", s.edit)]);
+        widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.edit)]);
     }
 
     fn render_xpub(&self, c: &mut dyn Canvas, slot: u8, st: ScriptType, account: u32) {
@@ -787,7 +772,7 @@ impl App {
             );
         }
         SMALL.draw(c, MARGIN, 410, s.qr_later, theme::TEXT_FAINT);
-        widgets::hint_bar(c, &[("<>", s.h_account), ("CANCEL", s.h_back)]);
+        widgets::hint_bar(c, &[("<>", s.h_account), ("Esc", s.h_back)]);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -860,9 +845,9 @@ impl App {
             &[
                 ("^v", s.h_move),
                 ("<>", s.h_page),
-                ("TAB", s.h_switch),
-                ("ENTER", s.h_open),
-                ("CANCEL", s.h_back),
+                ("Tab", s.h_switch),
+                ("Enter", s.h_open),
+                ("Esc", s.h_back),
             ],
         );
     }
@@ -910,7 +895,7 @@ impl App {
         let fp = crate::seeds::fingerprint_hex(&seed.fingerprint);
         let info = bformat!(64, "{}  -  {}  -  {}", st.name(), net.name(), fp);
         SMALL.draw_centered(c, 0, 800, 360, info.as_str(), theme::TEXT_DIM);
-        widgets::hint_bar(c, &[("<>", s.h_prev_next), ("CANCEL", s.h_back)]);
+        widgets::hint_bar(c, &[("<>", s.h_prev_next), ("Esc", s.h_back)]);
     }
 
     fn render_summary(&self, c: &mut dyn Canvas) {
@@ -954,7 +939,7 @@ impl App {
             SMALL.draw(c, MARGIN, 254 + row as i32 * 20, line, theme::TEXT);
         }
         SMALL.draw(c, MARGIN, 404, s.summary_verify, theme::TEXT_FAINT);
-        widgets::hint_bar(c, &[("ENTER", s.h_continue), ("CANCEL", s.h_back)]);
+        widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
     }
 
     fn render_words(&self, c: &mut dyn Canvas, view: Option<u8>) {
@@ -993,9 +978,9 @@ impl App {
             );
         }
         if view.is_none() {
-            widgets::hint_bar(c, &[("ENTER", s.h_start_check), ("CANCEL", s.h_cancel)]);
+            widgets::hint_bar(c, &[("Enter", s.h_start_check), ("Esc", s.h_cancel)]);
         } else {
-            widgets::hint_bar(c, &[("CANCEL", s.h_back)]);
+            widgets::hint_bar(c, &[("Esc", s.h_back)]);
         }
     }
 
@@ -1031,8 +1016,8 @@ impl App {
             &[
                 ("1-4", s.h_choose),
                 ("^v", s.h_move),
-                ("ENTER", s.h_select),
-                ("CANCEL", s.h_cancel),
+                ("Enter", s.h_select),
+                ("Esc", s.h_cancel),
             ],
         );
     }
@@ -1135,9 +1120,9 @@ impl App {
                 c,
                 &[
                     ("0-9", s.h_number),
-                    ("ENTER", s.h_accept),
-                    ("DEL", s.h_delete),
-                    ("CANCEL", s.h_cancel),
+                    ("Enter", s.h_accept),
+                    ("Del", s.h_delete),
+                    ("Esc", s.h_cancel),
                 ],
             );
         } else {
@@ -1146,9 +1131,9 @@ impl App {
                 &[
                     ("a-z", s.h_type),
                     ("^v", s.h_pick),
-                    ("ENTER", s.h_accept),
-                    ("DEL", s.h_delete),
-                    ("CANCEL", s.h_cancel),
+                    ("Enter", s.h_accept),
+                    ("Del", s.h_delete),
+                    ("Esc", s.h_cancel),
                 ],
             );
         }
@@ -1178,7 +1163,7 @@ impl App {
         );
         widgets::hint_bar(
             c,
-            &[("Arrows", s.h_move), ("ENTER", s.h_fix), ("CANCEL", s.h_cancel)],
+            &[("Arrows", s.h_move), ("Enter", s.h_fix), ("Esc", s.h_cancel)],
         );
     }
 }

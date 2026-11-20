@@ -64,40 +64,44 @@
   .led.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
   .led-label { font-family: var(--mono); font-size: .62rem; color: var(--legend-dim); letter-spacing: .08em; }
 
-  /* keyboard: function cluster (QR, TAB, D-pad, CANCEL, ENTER) over a 10-column QWERTY */
-  .kb { display: grid; gap: clamp(6px, 1.2vw, 12px); }
-  .fn {
-    display: grid; gap: clamp(4px, .9vw, 8px);
-    grid-template-columns: 1.2fr .5fr 1fr 1.3fr 1fr .5fr 1.6fr;
-    grid-template-areas: "qr . left up right . cancel" "tab . left down right . enter";
+  /* keyboard: M5Stack CardKB v1.1 (U035-B), drawn to scale on its white PCB.
+     Key positions follow the board: 4 staggered rows + a 4-key D-pad under the MCU. */
+  .kb { display: grid; }
+  .cardkb {
+    position: relative; width: 100%; aspect-ratio: 88 / 54;
+    background: linear-gradient(160deg, #fbfbf8, #ecece6);
+    border-radius: 4.5% / 7.3%;
+    box-shadow: 0 10px 24px -10px #000a, inset 0 0 0 1px #ffffff, inset 0 -2px 0 #d6d6cf;
+    container-type: inline-size;
   }
-  .rows { display: grid; gap: clamp(4px, .9vw, 8px); }
-  .row { display: grid; gap: clamp(4px, .9vw, 8px); grid-template-columns: repeat(10, 1fr); }
-  .row.bottom { grid-template-columns: 2.2fr 4.6fr 1.6fr 1.6fr; }
-  .key {
-    font-family: var(--mono); font-weight: 500;
-    font-size: clamp(.62rem, 1.7vw, .95rem);
-    color: var(--legend);
-    background: linear-gradient(180deg, var(--key-top), var(--key));
-    border: 1px solid var(--key-edge);
-    border-radius: clamp(5px, 1vw, 10px);
-    min-height: clamp(30px, 5.6vw, 50px);
-    padding: 2px 4px;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation;
-    box-shadow: 0 2px 0 #00000080, inset 0 1px 0 #ffffff12;
-    position: relative; min-width: 0;
+  .cardkb .hole { position: absolute; left: 3.2%; top: 4.5%; width: 4.2%; aspect-ratio: 1; border-radius: 50%;
+    background: var(--shell); box-shadow: inset 0 0 0 1px #cfcfc8; }
+  .cardkb .conn { position: absolute; left: -1.2%; top: 14%; width: 6.5%; height: 15%; background: #e9e2d0;
+    border: 1px solid #c9bfa6; border-radius: 3px; }
+  .cardkb .mcu { position: absolute; background: #1d1d1f; border-radius: 2px;
+    box-shadow: 0 0 0 2px #b9b9b2 inset, 0 0 0 1px #8a8a84; }
+  .cardkb .led { position: absolute; border-radius: 3px; background: radial-gradient(#ff8a8a, #b13f3f 60%, #5a2a2a); }
+  .cardkb .brand { position: absolute; right: 4%; bottom: 4%; font: 600 2.3cqw/1 var(--head); color: #222; letter-spacing: .02em; }
+  .ck { position: absolute; border: 0; padding: 0; background: transparent; cursor: pointer;
+    touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  .ck:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+  .ck .sw {
+    position: absolute; left: 0; right: 0; bottom: 0; aspect-ratio: 1; border-radius: 18%;
+    background: linear-gradient(145deg, #e6e6e1, #a9a9a3);
+    box-shadow: inset 0 0 0 1px #8d8d87, 0 1px 1px #0005;
   }
-  .key .sym { position: absolute; top: 2px; right: 5px; color: var(--accent); font-size: .68em; line-height: 1; }
-  .key .sub { display: block; color: var(--legend-dim); font-size: .62em; line-height: 1; margin-top: 2px; }
-  .key .stack { display: flex; flex-direction: column; align-items: center; }
-  .key.ctl { font-family: var(--head); font-weight: 700; letter-spacing: .04em; font-size: clamp(.55rem, 1.4vw, .82rem); }
-  .key.go { background: linear-gradient(180deg, #33281a, #2a2015); border-color: #5a4022; color: var(--accent); }
-  .key.arrow { color: var(--accent); font-size: clamp(.7rem, 2vw, 1.1rem); }
-  .key:active, .key.down { transform: translateY(1px); box-shadow: 0 1px 0 #00000080, inset 0 1px 0 #ffffff08; background: var(--key); }
-  .key.latched { border-color: var(--accent); color: var(--accent); }
-  .key.locked { border-color: var(--accent); background: #2a2015; color: var(--accent); }
-  .key:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ck .sw::after { content: ""; position: absolute; inset: 27%; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #f6dc8a, #c9a23c 60%, #8a6b1c); box-shadow: 0 0 0 1px #7a5f19; }
+  .ck.down .sw, .ck:active .sw { transform: translateY(1px); filter: brightness(.92); }
+  .ck .lg { position: absolute; left: -6%; right: -40%; top: 0; height: 42%; display: flex; align-items: flex-end;
+    font: 700 3.3cqw/1 var(--head); color: #111; white-space: nowrap; }
+  .ck .lg sup { font-size: .62em; margin-left: .08em; transform: translateY(-.35em); font-weight: 700; }
+  .ck .lg .box { font: 700 2.05cqw/1 var(--head); padding: .18em .3em; border: .17cqw solid #111; border-radius: .5cqw; }
+  .ck .lg .inv { font: 700 2.05cqw/1 var(--head); padding: .2em .32em; background: #111; color: #fff; border-radius: .5cqw; }
+  .ck .lg .small { font: 700 1.7cqw/1 var(--head); letter-spacing: .04em; }
+  .ck.latched .sw { box-shadow: inset 0 0 0 2px var(--accent), 0 0 6px var(--accent); }
+  .ck.locked .sw { box-shadow: inset 0 0 0 3px var(--accent), 0 0 10px var(--accent); }
+  .ck .arw { position: absolute; left: -30%; top: 0; font: 700 2.4cqw/1 var(--head); color: #777; }
 
   .info { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .card { background: #ffffff08; border: 1px solid #ffffff10; border-radius: 12px; padding: 12px 14px; min-width: 0; }
@@ -129,15 +133,15 @@
     <div class="card">
       <h2>Controls</h2>
       <ul>
-        <li>D-pad moves, <kbd>ENTER</kbd> selects, <kbd>CANCEL</kbd> goes back</li>
-        <li><kbd>1</kbd>–<kbd>6</kbd> dice, <kbd>H</kbd>/<kbd>T</kbd> coin, <kbd>DEL</kbd> undo</li>
+        <li>Arrow keys (bottom left) move, <kbd>Enter</kbd> selects, <kbd>Esc</kbd> goes back</li>
+        <li><kbd>1</kbd>–<kbd>6</kbd> dice, <kbd>H</kbd>/<kbd>T</kbd> coin, <kbd>Del</kbd> undo</li>
         <li>Type 4 letters of a word; it completes itself</li>
-        <li>Your computer keyboard works too (Esc = CANCEL)</li>
+        <li>Your computer keyboard works too</li>
       </ul>
     </div>
     <div class="card">
-      <h2>Keyboard</h2>
-      <p>No Ctrl, Alt or F-keys. <kbd>SYM</kbd> types the orange symbol on a key; <kbd>SHIFT</kbd> once for a capital, twice for CAPS. <kbd>QR</kbd> opens the scanner.</p>
+      <h2>Keyboard · M5Stack CardKB v1.1</h2>
+      <p>The layout of the real CardKB v1.1 (50 keys). <kbd>Sym</kbd> types the small symbol beside a letter; <kbd>⇧</kbd> once for a capital, twice for caps lock. <kbd>Fn</kbd> + <kbd>Q</kbd> opens the QR scanner.</p>
     </div>
     <div class="card">
       <h2>This build · M2</h2>
@@ -154,21 +158,31 @@
   const SPECIAL = { Enter: 1, Escape: 2, Backspace: 3, Delete: 4, Tab: 5, ArrowUp: 6, ArrowDown: 7, ArrowLeft: 8, ArrowRight: 9,
                     Home: 8, PageUp: 6, PageDown: 7, End: 9, Qr: 10 };
 
-  // SYM layer: every printable ASCII symbol is reachable for passphrases.
+  // CardKB v1.1 key map (firmware KeyMap table): Sym layer per key.
   const SYM = {
     "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
-    q: "~", w: "`", e: "+", r: "=", t: "[", y: "]", u: "{", i: "}", o: "<", p: ">",
-    a: "-", s: "_", d: ":", f: ";", g: "\"", h: "?", j: "\\", k: "|",
+    q: "{", w: "}", e: "[", r: "]", t: "/", y: "\\", u: "|", i: "~", o: "'", p: "\"",
+    a: ";", s: ":", d: "`", f: "+", g: "-", h: "_", j: "=", k: "?",
+    ",": "<", ".": ">",
   };
-  const ROWS = ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,./"];
+  // [id, col, row, legend html, action]; positions in key pitches on the board
+  const PITCH_X = 100 / 15.6, PITCH_Y = 100 / 4.95, X0 = 3.05, Y0 = 0.42;
+  const K = [];
+  const row = (r, startCol, keys) => keys.forEach((k, i) => K.push([k, startCol + i, r]));
+  row(0, 0, ["Escape", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "Backspace"]);
+  row(1, 0, ["Tab", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "fn"]);
+  row(2, 1, ["shift", "a", "s", "d", "f", "g", "h", "j", "k", "l", "Enter"]);
+  row(3, 1, ["sym", "z", "x", "c", "v", "b", "n", "m", ",", ".", " "]);
+  // D-pad diamond under the microcontroller
+  K.push(["ArrowUp", -1.0, 2.45], ["ArrowLeft", -1.95, 2.95], ["ArrowRight", -0.05, 2.95], ["ArrowDown", -1.0, 3.45]);
 
   const status = document.getElementById("status");
   const canvas = document.getElementById("screen");
   const ctx = canvas.getContext("2d");
   let wasm, img, W, H;
-  // one-shot SHIFT / SYM; SHIFT twice = CAPS lock
-  const mode = { shift: false, caps: false, sym: false };
-  let lastShift = 0;
+  // one-shot modifiers; double tap locks (CardKB behaviour)
+  const mode = { shift: 0, sym: 0, fn: 0 }; // 0 off, 1 one-shot, 2 locked
+  const lastTap = { shift: 0, sym: 0, fn: 0 };
 
   function blit() {
     const ptr = wasm.bp_framebuffer();
@@ -180,86 +194,89 @@
     wasm.bp_key(code, ch, 0);
     if (wasm.bp_tick(0)) blit();
   }
-
-  const kb = document.getElementById("kb");
-  const els = {};
-  function key(html, label, onPress, cls = "", area = "") {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "key " + cls;
-    b.innerHTML = html;
-    b.setAttribute("aria-label", label);
-    if (area) b.style.gridArea = area;
-    b.addEventListener("pointerdown", e => { e.preventDefault(); onPress(); });
-    b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPress(); } });
-    return b;
-  }
   const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  // Function cluster
-  const fn = document.createElement("div");
-  fn.className = "fn";
-  const special = (name) => () => { send(SPECIAL[name], 0); clearOneShot(); };
-  fn.append(
-    els.Qr = key("QR", "QR scan", special("Qr"), "ctl", "qr"),
-    els.Tab = key("TAB", "Tab", special("Tab"), "ctl", "tab"),
-    els.ArrowLeft = key("◄", "Left", special("ArrowLeft"), "arrow", "left"),
-    els.ArrowUp = key("▲", "Up", special("ArrowUp"), "arrow", "up"),
-    els.ArrowDown = key("▼", "Down", special("ArrowDown"), "arrow", "down"),
-    els.ArrowRight = key("►", "Right", special("ArrowRight"), "arrow", "right"),
-    els.Escape = key("CANCEL", "Cancel", special("Escape"), "ctl", "cancel"),
-    els.Enter = key("ENTER", "Enter", special("Enter"), "ctl go", "enter"),
-  );
-  kb.appendChild(fn);
+  const kb = document.getElementById("kb");
+  const board = document.createElement("div");
+  board.className = "cardkb";
+  board.innerHTML = '<span class="hole"></span><span class="conn"></span><span class="brand">www.M5Stack.com</span>';
+  const mcu = document.createElement("span");
+  mcu.className = "mcu";
+  Object.assign(mcu.style, { left: (X0 - 2.35) * PITCH_X + "%", top: (Y0 + 1.15) * PITCH_Y + "%", width: 1.45 * PITCH_X + "%", aspectRatio: "1" });
+  const led = document.createElement("span");
+  led.className = "led";
+  Object.assign(led.style, { left: (X0 + 0.05) * PITCH_X + "%", top: (Y0 + 1.95) * PITCH_Y + "%", width: 0.45 * PITCH_X + "%", aspectRatio: "1" });
+  board.append(mcu, led);
 
-  // QWERTY rows
-  const rows = document.createElement("div");
-  rows.className = "rows";
-  for (const r of ROWS) {
-    const row = document.createElement("div");
-    row.className = "row";
-    for (const c of r) {
-      const sym = SYM[c];
-      const face = /[a-z]/.test(c) ? c.toUpperCase() : c;
-      const html = `<span>${esc(face)}</span>` + (sym ? `<span class="sym">${esc(sym)}</span>` : "");
-      const b = key(html, face + (sym ? " / " + sym : ""), () => typeChar(c));
-      els["c:" + c] = b;
-      row.appendChild(b);
-    }
-    rows.appendChild(row);
+  const els = {};
+  function legend(id) {
+    if (id === "Escape") return '<span class="box">Esc</span>';
+    if (id === "Tab") return '<span class="box">Tab</span>';
+    if (id === "Backspace") return '<span class="box">&#x232B;</span>';
+    if (id === "fn") return '<span class="inv">fn</span>';
+    if (id === "shift") return '<span class="inv">&#x21E7;</span>';
+    if (id === "sym") return '<span class="inv">Sym</span>';
+    if (id === "Enter") return '<span>&#x21B5;</span>';
+    if (id === " ") return '<span class="small">SPACE</span>';
+    if (id.startsWith("Arrow")) return "";
+    const face = /[a-z]/.test(id) ? id.toUpperCase() : id;
+    return esc(face) + (SYM[id] ? "<sup>" + esc(SYM[id]) + "</sup>" : "");
   }
-  const bottom = document.createElement("div");
-  bottom.className = "row bottom";
-  els.shift = key('<span class="stack">SHIFT<span class="sub">CAPS</span></span>', "Shift (twice for caps lock)", pressShift, "ctl");
-  els.space = key("", "Space", () => typeChar(" "));
-  els.sym = key("SYM", "Symbols", () => { mode.sym = !mode.sym; paintModes(); }, "ctl");
-  els.Backspace = key("DEL", "Delete", special("Backspace"), "ctl");
-  bottom.append(els.shift, els.space, els.sym, els.Backspace);
-  rows.appendChild(bottom);
-  kb.appendChild(rows);
+  const ARW = { ArrowUp: "▲", ArrowDown: "▼", ArrowLeft: "◄", ArrowRight: "►" };
+  for (const [id, col, r] of K) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ck";
+    const name = { Escape: "Esc", Backspace: "Del", " ": "Space", fn: "Fn", shift: "Shift", sym: "Sym" }[id] || id;
+    b.setAttribute("aria-label", name + (SYM[id] ? " / " + SYM[id] : ""));
+    Object.assign(b.style, {
+      left: (X0 + col) * PITCH_X + "%",
+      top: (Y0 + r) * PITCH_Y - (id.startsWith("Arrow") ? 0 : 0) + "%",
+      width: 0.8 * PITCH_X + "%",
+      height: (id.startsWith("Arrow") ? 0.62 : 0.98) * PITCH_Y + "%",
+    });
+    b.innerHTML = `<span class="lg">${legend(id)}</span><span class="sw"></span>` + (ARW[id] ? `<span class="arw">${ARW[id]}</span>` : "");
+    b.addEventListener("pointerdown", e => { e.preventDefault(); press(id); });
+    b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); press(id); } });
+    els[id] = b;
+    board.appendChild(b);
+  }
+  kb.appendChild(board);
 
-  function pressShift() {
+  function paintModes() {
+    for (const m of ["shift", "sym", "fn"]) {
+      els[m].classList.toggle("latched", mode[m] === 1);
+      els[m].classList.toggle("locked", mode[m] === 2);
+    }
+  }
+  function tapModifier(m) {
     const now = performance.now();
-    if (mode.caps) { mode.caps = false; mode.shift = false; }
-    else if (mode.shift && now - lastShift < 600) { mode.caps = true; mode.shift = false; }
-    else { mode.shift = !mode.shift; }
-    lastShift = now;
+    if (mode[m] === 2) mode[m] = 0;
+    else if (mode[m] === 1 && now - lastTap[m] < 600) mode[m] = 2;
+    else mode[m] = mode[m] ? 0 : 1;
+    for (const o of ["shift", "sym", "fn"]) if (o !== m && mode[o] === 1) mode[o] = 0;
+    lastTap[m] = now;
     paintModes();
   }
-  function paintModes() {
-    els.shift.classList.toggle("latched", mode.shift);
-    els.shift.classList.toggle("locked", mode.caps);
-    els.sym.classList.toggle("latched", mode.sym);
+  function release() {
+    let changed = false;
+    for (const m of ["shift", "sym", "fn"]) if (mode[m] === 1) { mode[m] = 0; changed = true; }
+    if (changed) paintModes();
   }
-  function clearOneShot() {
-    if (mode.shift || mode.sym) { mode.shift = false; mode.sym = false; paintModes(); }
-  }
-  function typeChar(c) {
-    let ch = c;
-    if (mode.sym && SYM[c]) ch = SYM[c];
-    else if ((mode.shift !== mode.caps) && /[a-z]/.test(c)) ch = c.toUpperCase();
+  function press(id) {
+    if (id === "shift" || id === "sym" || id === "fn") { tapModifier(id); return; }
+    if (mode.fn) {
+      // Fn layer (our firmware): Fn+Q opens the QR scanner
+      if (id === "q") send(SPECIAL.Qr, 0);
+      release();
+      return;
+    }
+    if (SPECIAL[id] !== undefined) { send(SPECIAL[id], 0); release(); return; }
+    let ch = id;
+    if (mode.sym && SYM[id]) ch = SYM[id];
+    else if (mode.shift && /[a-z]/.test(id)) ch = id.toUpperCase();
     send(0, ch.codePointAt(0));
-    clearOneShot();
+    release();
   }
 
   // Computer keyboard
@@ -271,12 +288,12 @@
   });
   function flash(k) {
     const alias = { PageUp: "ArrowUp", PageDown: "ArrowDown", Home: "ArrowLeft", End: "ArrowRight", Delete: "Backspace" };
-    let el = els[alias[k] || k];
-    if (!el && k === " ") el = els.space;
-    if (!el && k.length === 1) {
+    let id = alias[k] || k;
+    if (!els[id] && k.length === 1) {
       const lower = k.toLowerCase();
-      el = els["c:" + lower] || els["c:" + (Object.keys(SYM).find(x => SYM[x] === k) || "")];
+      id = els[lower] ? lower : (Object.keys(SYM).find(x => SYM[x] === k) || "");
     }
+    const el = els[id];
     if (el) { el.classList.add("down"); setTimeout(() => el.classList.remove("down"), 110); }
   }
 

@@ -51,7 +51,7 @@ tools/                      폰트 생성 등 개발 도구
 | `Rng` | 하드웨어 난수 | `crypto.getRandomValues` | TRNG 주변장치 |
 
 - 화면 기준 해상도: **800×480 (5:3 가로형)** — 참고 기기들의 5~7" 가로형 패널에 맞춘 값. Phase 4 보드 선정 시 확정.
-- 키보드 배열: Coldcard Q 방식의 52키 (HARDWARE_REQUIREMENTS.md 1.1). D-pad, CANCEL(=Esc), ENTER, QR, TAB, SHIFT/CAPS, SYM, DEL.
+- 키보드 배열: M5Stack CardKB v1.1 실물 배열 50키 (HARDWARE_REQUIREMENTS.md 1.1). 방향키 4개, Esc, Enter, Del, Tab, Shift, Sym, Fn. QR 스캐너는 Fn+Q.
 
 ## 4. UI / 키보드 UX 규칙
 
@@ -59,9 +59,9 @@ tools/                      폰트 생성 등 개발 도구
 |---|---|
 | ▲ ▼ | 목록 이동 |
 | ◄ ► | 값 변경, 페이지 이동 |
-| ENTER | 선택/확인 |
-| CANCEL / DEL(빈 입력일 때) | 뒤로 |
-| QR | 메뉴 어디서든 스캐너 열기 |
+| Enter | 선택/확인 |
+| Esc / Del(빈 입력일 때) | 뒤로 |
+| Fn+Q | 메뉴 어디서든 스캐너 열기 |
 | 1~9 | 메뉴 항목 바로 선택 |
 | 문자 키 | 텍스트 입력 (니모닉, 패스프레이즈 등) |
 

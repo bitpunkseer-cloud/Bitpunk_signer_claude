@@ -2,10 +2,10 @@
 
 /// Keys on the device keyboard.
 ///
-/// Layout (Coldcard-Q-style, see docs/HARDWARE_REQUIREMENTS.md): a function
-/// cluster with QR, TAB, a D-pad, CANCEL and ENTER above a 10-column QWERTY
-/// with SHIFT/CAPS, SPACE, SYM and DEL. CANCEL is reported as `Esc`, DEL as
-/// `Backspace`. SHIFT and SYM are resolved by the keyboard driver into `Char`.
+/// Layout: M5Stack CardKB v1.1 (see docs/HARDWARE_REQUIREMENTS.md): Esc, digits,
+/// Del / Tab, QWERTY, Fn / Shift, A-L, Enter / Sym, Z-M , . Space, plus a
+/// four-key D-pad. Shift and Sym are resolved by the keyboard driver into
+/// `Char`; Fn+Q is reported as `Qr`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
     /// Printable character, already shifted (e.g. 'A', '!', ' ').
@@ -21,7 +21,7 @@ pub enum Key {
     Right,
     /// Function key F1..F12 (not on the device keyboard; kept for hosts).
     F(u8),
-    /// Dedicated QR key: open the camera scanner.
+    /// Open the camera scanner (Fn+Q on the CardKB).
     Qr,
 }
 
