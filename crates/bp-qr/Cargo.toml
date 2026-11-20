@@ -11,5 +11,6 @@ bp-crypto.workspace = true
 [dev-dependencies]
 qrcodegen = "1.8"
 rqrr = "0.8"
+rxing = { version = "=0.9.3", default-features = false, features = ["qrcode", "decoders", "encoding_rs"] }
 ur = "0.4"
 miniz_oxide = "0.8"

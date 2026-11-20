@@ -1,5 +1,6 @@
 //! QR encoder: exact module-matrix comparison with Nayuki's qrcodegen and
-//! round trips through the independent rqrr decoder (dev-dependencies only).
+//! round trips through two independent decoders, rqrr (quirc port) and
+//! rxing (ZXing port). All are dev-dependencies only.
 
 use bp_qr::qr::{best_mode, capacity, Ecc, Mode, QrCode};
 use qrcodegen::{QrCodeEcc, QrSegment, Version};
@@ -73,6 +74,33 @@ fn decode(q: &QrCode) -> Vec<u8> {
     out
 }
 
+/// Decode with rxing; byte mode is read as ISO-8859-1 and mapped back.
+fn decode_rxing(q: &QrCode) -> Vec<u8> {
+    use rxing::{DecodeHintValue, DecodeHints, Reader};
+    let scale = 3;
+    let border = 4;
+    let dim = (q.size() + 2 * border) * scale;
+    let mut px = vec![255u8; dim * dim];
+    for y in 0..dim {
+        for x in 0..dim {
+            let mx = (x / scale) as isize - border as isize;
+            let my = (y / scale) as isize - border as isize;
+            if mx >= 0 && my >= 0 && q.get(mx as usize, my as usize) {
+                px[y * dim + x] = 0;
+            }
+        }
+    }
+    let src = rxing::Luma8Source::new(px, dim as u32, dim as u32).unwrap();
+    let mut bmp = rxing::BinaryBitmap::new(rxing::common::HybridBinarizer::new(src));
+    let hints = DecodeHints::default()
+        .with(DecodeHintValue::PureBarcode(true))
+        .with(DecodeHintValue::CharacterSet("ISO-8859-1".into()));
+    let r = rxing::qrcode::QRCodeReader
+        .decode_with_hints(&mut bmp, &hints)
+        .expect("rxing decodes");
+    r.getText().chars().map(|c| c as u32 as u8).collect()
+}
+
 fn random_payload(rng: &mut XorShift, mode: Mode, len: usize) -> Vec<u8> {
     const ALNUM: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
     (0..len)
@@ -143,11 +171,30 @@ fn every_version_round_trips_through_rqrr() {
 }
 
 #[test]
+fn every_version_and_mode_round_trips_through_rxing() {
+    let mut rng = XorShift(11);
+    for ver in 1..=40u8 {
+        let ecc = [Ecc::Low, Ecc::Medium, Ecc::Quartile, Ecc::High][ver as usize % 4];
+        for mode in [Mode::Numeric, Mode::Alphanumeric, Mode::Byte] {
+            let len = capacity(ver, ecc, mode);
+            let data = random_payload(&mut rng, mode, len);
+            if best_mode(&data) != mode {
+                continue;
+            }
+            let q = QrCode::encode(&data, ecc, 1, 40, None).unwrap();
+            assert_eq!(q.version(), ver);
+            assert_eq!(decode_rxing(&q), data, "version {ver} {mode:?}");
+        }
+    }
+}
+
+#[test]
 fn uppercase_ur_text_uses_alphanumeric_mode() {
     let s = b"UR:BYTES/HDCXDWINVEZM";
     assert_eq!(best_mode(s), Mode::Alphanumeric);
     let q = QrCode::encode(s, Ecc::Low, 1, 40, None).unwrap();
     assert_eq!(decode(&q), s);
+    assert_eq!(decode_rxing(&q), s);
 }
 
 #[test]

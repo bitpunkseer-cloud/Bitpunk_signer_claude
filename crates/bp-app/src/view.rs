@@ -1019,26 +1019,27 @@ impl App {
         }
         let title = self.qr_title(kind);
         self.status(c, title.as_str());
-        let box_h = h - STATUS_H - widgets::HINT_H - 12;
-        let px = widgets::qr_code(c, &sym, 12, STATUS_H + 6, box_h, box_h, style);
+        // No hint bar here: the keys are listed in the side panel so the
+        // symbol gets every pixel of height (bigger modules scan better).
+        let bx = crate::qrview::QR_BOX_PX;
+        let px = widgets::qr_code(c, &sym, 8, STATUS_H + 4, bx, bx, style);
 
         // information panel
-        let x = 12 + box_h + 24;
-        let mut y = STATUS_H + 14;
+        let x = 8 + bx + 20;
+        let right = w - 16;
+        let mut y = STATUS_H + 10;
+        const ROW: i32 = 50;
         let row = |c: &mut dyn Canvas, y: &mut i32, label: &str, value: &str, color| {
             widgets::label(c, x, *y, label);
-            BODY.draw(c, x, *y + 20, value, color);
-            *y += 56;
+            BODY.draw(c, x, *y + 18, value, color);
+            *y += ROW;
         };
         let fmt_name = match q.format {
             Format::Ur(t) => bformat!(40, "UR {}", t),
             Format::Specter => bformat!(40, "{}", s.fmt_specter),
             Format::SeedStandard | Format::SeedCompact => {
-                bformat!(
-                    40,
-                    "{}",
-                    s.seedqr_kinds[matches!(q.format, Format::SeedCompact) as usize].0
-                )
+                let i = matches!(q.format, Format::SeedCompact) as usize;
+                bformat!(40, "{}", s.seedqr_kinds[i].0)
             }
             Format::Static => bformat!(40, "{}", s.fmt_text),
         };
@@ -1054,19 +1055,12 @@ impl App {
         widgets::label(c, x, y, s.qr_frame);
         if q.paused {
             let pw = widgets::badge_width(s.paused);
-            widgets::badge(
-                c,
-                w - MARGIN - pw,
-                y - 4,
-                s.paused,
-                theme::WARN,
-                theme::ACCENT_TEXT,
-            );
+            widgets::badge(c, right - pw, y - 2, s.paused, theme::WARN, theme::ACCENT_TEXT);
         }
-        BODY.draw(c, x, y + 20, frame_s.as_str(), theme::TEXT);
+        BODY.draw(c, x, y + 18, frame_s.as_str(), theme::TEXT);
         if frames > 1 {
             // one segment per pure part; fountain parts light the whole bar
-            let bw = w - MARGIN - x;
+            let bw = right - x;
             let n = frames.min(bw as usize / 3).max(1) as i32;
             let seg = bw / n;
             let cur = match q.format {
@@ -1074,16 +1068,12 @@ impl App {
                 _ => q.frame as i32 - 1,
             };
             for i in 0..n {
-                let on = if cur >= frames as i32 {
-                    true
-                } else {
-                    i == cur * n / frames as i32
-                };
+                let on = cur >= frames as i32 || i == cur * n / frames as i32;
                 let col = if on { theme::ACCENT } else { theme::SURFACE_HI };
-                c.fill_rect(x + i * seg, y + 50, (seg - 2).max(1), 4, col);
+                c.fill_rect(x + i * seg, y + 48, (seg - 2).max(1), 4, col);
             }
         }
-        y += 66;
+        y += ROW + 10;
 
         let animatable = matches!(q.format, Format::Ur(_) | Format::Specter);
         widgets::label(c, x, y, s.qr_density_lbl);
@@ -1094,84 +1084,52 @@ impl App {
                 (true, true) => theme::ACCENT,
                 (true, false) => theme::TEXT_FAINT,
             };
-            bp_ui::draw::round_rect(c, x + i as i32 * 18, y + 26, 12, 12, 6, col);
+            bp_ui::draw::round_rect(c, x + i as i32 * 18, y + 24, 12, 12, 6, col);
         }
-        BODY.draw(
-            c,
-            x + 84,
-            y + 20,
-            s.densities[di],
-            if animatable {
-                theme::TEXT
-            } else {
-                theme::TEXT_FAINT
-            },
-        );
-        y += 56;
+        let dname: Buf<24> = if q.density == crate::qrview::Density::Auto && animatable {
+            let eff = s.densities[q.effective_density().index()];
+            fill(s.words_count, &[&s.densities[di], &eff])
+        } else {
+            fill(s.densities[di], &[])
+        };
+        let dcol = if animatable {
+            theme::TEXT
+        } else {
+            theme::TEXT_FAINT
+        };
+        BODY.draw(c, x + 84, y + 18, dname.as_str(), dcol);
+        y += ROW;
 
-        let speed = s.speeds[q.speed as usize];
-        row(
-            c,
-            &mut y,
-            s.qr_speed,
-            speed,
-            if frames > 1 {
-                theme::TEXT
-            } else {
-                theme::TEXT_FAINT
-            },
-        );
+        let scol = if frames > 1 {
+            theme::TEXT
+        } else {
+            theme::TEXT_FAINT
+        };
+        row(c, &mut y, s.qr_speed, s.speeds[q.speed as usize], scol);
 
         widgets::label(c, x, y, s.qr_brightness);
         let levels = QrSession::brightness_levels();
         for i in 0..levels {
             let on = i < levels - q.brightness;
-            c.fill_rect(
-                x + i as i32 * 26,
-                y + 24,
-                22,
-                14,
-                if on { theme::TEXT } else { theme::SURFACE_HI },
-            );
+            let col = if on { theme::TEXT } else { theme::SURFACE_HI };
+            c.fill_rect(x + i as i32 * 26, y + 24, 22, 14, col);
         }
         if q.invert {
             let iw = widgets::badge_width(s.inverted);
-            widgets::badge(
-                c,
-                w - MARGIN - iw,
-                y + 18,
-                s.inverted,
-                theme::SURFACE_HI,
-                theme::TEXT,
-            );
+            widgets::badge(c, right - iw, y + 18, s.inverted, theme::SURFACE_HI, theme::TEXT);
         }
-        y += 56;
+        y += ROW;
 
         let info: Buf<48> = fill(s.qr_info, &[&sym.version(), &sym.size(), &sym.size(), &px]);
         row(c, &mut y, s.qr_symbol, info.as_str(), theme::TEXT_DIM);
 
-        for (i, k) in s.qr_keys.iter().enumerate() {
-            SMALL.draw(c, x, y + i as i32 * 22, k, theme::TEXT_FAINT);
-        }
-
-        match kind {
-            QrKind::Xpub { .. } => widgets::hint_bar(
-                c,
-                &[
-                    ("Enter", s.h_fullscreen),
-                    ("D", s.h_details),
-                    ("0-9", s.h_account),
-                    ("Esc", s.h_back),
-                ],
-            ),
-            QrKind::SeedQr { .. } => widgets::hint_bar(
-                c,
-                &[
-                    ("Enter", s.h_fullscreen),
-                    ("T", s.h_transcribe),
-                    ("Esc", s.h_back),
-                ],
-            ),
+        let extra = match kind {
+            QrKind::Xpub { .. } => s.qr_keys_xpub,
+            QrKind::SeedQr { .. } => s.qr_keys_seed,
+        };
+        let y0 = h - 4 * 21 - 6;
+        for (i, k) in s.qr_keys.iter().chain(core::iter::once(&extra)).enumerate() {
+            SMALL.draw(c, x, y0 + i as i32 * 21, k, theme::TEXT_DIM);
         }
     }
 

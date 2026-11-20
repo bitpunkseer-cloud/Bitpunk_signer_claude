@@ -25,3 +25,10 @@ panic = "abort"
 
 [profile.dev]
 panic = "abort"
+
+# Test-only QR decoders used by the scan bench run optimised even in
+# debug test builds (keeps `cargo test` fast).
+[profile.dev.package.rqrr]
+opt-level = 3
+[profile.dev.package.rxing]
+opt-level = 3

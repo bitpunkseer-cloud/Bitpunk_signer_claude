@@ -1364,4 +1364,6 @@ fn pick(key: Key, sel: u8, n: u8) -> Pick {
 }
 
 #[cfg(test)]
+mod bench;
+#[cfg(test)]
 mod tests;

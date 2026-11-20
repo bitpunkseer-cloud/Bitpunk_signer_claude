@@ -9,6 +9,13 @@ use bp_qr::ur::{max_fragment_len_for_chars, UrEncoder};
 pub const PAYLOAD_MAX: usize = 1024;
 pub const TEXT_MAX: usize = 2400;
 
+/// Side of the square the QR screen gives the symbol (800x480 minus the
+/// status bar and a small margin). Full screen uses the whole 480.
+pub const QR_BOX_PX: i32 = 480 - 44 - 8;
+
+/// Auto stays at Low density until Low would need more frames than this.
+const AUTO_MAX_LOW_FRAMES: usize = 40;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Density {
     Auto,
@@ -25,13 +32,22 @@ impl Density {
         Self::ALL[(i + dir as i32).clamp(0, 3) as usize]
     }
 
-    /// Largest QR version a frame may use (bigger modules = easier scans).
-    pub fn max_version(self) -> u8 {
+    /// Smallest module size, in screen pixels, a frame may use. The scan
+    /// bench (docs/QR_SCAN_BENCH.md) shows module size decides
+    /// whether a phone reads the code: Low keeps 8 px modules.
+    pub fn module_px(self) -> i32 {
         match self {
-            Density::Low => 8,
-            Density::Auto | Density::Medium => 12,
-            Density::High => 17,
+            Density::Auto | Density::Low => 8,
+            Density::Medium => 6,
+            Density::High => 5,
         }
+    }
+
+    /// Largest QR version whose modules stay at least `module_px` in the
+    /// QR box (4-module quiet zone on each side).
+    pub fn max_version(self) -> u8 {
+        let modules = QR_BOX_PX / self.module_px() - 8;
+        ((modules - 17) / 4).clamp(1, 40) as u8
     }
 
     /// Characters per Specter part (SeedSigner's mapping).
@@ -148,28 +164,47 @@ impl QrSession {
         self.reset_frame();
     }
 
-    fn max_chars(&self) -> usize {
-        capacity(self.density.max_version(), Ecc::Low, Mode::Alphanumeric)
+    /// Density actually used: Auto picks Low unless that needs too many
+    /// frames, then Medium, then High.
+    pub fn effective_density(&self) -> Density {
+        if self.density != Density::Auto {
+            return self.density;
+        }
+        for d in [Density::Low, Density::Medium] {
+            if self.frames_at(d) <= AUTO_MAX_LOW_FRAMES {
+                return d;
+            }
+        }
+        Density::High
     }
 
-    fn ur_encoder(&self, ur_type: &'static str) -> Option<UrEncoder<'_>> {
+    fn ur_encoder_at(&self, ur_type: &'static str, d: Density) -> Option<UrEncoder<'_>> {
         let msg = self.payload();
+        let max_chars = capacity(d.max_version(), Ecc::Low, Mode::Alphanumeric);
         let single_len = 3 + ur_type.len() + 1 + 2 * (msg.len() + 4);
-        let frag = if single_len <= self.max_chars() {
+        let frag = if single_len <= max_chars {
             msg.len()
         } else {
-            max_fragment_len_for_chars(ur_type, msg.len(), self.max_chars())
+            max_fragment_len_for_chars(ur_type, msg.len(), max_chars)
         };
         UrEncoder::new(ur_type, msg, frag).ok()
     }
 
-    /// Distinct frames (UR: pure fragments; it keeps adding fountain parts).
-    pub fn frames(&self) -> usize {
+    fn ur_encoder(&self, ur_type: &'static str) -> Option<UrEncoder<'_>> {
+        self.ur_encoder_at(ur_type, self.effective_density())
+    }
+
+    fn frames_at(&self, d: Density) -> usize {
         match self.format {
-            Format::Ur(t) => self.ur_encoder(t).map(|e| e.seq_len()).unwrap_or(1),
-            Format::Specter => specter::count(self.len, self.density.specter_chunk()),
+            Format::Ur(t) => self.ur_encoder_at(t, d).map(|e| e.seq_len()).unwrap_or(1),
+            Format::Specter => specter::count(self.len, d.specter_chunk()),
             _ => 1,
         }
+    }
+
+    /// Distinct frames (UR: pure fragments; it keeps adding fountain parts).
+    pub fn frames(&self) -> usize {
+        self.frames_at(self.effective_density())
     }
 
     pub fn is_animated(&self) -> bool {
@@ -187,7 +222,7 @@ impl QrSession {
             }
             Format::Specter => specter::part(
                 self.payload(),
-                self.density.specter_chunk(),
+                self.effective_density().specter_chunk(),
                 self.frame as usize,
                 out,
             )
