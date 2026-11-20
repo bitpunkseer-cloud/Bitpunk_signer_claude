@@ -1,86 +1,110 @@
-# M3 구현 계획 — QR 출력
+# M3 구현 계획 (v2) — QR 출력 엔진
 
-상태: **승인 대기**
+상태: **승인 대기** · 근거: [QR_SURVEY.md](../QR_SURVEY.md)
+
+## 0. v1에서 바뀐 점
+
+v1은 "QR을 띄운다" 수준이었다. 100% 에어갭 기기에서는 QR이 주 통신 수단이므로, 레퍼런스 8곳에 흩어진 QR 기능과 성능 요소를 한데 모은 **QR 출력 엔진**으로 확장한다.
+
+| 추가 | 가져온 곳 |
+|---|---|
+| BBQr (zlib 압축 포함, 압축기 직접 구현), Specter `pM/N` | CC, SS, KX (v1에서는 M6) |
+| 프레임 수 자동 최소화 | CC (QR 버전 선택), KX |
+| QR을 보는 중 실시간 밀도 전환 + 단계 표시 | PP |
+| 프레임 속도 3단계 | JD |
+| QR 밝기 조절, 흑백 반전, 전체 화면, 일시 정지 | SS, CC, KS |
+| UR 옛 이름 / 새 이름 모두 지원 구조 | PP |
+| `crypto-output` 형식 xpub 내보내기 | SS, KX, KS, PP |
+| 옮겨 그리기 가이드에 한 줄씩 모드 추가 | KX |
+| **자동 스캔 성능 시험대** (흐림·잡음·기울임을 넣어도 읽히는지 측정) | 새로 제안 |
 
 ## 1. 목표
 
-기기 화면에 **xpub·주소·SeedQR을 QR로 표시**한다.
-**Sparrow가 시뮬레이터 화면의 QR을 카메라로 읽어 관찰 전용 지갑을 만들고, 주소가 기기와 같으면** 완료.
+- Sparrow가 시뮬레이터 화면의 xpub QR을 읽어 관찰 전용 지갑을 만들고, 주소가 기기와 같을 것.
+- 같은 데이터를 **UR·BBQr·Specter·정적** 어떤 형식으로 내보내도 독립 디코더가 원문을 정확히 복원할 것.
+- 스캔 성능 시험대에서 기본 설정이 흐림·잡음·기울임 조건을 견딜 것 (수치 목표는 6장).
 
 ## 2. 범위
 
 | 포함 | 제외 (다른 마일스톤) |
 |---|---|
-| QR 인코더 직접 구현 (버전 1~40, 오류 정정 L/M/Q/H, 숫자·영숫자·바이트 모드, 마스크 자동 선택) | QR **읽기**(카메라) → M4 |
-| BC-UR 인코딩: bytewords, CBOR, 다중 파트 fountain 인코더 | UR 디코딩 → M4 |
-| UR 타입: `crypto-hdkey`, `crypto-keypath`, `crypto-account`, `crypto-output` | `crypto-psbt` → M5 |
-| xpub QR: 애니메이션 UR `crypto-account`(기본) + 정적 `[지문/경로]xpub` 텍스트 | Specter 레거시 형식, BBQr → M6 |
-| 주소 QR | SeedQR 스캔으로 백업 확인 → M4 |
-| SeedQR · Compact SeedQR 내보내기 + 손으로 옮겨 그리기 가이드 | |
-| QR 밀도 설정 연결(기존 Low/Medium/High), 애니메이션 속도 | |
+| QR 인코더 (버전 1~40, 오류 정정 L/M/Q/H, 숫자·영숫자·바이트 모드, 마스크 자동 선택) | 카메라로 읽기, 형식 자동 판별 → M4 |
+| QR 표시 엔진 (아래 4장) | `psbt` 내보내기 → M5 (엔진은 그대로 사용) |
+| UR: bytewords, CBOR, fountain 인코더, `crypto-hdkey`·`crypto-keypath`·`crypto-account`·`crypto-output`·`bytes` | `crypto-multi-accounts`(멀티코인 앱용) — Bitcoin 전용이라 제외 |
+| BBQr 인코더 (H·2·Z, deflate 압축기 직접 구현) | QR 이미지를 microSD에 저장 → M8 |
+| Specter `pM/N` 인코더 | 암호화 시드 QR, Key Teleport → M10·M12 |
+| xpub QR(4가지 형식), 주소 QR, SeedQR 2종 + 옮겨 그리기 가이드 | SeedQR 다시 스캔해서 확인 → M4 |
 
 ## 3. QR 인코더 (`bp-qr`)
 
 | 항목 | 내용 |
 |---|---|
 | 규격 | ISO/IEC 18004 (QR Code Model 2) |
-| 모드 | 숫자(Standard SeedQR), 영숫자(대문자 UR·대문자 bech32 주소, 더 작은 QR), 바이트(xpub 텍스트, Compact SeedQR) |
-| 오류 정정 | Reed–Solomon (GF(256)), 레벨 L/M/Q/H. 기본 L(SeedSigner와 같음), 화면 표시에는 M도 선택 가능 |
-| 마스크 | 8개 마스크의 감점 규칙(규격 4가지)을 계산해 가장 낮은 것 선택 |
-| 메모리 | 할당 없음. 최대 177×177 모듈 비트맵을 고정 버퍼에 저장 |
-| 그리기 | 화면에서 가능한 최대 정수 배율, 여백(quiet zone) 4모듈, 흰 바탕 |
+| 모드 | 숫자, 영숫자, 바이트. 데이터에 맞춰 가장 작은 모드 자동 선택 |
+| 오류 정정 | Reed–Solomon (GF(256)), L/M/Q/H |
+| 마스크 | 8개 마스크의 감점 규칙 4가지를 계산해 최솟값 선택 |
+| 메모리 | 할당 없음, 최대 177×177 모듈 고정 버퍼 |
 
-## 4. BC-UR (`bp-qr::ur`)
+## 4. QR 표시 엔진 (모든 QR 화면이 공유)
 
-| 항목 | 규격 |
+| 기능 | 키 | 출처 |
+|---|---|---|
+| 정수 배율로 최대 크기, 여백 4모듈 | — | 공통 |
+| **밀도** Auto / Low / Medium / High — 보는 중에 바로 바뀌고 점으로 단계 표시. Auto = 데이터 크기를 보고 프레임 수가 가장 적은 크기 선택 | ◄ ► | PP + CC |
+| **프레임 속도** Slow / Normal / Fast (약 800 / 450 / 270ms) | Tab | JD |
+| **QR 밝기** 배경 흰색의 밝기 단계 (상대 카메라가 눈부셔 못 읽는 문제) | ▲ ▼ | SS |
+| **전체 화면** (상태바·안내 숨기고 QR만 최대로) | Enter | KS |
+| **일시 정지** / 다시 재생 | Space | CC |
+| **흑백 반전** | I | CC |
+| 진행 표시 (현재 조각 / 전체, 형식 이름) | — | 공통 |
+| xpub 내보내기 기본값: 낮은 밀도 + 느린 속도 (신뢰성 우선) | — | JD |
+
+## 5. 애니메이션 형식과 내보내기
+
+| 형식 | 내용 |
 |---|---|
-| bytewords | BCR-2020-012 (minimal 형식, CRC32 포함) |
-| UR 문자열 | BCR-2020-005 `ur:<type>/<seq>-<n>/<fragment>`, QR에는 대문자로 넣어 영숫자 모드 사용 |
-| fountain 인코더 | 조각 크기는 QR 밀도 설정에 따름. Xoshiro256** 의사 난수로 조각 조합 (규격 그대로, 디코더와 호환되려면 필수) |
-| CBOR | 필요한 부분만 직접 구현 (정수, 바이트열, 텍스트, 배열, 맵, 태그) |
-| 레지스트리 타입 | `crypto-hdkey`(303), `crypto-keypath`(304), `crypto-output`(308), `crypto-account`(311) — BCR-2020-007/010/015 |
+| **UR** | BCR-2020-005/012 규격. fountain 조각 조합에 규격의 Xoshiro256** 사용. 이름은 호환성이 가장 넓은 옛 이름(`crypto-account` 등)을 기본으로 내보내고, 새 이름도 같은 코드로 낼 수 있게 설계 |
+| **BBQr** | 헤더 `B$` + 인코딩 + 파일 종류 + 전체 수 + 번호. 인코딩 Z(zlib+Base32)는 **deflate 압축기를 직접 구현**해 프레임 수를 줄임 |
+| **Specter** | `p1of3 …` 형식 (Specter Desktop) |
 
-## 5. 화면
-
-```
-Seed options
-├─ Export xpub ─► 스크립트 ─► [QR 형식: UR 애니메이션 | 정적 텍스트] ─► QR 화면 ─ Tab: 텍스트 상세(현재 화면)
-├─ Address explorer ─► … ─► 주소 상세 ─► QR 표시
-└─ Backup SeedQR ─► [Standard | Compact] ─► 경고 ─► SeedQR 전체 ─► 옮겨 그리기 가이드(확대 격자)
-```
-
-| 화면 | 내용 |
+| 내보내기 | 형식 |
 |---|---|
-| xpub QR | 화면 왼쪽에 큰 QR(애니메이션이면 자동으로 다음 조각), 오른쪽에 지문·경로·형식·조각 번호. ◄►로 밀도, Tab으로 텍스트 상세 |
-| 주소 QR | QR + 4글자씩 끊은 주소 + 경로. bech32 주소는 대문자로 인코딩해 QR을 작게 (BIP-173 권장) |
-| SeedQR | 경고 화면을 거친 뒤 표시. Standard: 숫자 모드 / Compact: 바이트 모드. 12단어 21~25칸, 24단어 25~29칸 |
-| 옮겨 그리기 가이드 | SeedSigner 방식: QR을 5×5 블록으로 나눠 A1~E5 좌표와 함께 한 블록씩 확대해서 보여 줌. ◄►▲▼로 이동 |
+| xpub | ① UR `crypto-account` (기본: Sparrow·Nunchuk·BlueWallet·Keeper) ② UR `crypto-output` ③ 정적 텍스트 `[지문/경로]zpub…` ④ Specter `pM/N` |
+| 주소 | bech32는 대문자로 인코딩해 QR을 작게 (BIP-173 권장) |
+| SeedQR | Standard(숫자 모드) / Compact(바이트 모드), 경고 화면 후 표시 |
+| 옮겨 그리기 가이드 | ① 5×5 블록 확대 (SS) ② 한 줄씩 모드 (KX). 방향키로 이동, 좌표 표시 |
 
-## 6. 테스트 & 검증
+## 6. 테스트 & 성능 측정
 
 | 대상 | 방법 |
 |---|---|
-| QR 인코더 | (1) 테스트 전용 `qrcode` 크레이트와 같은 버전·레벨·마스크에서 **모듈 행렬이 똑같은지** 대조 (2) 독립 디코더 `rqrr`(테스트 전용)로 우리 QR을 읽어 원문과 같은지 — 무작위 데이터, 모든 모드·레벨·여러 버전 |
-| SeedQR | SeedSigner `tests/test_seedqr.py`의 Standard·Compact 벡터 |
-| bytewords · UR | BCR-2020-005/012 규격 예제 + 테스트 전용 `ur` 크레이트와 fountain 조각 대조 |
-| crypto-account | BCR-2020-015 예제 + "abandon … about" 시드로 만든 값을 디코더로 되읽어 xpub·경로·지문 확인 |
-| 실기기 대조 | 휴대폰·Sparrow로 시뮬레이터 화면의 QR을 직접 스캔 |
+| QR 인코더 | 테스트 전용 `qrcode` 크레이트와 같은 버전·레벨·마스크에서 **모듈 행렬 완전 일치** + 독립 디코더 2종(`rqrr`, `rxing`)으로 복원 확인 |
+| UR | BCR 규격 예제 + 테스트 전용 `ur` 크레이트로 **조각 일부를 버려도** 전체 복원되는지 (fountain 특성) |
+| BBQr | Coinkite의 BBQr 참조 구현(Python, 테스트 도구로만)으로 만든 벡터와 대조 + 우리 deflate 결과를 테스트 전용 `miniz_oxide`로 풀어 원문 확인 |
+| Specter | 형식 규칙 단위 테스트 |
+| SeedQR | SeedSigner `test_seedqr.py` 벡터 |
+| crypto-account / output | BCR-2020-015/010 예제 + "abandon…about" 시드 값을 디코더로 되읽어 xpub·경로·지문 확인 |
+| **스캔 성능 시험대** | 시뮬레이터 프레임버퍼의 QR 화면을 휴대폰 카메라처럼 축소·흐림·잡음·기울임 처리한 뒤 `rqrr`로 읽어 성공률 측정. 밀도·배율별 표를 만들어 Auto 기본값 결정에 사용. 목표: 기본 설정에서 중간 수준 흐림·잡음·15° 기울임에도 95% 이상 성공 |
 
 ## 7. 커밋 단위
 
-1. QR 인코더 (Reed–Solomon, 배치, 마스크, 모드) + 대조 테스트
-2. SeedQR · Compact SeedQR 인코딩 + SeedSigner 벡터
-3. CBOR · bytewords · UR 문자열 · fountain 인코더
-4. UR 레지스트리 타입 (`crypto-hdkey/keypath/account/output`)
-5. 화면: QR 위젯, xpub QR, 주소 QR, SeedQR + 옮겨 그리기 가이드
-6. 시뮬레이터 배포 + 확인 체크리스트
+1. QR 인코더 + 대조 테스트
+2. SeedQR · Compact SeedQR
+3. CBOR · bytewords · UR fountain 인코더
+4. UR 타입 (`crypto-hdkey/keypath/account/output`)
+5. deflate 압축기 + BBQr, Specter `pM/N`
+6. QR 표시 엔진 (밀도·속도·밝기·전체 화면·정지·반전·진행 표시)
+7. 화면: xpub QR(4형식), 주소 QR, SeedQR + 옮겨 그리기 가이드
+8. 스캔 성능 시험대 + 결과 표
+9. 시뮬레이터 배포 + 확인 체크리스트
 
 ## 8. 완료 기준
 
 `abandon` ×11 + `about` 시드로:
-- [ ] Export xpub → Native SegWit → UR 애니메이션: **Sparrow (New Wallet → Airgapped Hardware Wallet → Scan)로 읽으면** 지문 `73c5da0a`, 첫 주소 `bc1qcr8te…`인 지갑이 만들어짐
+- [ ] xpub → Native SegWit → UR `crypto-account`: **Sparrow로 스캔해 지갑 생성**, 지문 `73c5da0a`, 첫 주소 `bc1qcr8te…`
 - [ ] 정적 텍스트 QR을 휴대폰으로 읽으면 `[73c5da0a/84h/0h/0h]zpub6rFR7y…`
-- [ ] 주소 QR을 휴대폰으로 읽으면 화면의 주소와 같음
-- [ ] Backup SeedQR(Standard)을 휴대폰으로 읽으면 단어 번호 48자리 숫자 (`0000 0000 … 0003`)
-- [ ] 옮겨 그리기 가이드에서 블록 이동이 됨
+- [ ] QR 화면에서 ◄►(밀도)·Tab(속도)·▲▼(밝기)·Enter(전체 화면)·Space(정지)·I(반전) 동작
+- [ ] 주소 QR, SeedQR(`0000…0003`)을 휴대폰으로 읽으면 화면 값과 같음
+- [ ] 옮겨 그리기 가이드: 블록 모드·줄 모드 이동
+- [ ] 스캔 성능 시험대 결과 표가 문서에 기록되고 목표 달성
 - [ ] CI 전부 통과

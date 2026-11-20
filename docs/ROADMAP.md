@@ -56,12 +56,13 @@ Base58Check·Bech32·Bech32m 주소(P2PKH, P2SH-P2WPKH, P2WPKH, P2TR), BIP-39 �
 
 **완료 기준:** 같은 시드를 Sparrow에 넣었을 때 지문·xpub·첫 주소가 모두 같음.
 
-## M3 — QR 출력
+## M3 — QR 출력 엔진 (v2, [QR_SURVEY.md](QR_SURVEY.md) 반영)
 
-QR 인코더, BC-UR 인코딩(bytewords, CBOR, `crypto-hdkey`/`crypto-account`/`crypto-output`), 애니메이션 QR,
-xpub QR, 주소 QR, SeedQR·Compact SeedQR 내보내기 + 손으로 옮겨 그리기 가이드, QR 밀도 설정.
+QR 인코더(버전 1~40), 표시 엔진(밀도 자동·실시간 전환, 프레임 속도, 밝기, 전체 화면, 정지, 반전),
+UR(fountain, `crypto-hdkey/keypath/account/output`), BBQr(zlib 압축 직접 구현), Specter `pM/N`,
+xpub QR 4형식, 주소 QR, SeedQR·Compact SeedQR + 옮겨 그리기 가이드(블록·줄 모드), 스캔 성능 시험대.
 
-**완료 기준:** Sparrow가 휴대폰에 띄운 시뮬레이터 화면의 QR을 읽어 관찰 전용 지갑을 만듦.
+**완료 기준:** Sparrow가 시뮬레이터 화면의 QR을 읽어 관찰 전용 지갑을 만듦. 모든 형식이 독립 디코더로 복원됨. 스캔 시험대 목표 달성.
 
 ## M4 — QR 입력
 
