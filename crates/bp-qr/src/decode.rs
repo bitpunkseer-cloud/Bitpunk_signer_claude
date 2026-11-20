@@ -46,6 +46,23 @@ impl BitMatrix {
         })
     }
 
+    pub(crate) const fn empty() -> Self {
+        Self {
+            size: 21,
+            bits: [0; MODULE_BYTES],
+        }
+    }
+
+    /// Clear to an all-light matrix of `size`; false for an invalid size.
+    pub fn reset(&mut self, size: usize) -> bool {
+        if !(21..=MAX_SIZE).contains(&size) || !(size - 17).is_multiple_of(4) {
+            return false;
+        }
+        self.size = size;
+        self.bits[..(size * size).div_ceil(8)].fill(0);
+        true
+    }
+
     pub fn from_qr(q: &crate::QrCode) -> Self {
         let mut m = Self::new(q.size()).expect("valid symbol size");
         for y in 0..q.size() {
@@ -133,34 +150,66 @@ fn format_codeword(ecc: Ecc, mask: u8) -> u32 {
 
 const ECCS: [Ecc; 4] = [Ecc::Low, Ecc::Medium, Ecc::Quartile, Ecc::High];
 
-/// Both copies of the 15 format bits (bit 0 first), as the encoder lays
-/// them out.
+/// Both copies of the 15 format bits (bit 0 first).
 fn read_format(m: &BitMatrix) -> (u32, u32) {
-    let s = m.size;
-    let b = |x: usize, y: usize| m.get(x, y) as u32;
-    let mut a = 0u32;
-    for i in 0..6 {
-        a |= b(8, i) << i;
-    }
-    a |= b(8, 7) << 6;
-    a |= b(8, 8) << 7;
-    a |= b(7, 8) << 8;
-    for i in 9..15 {
-        a |= b(14 - i, 8) << i;
-    }
-    let mut c = 0u32;
-    for i in 0..8 {
-        c |= b(s - 1 - i, 8) << i;
-    }
-    for i in 8..15 {
-        c |= b(8, s - 15 + i) << i;
+    let (mut a, mut c) = (0u32, 0u32);
+    for i in 0..15 {
+        let ((x1, y1), (x2, y2)) = format_positions(m.size, i);
+        a |= (m.get(x1, y1) as u32) << i;
+        c |= (m.get(x2, y2) as u32) << i;
     }
     (a, c)
 }
 
-/// Nearest valid format codeword to either copy, within 3 bit errors.
 fn decode_format(m: &BitMatrix) -> Option<(Ecc, u8)> {
     let (a, c) = read_format(m);
+    format_from_bits(a, c)
+}
+
+fn version_codeword(ver: u8) -> u32 {
+    let mut rem = ver as u32;
+    for _ in 0..12 {
+        rem = (rem << 1) ^ ((rem >> 11) * 0x1F25);
+    }
+    ((ver as u32) << 12) | rem
+}
+
+/// Module positions of format bit `i` (0..15): first copy, second copy.
+pub(crate) fn format_positions(size: usize, i: usize) -> ((usize, usize), (usize, usize)) {
+    let first = match i {
+        0..=5 => (8, i),
+        6 => (8, 7),
+        7 => (8, 8),
+        8 => (7, 8),
+        _ => (14 - i, 8),
+    };
+    let second = if i < 8 {
+        (size - 1 - i, 8)
+    } else {
+        (8, size - 15 + i)
+    };
+    (first, second)
+}
+
+/// Strict "this is a QR code" test on the two format copies: both decode
+/// to the same codeword within 3 bit errors each, or one is within 1 bit.
+/// Random bits pass about 3% of the time (the plain 3-bit test: 56%).
+pub(crate) fn format_gate(a: u32, c: u32) -> bool {
+    for ecc in ECCS {
+        for mask in 0..8u8 {
+            let cw = format_codeword(ecc, mask);
+            let (da, dc) = ((cw ^ a).count_ones(), (cw ^ c).count_ones());
+            if (da <= 3 && dc <= 3) || da <= 1 || dc <= 1 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Nearest format (ECC level, mask) to either 15-bit copy, within 3 bit
+/// errors.
+pub(crate) fn format_from_bits(a: u32, c: u32) -> Option<(Ecc, u8)> {
     let mut best = None;
     let mut best_dist = u32::MAX;
     for ecc in ECCS {
@@ -180,12 +229,17 @@ fn decode_format(m: &BitMatrix) -> Option<(Ecc, u8)> {
     }
 }
 
-fn version_codeword(ver: u8) -> u32 {
-    let mut rem = ver as u32;
-    for _ in 0..12 {
-        rem = (rem << 1) ^ ((rem >> 11) * 0x1F25);
+/// Nearest version (7..=40) to an 18-bit version information block, with
+/// its bit distance.
+pub(crate) fn nearest_version(bits: u32) -> (u8, u32) {
+    let mut best = (7u8, u32::MAX);
+    for ver in 7..=40u8 {
+        let d = (version_codeword(ver) ^ bits).count_ones();
+        if d < best.1 {
+            best = (ver, d);
+        }
     }
-    ((ver as u32) << 12) | rem
+    best
 }
 
 /// Version from the size, checked against the version information
