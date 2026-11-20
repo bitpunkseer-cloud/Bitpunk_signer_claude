@@ -44,7 +44,7 @@ impl Canvas for Framebuffer {
         let y1 = (y + h).clamp(0, H as i32) as usize;
         for row in y0..y1 {
             let line = &mut self.px[(row * W + x0) * 4..(row * W + x1) * 4];
-            for p in line.chunks_exact_mut(4) {
+            for p in line.as_chunks_mut::<4>().0 {
                 p[0] = c.0;
                 p[1] = c.1;
                 p[2] = c.2;
