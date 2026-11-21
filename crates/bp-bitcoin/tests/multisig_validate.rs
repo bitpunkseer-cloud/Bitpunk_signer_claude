@@ -698,3 +698,137 @@ fn verify_only_with_a_seed_outside_the_wallet() {
     ctx.multisig = &none;
     assert!(validate(&p.serialize(), &ctx).1.has(Issue::NoInputsForSeed));
 }
+
+// ---------- more attack scenarios (Coldcard / SeedSigner style) ----------
+
+fn replace_input_script(p: &mut RefPsbt, ws: ScriptBuf, wrap: Wrap) {
+    let (spk, redeem) = spk_of(wrap, &ws);
+    let mut prev = p.inputs[0].non_witness_utxo.clone().unwrap();
+    prev.output[0].script_pubkey = spk;
+    p.unsigned_tx.input[0].previous_output = OutPoint::new(prev.compute_txid(), 0);
+    p.inputs[0].witness_utxo = Some(prev.output[0].clone());
+    p.inputs[0].non_witness_utxo = Some(prev);
+    p.inputs[0].witness_script = Some(ws);
+    p.inputs[0].redeem_script = redeem;
+}
+
+#[test]
+fn script_type_confusion() {
+    // the registered P2WSH keys, spent as P2SH-P2WSH: another wallet
+    let s = Signer3::new();
+    let w = s.wallet(Wrap::Wsh, 2, &[0, 1, 2], 0);
+    let mut p = honest(&s, Wrap::Wsh);
+    let ws = p.inputs[0].witness_script.clone().unwrap();
+    replace_input_script(&mut p, ws, Wrap::ShWsh);
+    let r = check_with(&p, &[Some(&w)]);
+    assert!(r.has(Issue::UnregisteredMultisig(0)), "{:?}", r.issues());
+}
+
+#[test]
+fn unsorted_and_odd_scripts() {
+    let s = Signer3::new();
+    let w = s.wallet(Wrap::Wsh, 2, &[0, 1, 2], 0);
+    let path = Signer3::path(Wrap::Wsh, 0, 0, 5);
+    let mut keys: Vec<[u8; 33]> = (0..3).map(|k| s.pk(k, &path).serialize()).collect();
+    keys.sort();
+    keys.reverse(); // not BIP-67 order: `multi`, not `sortedmulti`
+    let mut b = Builder::new().push_int(2);
+    for k in &keys {
+        b = b.push_slice(k);
+    }
+    let unsorted = b.push_int(3).push_opcode(OP_CHECKMULTISIG).into_script();
+    let mut p = honest(&s, Wrap::Wsh);
+    replace_input_script(&mut p, unsorted, Wrap::Wsh);
+    let r = check_with(&p, &[Some(&w)]);
+    assert!(r.has(Issue::UnregisteredMultisig(0)), "{:?}", r.issues());
+    // an uncompressed key in the script: not a script the signer signs
+    let full = s.pk(1, &path).serialize_uncompressed();
+    let odd = Builder::new()
+        .push_int(1)
+        .push_slice(s.pk(0, &path).serialize())
+        .push_slice(full)
+        .push_int(2)
+        .push_opcode(OP_CHECKMULTISIG)
+        .into_script();
+    let mut p = honest(&s, Wrap::Wsh);
+    replace_input_script(&mut p, odd, Wrap::Wsh);
+    let r = check_with(&p, &[Some(&w)]);
+    assert!(r.has(Issue::UnsupportedInput(0)), "{:?}", r.issues());
+}
+
+#[test]
+fn sighash_and_redeem_rules_apply_to_multisig() {
+    let s = Signer3::new();
+    let w = s.wallet(Wrap::ShWsh, 2, &[0, 1, 2], 0);
+    let mut p = honest(&s, Wrap::ShWsh);
+    p.inputs[0].sighash_type = Some(bitcoin::psbt::PsbtSighashType::from(EcdsaSighashType::None));
+    assert!(check_with(&p, &[Some(&w)]).has(Issue::NonStandardSighash(0)));
+    // a redeem script that is not the P2SH commitment
+    let mut p = honest(&s, Wrap::ShWsh);
+    p.inputs[0].redeem_script = Some(ScriptBuf::new_p2wsh(&multisig_ws(1, &[]).wscript_hash()));
+    assert!(check_with(&p, &[Some(&w)]).has(Issue::RedeemMismatch(0)));
+}
+
+#[test]
+fn change_on_an_unknown_branch_is_a_recipient() {
+    let s = Signer3::new();
+    let w = s.wallet(Wrap::Wsh, 2, &[0, 1, 2], 0);
+    let r = check_with(
+        &with_change(&s, addr(&s, Wrap::Wsh, 2, &[0, 1, 2], 0, 2, 3)),
+        &[Some(&w)],
+    );
+    assert!(
+        matches!(r.outputs()[1].kind, OutputKind::External),
+        "{:?}",
+        r.outputs()[1]
+    );
+    assert!(r.has(Issue::NoChange));
+    assert!(r.can_sign(false), "{:?}", r.issues());
+}
+
+#[test]
+fn two_inputs_must_agree_with_the_wallet() {
+    let s = Signer3::new();
+    let w = s.wallet(Wrap::Wsh, 2, &[0, 1, 2], 0);
+    let ins = || {
+        [
+            Spend {
+                a: addr(&s, Wrap::Wsh, 2, &[0, 1, 2], 0, 0, 5),
+                value: 100_000,
+            },
+            Spend {
+                a: addr(&s, Wrap::Wsh, 2, &[0, 1, 2], 0, 1, 9),
+                value: 50_000,
+            },
+        ]
+    };
+    let p = build(&ins(), &[(None, 149_000)]);
+    let r = check_with(&p, &[Some(&w)]);
+    assert_eq!(r.issues(), &[Issue::NoChange]);
+    assert_eq!(r.totals.ours, 150_000);
+    // the second input's cosigner claims point at the first input's index
+    let mut p = build(&ins(), &[(None, 149_000)]);
+    let k1 = s.pk(1, &Signer3::path(Wrap::Wsh, 0, 1, 9));
+    p.inputs[1]
+        .bip32_derivation
+        .insert(k1, (s.fp(1), Signer3::path(Wrap::Wsh, 0, 0, 5)));
+    let r = check_with(&p, &[Some(&w)]);
+    assert!(
+        r.issues()
+            .iter()
+            .any(|i| matches!(i, Issue::MultisigClaimMismatch(_))),
+        "{:?}",
+        r.issues()
+    );
+}
+
+#[test]
+fn our_signature_already_there() {
+    let s = Signer3::new();
+    let w = s.wallet(Wrap::Wsh, 2, &[0, 1, 2], 0);
+    let mut p = honest(&s, Wrap::Wsh);
+    cosign(&s, &mut p, 0, &Signer3::path(Wrap::Wsh, 0, 0, 5), None);
+    let r = check_with(&p, &[Some(&w)]);
+    assert!(r.has(Issue::NothingToSign), "{:?}", r.issues());
+    assert!(r.inputs()[0].signed);
+}
