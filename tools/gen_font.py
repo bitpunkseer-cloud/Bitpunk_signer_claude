@@ -3,6 +3,7 @@
 
 Usage: python3 tools/gen_font.py <font-dir> <out.rs>
 Generated output is committed; the device never parses TTF at runtime.
+Korean (and any other non-ASCII) glyphs come from tools/gen_hangul.py.
 Font: JetBrains Mono (SIL OFL 1.1), see crates/bp-ui/fonts/.
 """
 import sys
@@ -42,8 +43,9 @@ for name, fname, px in SPECS:
     for i in range(0, len(data), 32):
         out.append("    " + ", ".join(str(b) for b in data[i:i + 32]) + ",")
     out.append("];")
+    wide = "None" if name == "HUGE" else f"Some(&super::hangul::{name})"
     out.append(f"pub static {name}: Font = Font {{ width: {adv}, height: {h}, baseline: {ascent}, "
-               f"first: {FIRST}, last: {LAST}, glyph_stride: {stride}, data: &{name}_DATA }};")
+               f"first: {FIRST}, last: {LAST}, glyph_stride: {stride}, data: &{name}_DATA, wide: {wide} }};")
     out.append("")
 open(OUT, "w").write("\n".join(out))
 print("wrote", OUT)

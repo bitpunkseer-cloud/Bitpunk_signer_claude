@@ -1,5 +1,13 @@
 //! Every user-facing string lives here. M1 ships English; Korean (M6) adds a
 //! second `Strings` table and a language setting.
+//!
+//! Every non-ASCII character in this file's string literals must have a
+//! glyph: `tools/gen_hangul.py` builds the Korean glyph tables from them and
+//! a test fails when one is missing.
+
+/// Language names, each written in its own language.
+#[allow(dead_code)] // shown by the language setting (M6-8)
+pub const LANGUAGES: [&str; 2] = ["English", "한국어"];
 
 pub struct Strings {
     // menus
@@ -797,3 +805,69 @@ pub static EN: Strings = Strings {
     ],
     rv: &EN_REVIEW,
 };
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+    use bp_ui::font::{BODY, SMALL, TITLE};
+
+    /// String literal contents of `src`, skipping `//` comments, char
+    /// literals and lifetimes (the rules `tools/gen_hangul.py` uses).
+    fn literals(src: &str) -> std::vec::Vec<std::string::String> {
+        let b: std::vec::Vec<char> = src.chars().collect();
+        let (mut out, mut i) = (std::vec::Vec::new(), 0);
+        while i < b.len() {
+            match b[i] {
+                '/' if b.get(i + 1) == Some(&'/') => {
+                    while i < b.len() && b[i] != '\n' {
+                        i += 1;
+                    }
+                }
+                '"' => {
+                    i += 1;
+                    let mut lit = std::string::String::new();
+                    while i < b.len() && b[i] != '"' {
+                        if b[i] == '\\' {
+                            lit.push(b[i]);
+                            i += 1;
+                        }
+                        lit.push(b[i]);
+                        i += 1;
+                    }
+                    out.push(lit);
+                    i += 1;
+                }
+                '\'' if b.get(i + 1) == Some(&'\\') => {
+                    i += 3;
+                    while b[i] != '\'' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                '\'' if b.get(i + 2) == Some(&'\'') => i += 3,
+                _ => i += 1,
+            }
+        }
+        out
+    }
+
+    /// Every non-ASCII character the UI can show has a glyph in every
+    /// text size (regenerate with `python3 tools/gen_hangul.py`).
+    #[test]
+    fn every_character_has_a_glyph() {
+        let lits = literals(include_str!("text.rs"));
+        assert!(lits.iter().any(|l| l == "한국어"));
+        let mut missing = std::vec::Vec::new();
+        for ch in lits.iter().flat_map(|l| l.chars()) {
+            for (name, font) in [("SMALL", &SMALL), ("BODY", &BODY), ("TITLE", &TITLE)] {
+                if !font.has_glyph(ch) && !missing.contains(&(name, ch)) {
+                    missing.push((name, ch));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "no glyph for {missing:?}; run tools/gen_hangul.py"
+        );
+    }
+}

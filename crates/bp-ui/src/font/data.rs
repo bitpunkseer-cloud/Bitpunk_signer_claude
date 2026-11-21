@@ -308,6 +308,7 @@ pub static SMALL: Font = Font {
     last: 126,
     glyph_stride: 95,
     data: &SMALL_DATA,
+    wide: Some(&super::hangul::SMALL),
 };
 
 static BODY_DATA: [u8; 15390] = [
@@ -819,6 +820,7 @@ pub static BODY: Font = Font {
     last: 126,
     glyph_stride: 162,
     data: &BODY_DATA,
+    wide: Some(&super::hangul::BODY),
 };
 
 static TITLE_DATA: [u8; 30685] = [
@@ -1844,6 +1846,7 @@ pub static TITLE: Font = Font {
     last: 126,
     glyph_stride: 323,
     data: &TITLE_DATA,
+    wide: Some(&super::hangul::TITLE),
 };
 
 static HUGE_DATA: [u8; 121125] = [
@@ -5863,4 +5866,5 @@ pub static HUGE: Font = Font {
     last: 126,
     glyph_stride: 1275,
     data: &HUGE_DATA,
+    wide: None,
 };
