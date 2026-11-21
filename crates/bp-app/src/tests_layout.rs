@@ -742,6 +742,32 @@ fn tour(lang: Lang) -> usize {
     press(&mut a, Key::Char('5'));
     a.on_qr_text(b"hello");
     t.snap(&a, "sig-not-signed");
+
+    // settings: fee rows, settings QR, import with blocked items, invalid
+    let mut a = t.app();
+    a.settings.fee_block = 1;
+    t.push_snap(
+        &mut a,
+        Screen::Menu {
+            id: MenuId::Settings,
+            sel: 8,
+        },
+        "settings-fees",
+    );
+    a.open_qr(QrKind::Settings);
+    t.snap(&a, "settings-qr");
+    a.pop();
+    scan_text(
+        &mut a,
+        "bitpunk-settings::v1 lang=ko units=btc msg_signing=1 fee_limit=50 fee_warn=10",
+    );
+    t.snap(&a, "settings-import");
+    press(&mut a, Key::Enter);
+    scan_text(&mut a, "bitpunk-settings::v1 msg_signing=1");
+    t.snap(&a, "settings-import-nothing");
+    press(&mut a, Key::Enter);
+    scan_text(&mut a, "bitpunk-settings::v1 fee_warn=3");
+    t.snap(&a, "settings-import-invalid");
     t.n
 }
 

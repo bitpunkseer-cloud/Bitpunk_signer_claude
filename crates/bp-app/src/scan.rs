@@ -60,6 +60,9 @@ pub enum Outcome {
     SignedMessage {
         len: usize,
     },
+    Settings {
+        len: usize,
+    },
     UnknownUr {
         len: usize,
     },
@@ -228,6 +231,7 @@ impl ScanState {
             }
             Ok((c, _)) if purpose == Purpose::Signed => Some(match c {
                 Content::SignedMessage { len } => Outcome::SignedMessage { len },
+                Content::Settings { len } => Outcome::Settings { len },
                 Content::Address {
                     len,
                     network,
@@ -269,6 +273,7 @@ impl ScanState {
                 Content::Descriptor { len } => Outcome::Descriptor { len },
                 Content::SignMessage { len } => Outcome::SignMessage { len },
                 Content::SignedMessage { len } => Outcome::SignedMessage { len },
+                Content::Settings { len } => Outcome::Settings { len },
                 Content::UnknownUr { len } => Outcome::UnknownUr { len },
                 Content::Text { len } => Outcome::Text { len },
                 Content::Binary { len } => Outcome::Binary { len },

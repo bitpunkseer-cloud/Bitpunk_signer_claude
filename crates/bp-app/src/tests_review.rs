@@ -1326,5 +1326,96 @@ fn verify_signature_step_by_step_then_check_the_address() {
     render(&a);
 }
 
+// ---------- M6: fee settings and SettingsQR ----------
+
+#[test]
+fn fee_settings_change_the_review() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    load_abandon(&mut a);
+    // a 15% fee is refused by default (limit 10%)
+    let p = psbt(
+        &w,
+        &[(0, 100_000, true)],
+        &[
+            (W::other().wpkh("m/84'/0'/0'/0/5"), 50_000, None),
+            (w.wpkh("m/84'/0'/0'/1/0"), 37_000, Some(0)),
+        ],
+    );
+    scan_psbt(&mut a, &p);
+    assert_eq!(step(&a), Step::Problem);
+    press(&mut a, Key::Enter);
+    // Settings > Fee limit: 25%
+    press(&mut a, Key::Char('4'));
+    press(&mut a, Key::Char('8'));
+    assert_eq!(a.settings.fee_block, 1);
+    assert_eq!(a.settings.policy().fee_block_percent, 25);
+    press(&mut a, Key::Esc);
+    scan_psbt(&mut a, &p);
+    assert_eq!(step(&a), Step::Warning { idx: 0, sel: 0 });
+    let r = a.review.as_ref().unwrap().report.as_ref().unwrap();
+    assert!(r.has(bp_bitcoin::validate::Issue::HighFee) && !r.has(bp_bitcoin::validate::Issue::FeeTooHigh));
+    render(&a);
+    // the warning text names the setting's threshold
+    let t: bp_ui::fmt::Buf<128> = bp_ui::fmt::fill(text::EN.rv.issues[33].1, &[&2u64, &25u64, &1000u64]);
+    assert_eq!(t.as_str(), "The fee is 2% or more of the outputs.");
+}
+
+#[test]
+fn settings_qr_exports_and_imports_without_weakening() {
+    let mut a = app();
+    a.settings.lang = settings::Lang::Ko;
+    a.settings.fee_rate = 0;
+    // Settings > Settings as QR (row 10)
+    press(&mut a, Key::Char('4'));
+    for _ in 0..9 {
+        press(&mut a, Key::Down);
+    }
+    press(&mut a, Key::Enter);
+    assert_eq!(
+        a.current(),
+        Screen::QrShow {
+            kind: QrKind::Settings
+        }
+    );
+    render(&a);
+    let mut b = [0u8; 256];
+    let n = a.settings.to_qr(&mut b);
+    assert_eq!(qr_text_of(&a), std::str::from_utf8(&b[..n]).unwrap());
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Esc);
+    // after a power cycle the QR restores the harmless settings
+    let exported = std::str::from_utf8(&b[..n])
+        .unwrap()
+        .replace("msg_signing=0", "msg_signing=1");
+    let mut a = app();
+    scan_text(&mut a, &exported);
+    assert_eq!(a.current(), Screen::SettingsImport { sel: 0 });
+    render(&a);
+    press(&mut a, Key::Enter); // Cancel is the default
+    assert_eq!(a.settings.lang, settings::Lang::En);
+    scan_text(&mut a, &exported);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    assert_eq!(a.settings.lang, settings::Lang::Ko);
+    assert_eq!(a.settings.fee_rate, 0, "a stricter fee rate warning applies");
+    assert!(
+        !a.settings.msg_signing,
+        "message signing is never turned on by a QR"
+    );
+    // invalid settings
+    scan_text(&mut a, "bitpunk-settings::v1 colour=red");
+    assert_eq!(a.current(), Screen::SettingsImport { sel: 0 });
+    assert!(matches!(a.import, Some(Err(_))));
+    render(&a);
+    press(&mut a, Key::Enter);
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+}
+
+fn qr_text_of(a: &App) -> String {
+    let q = a.qr.as_ref().unwrap();
+    String::from_utf8(q.payload().to_vec()).unwrap()
+}
+
 #[path = "tests_layout.rs"]
 mod layout;

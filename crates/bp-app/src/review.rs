@@ -223,7 +223,7 @@ impl App {
         }
         let policy = Policy {
             message: message.is_some(),
-            ..Policy::default()
+            ..self.settings.policy()
         };
         let mut chosen: Option<(u8, Report)> = None;
         for slot in 0..SEED_SLOTS {
@@ -411,7 +411,7 @@ impl App {
             network: self.settings.network,
             policy: Policy {
                 message: r.message.is_some(),
-                ..Policy::default()
+                ..self.settings.policy()
             },
         };
         let (psbt, out) = self.scan.buffers();

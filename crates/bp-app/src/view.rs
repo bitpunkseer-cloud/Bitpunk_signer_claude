@@ -385,6 +385,7 @@ impl App {
             Screen::VerifyAddr { step } => self.render_verify(c, step),
             Screen::MsgSign { step } => self.render_msg(c, step),
             Screen::SigVerify { step } => self.render_sig(c, step),
+            Screen::SettingsImport { sel } => self.render_settings_import(c, sel),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
@@ -1022,6 +1023,7 @@ impl App {
             }
             QrKind::SignedPsbt { format } => fill(s.rv.qr_title, &[&s.rv.formats[format as usize]]),
             QrKind::MessageSig => fill(s.ms_sig_qr, &[]),
+            QrKind::Settings => fill(s.settings_qr, &[]),
         }
     }
 
@@ -1150,6 +1152,7 @@ impl App {
             QrKind::Xpub { .. } => s.qr_keys_xpub,
             QrKind::SeedQr { .. } => s.qr_keys_seed,
             QrKind::SignedPsbt { .. } | QrKind::MessageSig => s.rv.qr_keys,
+            QrKind::Settings => s.si_note_short,
         };
         let y0 = h - 4 * 21 - 6;
         for (i, k) in s.qr_keys.iter().chain(core::iter::once(&extra)).enumerate() {
@@ -1445,7 +1448,10 @@ impl App {
                 wrap(c, MARGIN, y0 + 96, text(len), 8);
             }
             // addresses and messages open their own screens
-            Outcome::Address { .. } | Outcome::SignMessage { .. } | Outcome::SignedMessage { .. } => {}
+            Outcome::Address { .. }
+            | Outcome::SignMessage { .. }
+            | Outcome::SignedMessage { .. }
+            | Outcome::Settings { .. } => {}
             Outcome::NotSigned => {
                 self.status(c, s.verify_sig);
                 widgets::message_at(
@@ -1496,6 +1502,73 @@ impl App {
             }
         }
         widgets::hint_bar(c, &[("Enter", s.h_done)]);
+    }
+
+    fn render_settings_import(&self, c: &mut dyn Canvas, sel: u8) {
+        use crate::settings::VALUE_ROWS;
+        let s = self.text();
+        self.status(c, s.si_title);
+        let mut y = STATUS_H + 16;
+        match &self.import {
+            Some(Ok(imp)) => {
+                widgets::label(c, MARGIN, y, s.si_changes);
+                y += 26;
+                let mut changed = 0;
+                for row in 0..VALUE_ROWS {
+                    let id = MenuId::Settings;
+                    let old = self.settings.value_label(id, row, s).unwrap_or("");
+                    let new = imp.settings.value_label(id, row, s).unwrap_or("");
+                    if old == new {
+                        continue;
+                    }
+                    let label = (crate::menus::table(id)[row as usize].label)(s);
+                    let l: Buf<160> = bformat!(160, "{}: {} -> {}", label, old, new);
+                    BODY.draw(c, MARGIN, y, l.as_str(), theme::TEXT);
+                    y += 30;
+                    changed += 1;
+                }
+                if changed == 0 {
+                    BODY.draw(c, MARGIN, y, s.si_none, theme::TEXT_DIM);
+                    y += 30;
+                }
+                if imp.blocked.any() {
+                    y = BODY.draw_wrapped(
+                        c,
+                        MARGIN,
+                        y + 6,
+                        800 - 2 * MARGIN,
+                        28,
+                        2,
+                        s.si_blocked,
+                        theme::WARN,
+                    );
+                    let mut names = Buf::<160>::new();
+                    for (i, row) in imp.blocked.rows().enumerate() {
+                        if i > 0 {
+                            names.push_str(", ");
+                        }
+                        names.push_str((crate::menus::table(MenuId::Settings)[row as usize].label)(s));
+                    }
+                    BODY.draw(c, MARGIN, y, names.as_str(), theme::WARN);
+                    y += 34;
+                }
+                let items = if changed > 0 {
+                    [s.si_options[0], s.si_options[1]]
+                } else {
+                    [s.h_done, ""]
+                };
+                let n = if changed > 0 { 2 } else { 1 };
+                let menu = items.map(|label| MenuItem { label, detail: "" });
+                widgets::list(c, MARGIN, y.min(330), 400, 110, &menu[..n], sel as usize, false);
+            }
+            Some(Err(e)) => {
+                let i = *e as usize;
+                widgets::message_at(c, STATUS_H + 70, s.si_invalid, theme::DANGER, &[s.si_errors[i]]);
+            }
+            None => {}
+        }
+        SMALL.draw(c, MARGIN, 420, s.si_note, theme::TEXT_DIM);
+        widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_cancel)]);
     }
 
     fn render_summary(&self, c: &mut dyn Canvas) {

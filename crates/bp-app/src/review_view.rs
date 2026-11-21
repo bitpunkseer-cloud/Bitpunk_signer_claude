@@ -259,7 +259,12 @@ impl App {
                 }
                 if let Some(i) = first {
                     y += 8;
-                    y = prose(c, y, rv.issues[issue_index(&i)].1, &SMALL, theme::TEXT_DIM, 3);
+                    let p = self.settings.policy();
+                    let text: Buf<512> = fill(
+                        rv.issues[issue_index(&i)].1,
+                        &[&p.fee_warn_percent, &p.fee_block_percent, &p.fee_rate_warn],
+                    );
+                    y = prose(c, y, text.as_str(), &SMALL, theme::TEXT_DIM, 3);
                 }
                 let tail = if worst == Some(Class::Attack) {
                     rv.attack_1
@@ -283,7 +288,12 @@ impl App {
                     BODY.draw(c, MARGIN, y, at.as_str(), theme::TEXT_DIM);
                     y += BODY.height as i32 + 8;
                 }
-                y = prose(c, y + 4, text, &BODY, theme::TEXT, 4);
+                let p = self.settings.policy();
+                let text: Buf<512> = fill(
+                    text,
+                    &[&p.fee_warn_percent, &p.fee_block_percent, &p.fee_rate_warn],
+                );
+                y = prose(c, y + 4, text.as_str(), &BODY, theme::TEXT, 4);
                 if w.needs_override() {
                     let items = rv.override_options.map(|label| MenuItem { label, detail: "" });
                     widgets::list(

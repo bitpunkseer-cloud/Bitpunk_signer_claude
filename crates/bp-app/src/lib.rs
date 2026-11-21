@@ -64,6 +64,8 @@ pub enum QrKind {
     },
     /// The message signature (one static QR).
     MessageSig,
+    /// Every setting as a SettingsQR.
+    Settings,
 }
 
 /// QR formats for the signed PSBT (decision 5: UR by default).
@@ -245,6 +247,10 @@ pub enum Screen {
     SigVerify {
         step: sigverify::SvStep,
     },
+    /// A scanned SettingsQR: the changes, Cancel / Apply.
+    SettingsImport {
+        sel: u8,
+    },
 }
 
 pub struct App {
@@ -285,6 +291,8 @@ pub struct App {
     msg: Option<msgsign::MsgState>,
     /// A signed message being verified.
     sig: Option<sigverify::SigState>,
+    /// A scanned SettingsQR waiting for Apply.
+    import: Option<Result<settings::Import, settings::ImportError>>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -352,6 +360,7 @@ impl App {
             n_session_accounts: 1,
             msg: None,
             sig: None,
+            import: None,
         }
     }
 
@@ -593,6 +602,11 @@ impl App {
             let n = len.min(addr.len());
             addr[..n].copy_from_slice(&self.scan.out[..n]);
             self.sig_address(&addr[..n]);
+            self.end_scan_if_left();
+        } else if let Some(scan::Outcome::Settings { len }) = self.scan.outcome {
+            let n = len.min(self.scan.out.len());
+            self.import = Some(self.settings.import(&self.scan.out[..n]));
+            self.set_current(Screen::SettingsImport { sel: 0 });
             self.end_scan_if_left();
         } else if let Some(scan::Outcome::SignMessage { len }) = self.scan.outcome {
             let mut text = [0u8; bp_bitcoin::message::MAX_MESSAGE + 128];
@@ -1023,6 +1037,24 @@ impl App {
             Screen::VerifyAddr { step } => self.verify_key(step, ev),
             Screen::MsgSign { step } => self.msg_key(step, ev),
             Screen::SigVerify { step } => self.sig_key(step, ev),
+            Screen::SettingsImport { sel } => {
+                let applicable = matches!(&self.import, Some(Ok(i)) if i.settings != self.settings);
+                let n = if applicable { 2 } else { 1 };
+                match pick(ev.key, sel, n) {
+                    Pick::Move(s) => self.set_current(Screen::SettingsImport { sel: s }),
+                    Pick::Choose(1) if applicable => {
+                        if let Some(Ok(i)) = self.import.take() {
+                            self.settings = i.settings;
+                        }
+                        self.pop();
+                    }
+                    Pick::Choose(_) | Pick::Back => {
+                        self.import = None;
+                        self.pop();
+                    }
+                    Pick::None => {}
+                }
+            }
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1155,6 +1187,16 @@ impl App {
                 bp_crypto::secret::wipe(&mut digits);
                 bp_crypto::secret::wipe(&mut ent);
                 s
+            }
+            QrKind::Settings => {
+                let mut b = [0u8; 256];
+                let n = self.settings.to_qr(&mut b);
+                qrview::QrSession::new(
+                    qrview::Format::Static,
+                    &b[..n],
+                    qrview::Density::Auto,
+                    qrview::Speed::Normal,
+                )
             }
             QrKind::MessageSig => {
                 let Some(sig) = self.msg.as_ref().and_then(|m| m.signature()) else {
@@ -1385,6 +1427,7 @@ impl App {
             Action::Explorer => self.open_explorer(),
             Action::SignMessage => self.start_msg_typing(None),
             Action::VerifySignature => self.start_scan(scan::Purpose::Signed),
+            Action::SettingsQr => self.open_qr(QrKind::Settings),
             Action::VerifyAddress => {
                 if self.seed_count() == 0 {
                     self.push(Screen::NoSeed);

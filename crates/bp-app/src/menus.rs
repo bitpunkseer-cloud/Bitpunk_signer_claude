@@ -47,6 +47,8 @@ pub enum Action {
     SignMessage,
     /// Tools > Verify signature.
     VerifySignature,
+    /// Settings > Settings as QR.
+    SettingsQr,
     Start(Start),
     CycleSetting,
     About,
@@ -154,13 +156,21 @@ static TOOLS: [Entry; 8] = [
     todo_entry!(|s| s.totp, "M10", |s| s.ms_tools),
 ];
 
-static SETTINGS: [Entry; 7] = [
+static SETTINGS: [Entry; 11] = [
     setting(|s| s.network),
     setting(|s| s.units),
     setting(|s| s.qr_density),
     setting(|s| s.advanced),
     setting(|s| s.language),
     setting(|s| s.msg_signing),
+    setting(|s| s.fee_warn_label),
+    setting(|s| s.fee_block_label),
+    setting(|s| s.fee_rate_label),
+    Entry {
+        label: |s| s.settings_qr,
+        detail: ">",
+        action: Action::SettingsQr,
+    },
     Entry {
         label: |s| s.about,
         detail: ">",

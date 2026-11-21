@@ -64,6 +64,10 @@ pub enum Content {
     SignedMessage {
         len: usize,
     },
+    /// A device settings QR ("bitpunk-settings::...").
+    Settings {
+        len: usize,
+    },
     /// Descriptor or wallet-file text in `out[..len]`.
     Descriptor {
         len: usize,
@@ -275,6 +279,9 @@ pub fn classify(data: &[u8], out: &mut [u8]) -> Result<Content, Error> {
     }
     if t.starts_with(b"signmessage ") {
         return Ok(Content::SignMessage { len: copy(out, t)? });
+    }
+    if t.starts_with(b"bitpunk-settings::") {
+        return Ok(Content::Settings { len: copy(out, t)? });
     }
     if t.starts_with(crate::message::BEGIN_MSG) {
         return Ok(Content::SignedMessage { len: copy(out, t)? });
