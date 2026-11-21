@@ -17,6 +17,7 @@ pub mod seedqr;
 pub mod sighash;
 pub mod tx;
 pub mod urtypes;
+pub mod validate;
 
 /// Bitcoin networks supported by the signer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
