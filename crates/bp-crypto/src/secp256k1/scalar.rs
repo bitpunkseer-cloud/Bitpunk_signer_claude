@@ -1,5 +1,6 @@
-//! Scalars modulo the group order n. Constant-time add/negate; secret keys
-//! are wrapped in `SecretKey`, which wipes itself on drop.
+//! Scalars modulo the group order n. Constant-time add, negate, multiply
+//! and invert; secret keys are wrapped in `SecretKey`, which wipes itself
+//! on drop.
 
 use super::ct::{add4, is_zero4, limbs_from_be, limbs_to_be, select4, sub4, Choice};
 use core::fmt;
@@ -10,6 +11,55 @@ pub const N: [u64; 4] = [
     0xFFFF_FFFF_FFFF_FFFE,
     u64::MAX,
 ];
+
+/// 2^256 - n (129 bits), so 2^256 = NC (mod n).
+const NC: [u64; 3] = [0x402D_A173_2FC9_BEBF, 0x4551_2319_50B7_5FC4, 1];
+
+/// n / 2 (floor), for the low-S rule.
+const N_HALF: [u64; 4] = [
+    0xDFE9_2F46_681B_20A0,
+    0x5D57_6E73_57A4_501D,
+    0xFFFF_FFFF_FFFF_FFFF,
+    0x7FFF_FFFF_FFFF_FFFF,
+];
+
+/// out += a * b over `out.len()` limbs (fixed loop bounds: constant time).
+#[inline]
+fn mul_add_into(out: &mut [u64], a: &[u64], b: &[u64]) {
+    for (i, &ai) in a.iter().enumerate() {
+        let mut carry: u128 = 0;
+        for j in 0..out.len() - i {
+            let bj = if j < b.len() { b[j] } else { 0 };
+            let t = out[i + j] as u128 + (ai as u128) * (bj as u128) + carry;
+            out[i + j] = t as u64;
+            carry = t >> 64;
+        }
+    }
+}
+
+/// Reduce a 512-bit value modulo n by folding the high half with
+/// 2^256 = NC (four fixed rounds, then one conditional subtraction).
+fn reduce512(x: &[u64; 8]) -> [u64; 4] {
+    // round 1: < 2^256 + 2^385
+    let mut a = [0u64; 7];
+    a[..4].copy_from_slice(&x[..4]);
+    mul_add_into(&mut a, &x[4..8], &NC);
+    // round 2: < 2^256 + 2^(130 + 129)
+    let mut b = [0u64; 5];
+    b[..4].copy_from_slice(&a[..4]);
+    mul_add_into(&mut b, &a[4..7], &NC);
+    // round 3: < 2^256 + 2^131
+    let mut c = [0u64; 5];
+    c[..4].copy_from_slice(&b[..4]);
+    mul_add_into(&mut c, &b[4..5], &NC);
+    // round 4: c[4] is 0 or 1; if 1, the low part is below 2^131
+    let mut d = [0u64; 5];
+    d[..4].copy_from_slice(&c[..4]);
+    mul_add_into(&mut d, &c[4..5], &NC);
+    let r = [d[0], d[1], d[2], d[3]];
+    let (s, borrow) = sub4(&r, &N);
+    select4(&s, &r, Choice::from_bit(borrow))
+}
 
 #[derive(Clone, Copy)]
 pub struct Scalar(pub(crate) [u64; 4]);
@@ -34,6 +84,59 @@ impl Scalar {
         let (d, borrow) = sub4(&s, &N);
         let use_d = Choice::from_bit(c).or(Choice::from_bit(borrow).not());
         Scalar(select4(&s, &d, use_d))
+    }
+
+    /// Big-endian bytes reduced modulo n (a 256-bit hash as a scalar).
+    pub fn from_bytes_reduce(b: &[u8; 32]) -> Scalar {
+        let x = limbs_from_be(b);
+        let (d, borrow) = sub4(&x, &N);
+        Scalar(select4(&d, &x, Choice::from_bit(borrow)))
+    }
+
+    pub fn mul(&self, o: &Scalar) -> Scalar {
+        let mut w = [0u64; 8];
+        mul_add_into(&mut w, &self.0, &o.0);
+        let r = reduce512(&w);
+        for v in w.iter_mut() {
+            // SAFETY: valid exclusive reference.
+            unsafe { core::ptr::write_volatile(v, 0) };
+        }
+        Scalar(r)
+    }
+
+    pub fn square(&self) -> Scalar {
+        self.mul(self)
+    }
+
+    /// Multiplicative inverse (a^(n-2), fixed public exponent: constant
+    /// time in `a`). The inverse of 0 is 0.
+    pub fn invert(&self) -> Scalar {
+        // n - 2
+        let e: [u64; 4] = [N[0] - 2, N[1], N[2], N[3]];
+        let mut acc = Scalar::ONE;
+        for i in (0..256).rev() {
+            acc = acc.square();
+            if (e[i / 64] >> (i % 64)) & 1 == 1 {
+                acc = acc.mul(self);
+            }
+        }
+        acc
+    }
+
+    /// True when the scalar is above n / 2 (the high half; BIP-62 low-S).
+    pub fn is_high(&self) -> Choice {
+        let (_, borrow) = sub4(&N_HALF, &self.0);
+        Choice::from_bit(borrow)
+    }
+
+    pub fn ct_eq(&self, o: &Scalar) -> Choice {
+        let x = [
+            self.0[0] ^ o.0[0],
+            self.0[1] ^ o.0[1],
+            self.0[2] ^ o.0[2],
+            self.0[3] ^ o.0[3],
+        ];
+        is_zero4(&x)
     }
 
     pub fn neg(&self) -> Scalar {

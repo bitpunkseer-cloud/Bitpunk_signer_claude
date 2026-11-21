@@ -1,6 +1,6 @@
 # M5 구현 계획 (v2) — PSBT 서명
 
-상태: **승인 대기** · 근거: [SIGNING_SURVEY.md](../SIGNING_SURVEY.md) (8개 레퍼런스 서명 과정 전수조사)
+상태: **승인됨 (2026-11-21, 결정 1~5 모두 권장안)** · 근거: [SIGNING_SURVEY.md](../SIGNING_SURVEY.md) (8개 레퍼런스 서명 과정 전수조사)
 
 ## 0. v1에서 바뀐 점
 
