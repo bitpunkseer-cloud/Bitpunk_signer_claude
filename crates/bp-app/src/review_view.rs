@@ -410,18 +410,35 @@ impl App {
                 widgets::list(c, MARGIN, y + 16, 400, 2 * 52, &items, sel as usize, false);
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
-            Step::Signed => {
+            Step::Signed { sel } => {
                 self.status(c, rv.title);
                 let n = r.signed.map_or(0, |x| x.signatures);
                 let l1: Buf<80> = fill(rv.signed_1, &[&n]);
-                widgets::message_at(
+                let y = widgets::message_at(
                     c,
-                    STATUS_H + 90,
+                    STATUS_H + 30,
                     rv.signed,
                     theme::OK,
                     &[l1.as_str(), rv.signed_2],
                 );
-                widgets::hint_bar(c, &[("Enter", s.h_done)]);
+                let items = rv.show_qr.map(|label| MenuItem { label, detail: "" });
+                widgets::list(
+                    c,
+                    MARGIN,
+                    y + 16,
+                    W - 2 * MARGIN,
+                    4 * 52,
+                    &items,
+                    sel as usize,
+                    false,
+                );
+                if let Some(msg) = self.notice {
+                    SMALL.draw(c, MARGIN, y + 16 + 4 * 52 + 6, msg, theme::WARN);
+                }
+                widgets::hint_bar(
+                    c,
+                    &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", rv.h_discard)],
+                );
             }
             Step::Failed => {
                 self.status(c, rv.title);

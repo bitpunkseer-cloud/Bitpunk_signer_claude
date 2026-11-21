@@ -1005,6 +1005,7 @@ impl App {
                     &[&s.seedqr_kinds[compact as usize].0, &label.as_str()],
                 )
             }
+            QrKind::SignedPsbt { format } => fill(s.rv.qr_title, &[&s.rv.formats[format as usize]]),
         }
     }
 
@@ -1047,13 +1048,14 @@ impl App {
                 bformat!(40, "{}", s.seedqr_kinds[i].0)
             }
             Format::Static => bformat!(40, "{}", s.fmt_text),
+            Format::Bbqr { encoding, .. } => bformat!(40, "BBQr ({})", encoding as char),
         };
         row(c, &mut y, s.qr_format, fmt_name.as_str(), theme::TEXT);
 
         let frames = q.frames();
         let frame_s: Buf<40> = match q.format {
             _ if frames <= 1 => fill(s.single_qr, &[]),
-            Format::Specter => fill(s.part_n, &[&(q.frame + 1), &frames]),
+            Format::Specter | Format::Bbqr { .. } => fill(s.part_n, &[&(q.frame + 1), &frames]),
             _ if q.frame as usize <= frames => fill(s.part_n, &[&q.frame, &frames]),
             _ => fill(s.part_fountain, &[&q.frame, &frames]),
         };
@@ -1131,6 +1133,7 @@ impl App {
         let extra = match kind {
             QrKind::Xpub { .. } => s.qr_keys_xpub,
             QrKind::SeedQr { .. } => s.qr_keys_seed,
+            QrKind::SignedPsbt { .. } => s.rv.qr_keys,
         };
         let y0 = h - 4 * 21 - 6;
         for (i, k) in s.qr_keys.iter().chain(core::iter::once(&extra)).enumerate() {

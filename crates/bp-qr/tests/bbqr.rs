@@ -308,3 +308,30 @@ fn specter_parts_join() {
         assert!(specter::parse(bad.as_bytes()).is_none(), "{bad}");
     }
 }
+
+#[test]
+fn parts_from_encoded_chars_join_back() {
+    use bp_qr::bbqr::{Bbqr, Encoding, FileType, Joiner};
+    let raw: Vec<u8> = (0..3000u32).map(|i| (i * 7 % 13) as u8).collect();
+    let mut work = vec![0u8; 4096];
+    let mut chars = vec![0u8; 8192];
+    let full = Bbqr::new(&raw, FileType::Psbt, Encoding::Zlib, 1, 12, &mut work, &mut chars).unwrap();
+    let enc = full.encoding();
+    let kept = full.chars().to_vec();
+    for max_ver in [5u8, 9, 12, 20] {
+        let b = Bbqr::from_encoded(&kept, enc, FileType::Psbt, 1, max_ver).unwrap();
+        let mut store = vec![0u8; 16384];
+        let mut j = Joiner::new(&mut store);
+        let mut done = false;
+        for i in 0..b.count() {
+            let mut part = [0u8; 4096];
+            let n = b.part(i, &mut part).unwrap();
+            done = j.add(&part[..n]).unwrap();
+        }
+        assert!(done, "max version {max_ver}");
+        let mut out = vec![0u8; 4096];
+        let mut w2 = vec![0u8; 8192];
+        let n = j.finish(&mut w2, &mut out).unwrap();
+        assert_eq!(&out[..n], &raw[..], "max version {max_ver}");
+    }
+}

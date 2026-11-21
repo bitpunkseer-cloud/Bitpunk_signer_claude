@@ -2,11 +2,12 @@
 //! speed, brightness, inversion, full screen and pause. The current frame is
 //! computed on demand, so rendering never mutates state.
 
-use bp_qr::bbqr::specter;
+use bp_qr::bbqr::{specter, Bbqr, FileType};
 use bp_qr::qr::{capacity, Ecc, Mode, QrCode};
 use bp_qr::ur::{max_fragment_len_for_chars, UrEncoder};
 
-pub const PAYLOAD_MAX: usize = 1024;
+/// Largest payload: a signed PSBT as base64 (Specter) or BBQr characters.
+pub const PAYLOAD_MAX: usize = 12 * 1024;
 pub const TEXT_MAX: usize = 2400;
 
 /// Side of the square the QR screen gives the symbol (800x480 minus the
@@ -101,6 +102,9 @@ pub enum Format {
     SeedStandard,
     /// Compact SeedQR (byte mode, ECC L).
     SeedCompact,
+    /// BBQr parts cut from the encoded characters in the payload
+    /// (`encoding` is 'Z', '2' or 'H').
+    Bbqr { encoding: u8, file_type: FileType },
 }
 
 /// Light-module brightness levels (SeedSigner lets users dim the QR to
@@ -128,6 +132,14 @@ impl QrSession {
         if payload.len() > PAYLOAD_MAX || payload.is_empty() {
             return None;
         }
+        // single-symbol formats show the whole payload in one frame
+        if matches!(
+            format,
+            Format::Static | Format::SeedStandard | Format::SeedCompact
+        ) && payload.len() > TEXT_MAX
+        {
+            return None;
+        }
         let mut s = QrSession {
             format,
             payload: [0; PAYLOAD_MAX],
@@ -151,7 +163,7 @@ impl QrSession {
     }
 
     fn reset_frame(&mut self) {
-        self.frame = if matches!(self.format, Format::Specter) {
+        self.frame = if matches!(self.format, Format::Specter | Format::Bbqr { .. }) {
             0
         } else {
             1
@@ -194,10 +206,18 @@ impl QrSession {
         self.ur_encoder_at(ur_type, self.effective_density())
     }
 
+    fn bbqr_at(&self, d: Density) -> Option<Bbqr<'_>> {
+        let Format::Bbqr { encoding, file_type } = self.format else {
+            return None;
+        };
+        Bbqr::from_encoded(self.payload(), encoding, file_type, 1, d.max_version()).ok()
+    }
+
     fn frames_at(&self, d: Density) -> usize {
         match self.format {
             Format::Ur(t) => self.ur_encoder_at(t, d).map(|e| e.seq_len()).unwrap_or(1),
             Format::Specter => specter::count(self.len, d.specter_chunk()),
+            Format::Bbqr { .. } => self.bbqr_at(d).map_or(1, |b| b.count()),
             _ => 1,
         }
     }
@@ -227,6 +247,10 @@ impl QrSession {
                 out,
             )
             .unwrap_or(0),
+            Format::Bbqr { .. } => self
+                .bbqr_at(self.effective_density())
+                .and_then(|b| b.part(self.frame as usize, out).ok())
+                .unwrap_or(0),
             _ => {
                 out[..self.len].copy_from_slice(self.payload());
                 self.len
@@ -266,7 +290,7 @@ impl QrSession {
         }
         self.elapsed = 0;
         match self.format {
-            Format::Specter => self.frame = (self.frame + 1) % self.frames() as u32,
+            Format::Specter | Format::Bbqr { .. } => self.frame = (self.frame + 1) % self.frames() as u32,
             _ => self.frame = self.frame.wrapping_add(1).max(1),
         }
         true

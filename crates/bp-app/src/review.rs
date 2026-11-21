@@ -36,7 +36,10 @@ pub enum Step {
     Approve {
         sel: u8,
     },
-    Signed,
+    /// Signed: choose the QR format (0 UR, 1 BBQr, 2 Specter) or 3 Done.
+    Signed {
+        sel: u8,
+    },
     Failed,
 }
 
@@ -198,11 +201,29 @@ impl App {
         };
         let back = matches!(ev.key, Key::Esc | Key::Backspace);
         match step {
-            Step::WrongSeed | Step::Problem | Step::Signed | Step::Failed => {
+            Step::WrongSeed | Step::Problem | Step::Failed => {
                 if back || ev.key == Key::Enter {
                     self.end_review();
                 }
             }
+            Step::Signed { sel } => match ev.key {
+                Key::Up => self.set_current(Screen::Review {
+                    step: Step::Signed {
+                        sel: sel.saturating_sub(1),
+                    },
+                }),
+                Key::Down => self.set_current(Screen::Review {
+                    step: Step::Signed {
+                        sel: (sel + 1).min(3),
+                    },
+                }),
+                Key::Enter if sel < 3 => self.open_qr(crate::QrKind::SignedPsbt {
+                    format: crate::PsbtFormat::ALL[sel as usize],
+                }),
+                Key::Enter => self.end_review(),
+                _ if back => self.end_review(),
+                _ => {}
+            },
             Step::Warning { idx, sel } => {
                 let blocking = r.warning(idx).is_some_and(|w| w.needs_override());
                 match ev.key {
@@ -284,7 +305,7 @@ impl App {
         let step = match result {
             Ok(s) => {
                 r.signed = Some(s);
-                Step::Signed
+                Step::Signed { sel: 0 }
             }
             Err(e) => {
                 r.error = Some(e);

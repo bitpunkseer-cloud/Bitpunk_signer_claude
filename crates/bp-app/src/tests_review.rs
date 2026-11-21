@@ -248,7 +248,7 @@ fn review_then_cancel_or_sign() {
     assert_eq!(step(&a), Step::Approve { sel: 1 });
     render(&a);
     press(&mut a, Key::Enter);
-    assert_eq!(step(&a), Step::Signed);
+    assert_eq!(step(&a), Step::Signed { sel: 0 });
     render(&a);
     let signed = a.review.as_ref().unwrap().signed.unwrap();
     assert_eq!(signed.signatures, 1);
@@ -273,7 +273,7 @@ fn review_then_cancel_or_sign() {
             &pk,
         )
         .unwrap();
-    press(&mut a, Key::Enter);
+    press(&mut a, Key::Esc);
     assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
     assert!(
         a.scan.work().iter().all(|&b| b == 0),
@@ -410,7 +410,7 @@ fn unverified_amounts_need_an_explicit_override() {
     assert_eq!(step(&a), Step::Approve { sel: 0 });
     press(&mut a, Key::Up);
     press(&mut a, Key::Enter);
-    assert_eq!(step(&a), Step::Signed);
+    assert_eq!(step(&a), Step::Signed { sel: 0 });
     assert_eq!(a.review.as_ref().unwrap().signed.unwrap().signatures, 2);
 }
 
@@ -426,8 +426,8 @@ fn signed_amounts_are_remembered_until_power_off() {
     }
     press(&mut a, Key::Down);
     press(&mut a, Key::Enter);
-    assert_eq!(step(&a), Step::Signed);
-    press(&mut a, Key::Enter);
+    assert_eq!(step(&a), Step::Signed { sel: 0 });
+    press(&mut a, Key::Esc);
     // the same coins with another amount (no previous tx to contradict it)
     let mut q = psbt(
         &w,
@@ -448,4 +448,70 @@ fn signed_amounts_are_remembered_until_power_off() {
         .as_ref()
         .unwrap()
         .has(bp_bitcoin::validate::Issue::UtxoAmountChanged(0)));
+}
+
+/// Sign the standard PSBT and return the app on the signed screen.
+fn signed_app() -> (App, RefPsbt) {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    load_abandon(&mut a);
+    let p = standard(&w);
+    scan_psbt(&mut a, &p);
+    for _ in 0..4 {
+        press(&mut a, Key::Enter);
+    }
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    assert_eq!(step(&a), Step::Signed { sel: 0 });
+    (a, p)
+}
+
+#[test]
+fn signed_psbt_qr_round_trips_in_every_format() {
+    use bp_bitcoin::qrinput::{Collector, Content, Feed, Source};
+    let (mut a, p) = signed_app();
+    let len = a.review.as_ref().unwrap().signed.unwrap().len;
+    let signed = a.scan.work()[..len].to_vec();
+    for (sel, source) in [(0u8, Source::Ur), (1, Source::Bbqr), (2, Source::Specter)] {
+        while step(&a) != (Step::Signed { sel }) {
+            press(&mut a, Key::Down);
+        }
+        press(&mut a, Key::Enter);
+        assert!(matches!(a.current(), Screen::QrShow { .. }), "format {sel}");
+        render(&a);
+        // small density forces several frames
+        a.qr.as_mut().unwrap().set_density(qrview::Density::High);
+        let mut col: std::boxed::Box<Collector<{ 32 * 1024 }>> = std::boxed::Box::new(Collector::new());
+        let mut done = false;
+        for k in 0..400u32 {
+            let q = a.qr.as_mut().unwrap();
+            q.frame = if sel == 0 { k + 1 } else { k % q.frames() as u32 };
+            let mut t = [0u8; qrview::TEXT_MAX];
+            let n = q.text(&mut t);
+            assert!(q.qr().is_some(), "frame {k} encodes");
+            if col.feed(&t[..n]) == Feed::Complete {
+                done = true;
+                break;
+            }
+        }
+        assert!(done, "format {sel} completes");
+        let mut work = vec![0u8; 32 * 1024];
+        let mut out = vec![0u8; 32 * 1024];
+        let (content, src) = col.finish(&mut work, &mut out).unwrap();
+        assert_eq!(src, source);
+        let Content::Psbt { len: n, .. } = content else {
+            panic!("format {sel}: not a PSBT")
+        };
+        assert_eq!(&out[..n], &signed[..], "format {sel}");
+        press(&mut a, Key::Esc); // back to the signed screen
+        assert_eq!(step(&a), Step::Signed { sel });
+    }
+    // Done wipes everything
+    while step(&a) != (Step::Signed { sel: 3 }) {
+        press(&mut a, Key::Down);
+    }
+    press(&mut a, Key::Enter);
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(a.qr.is_none() && a.review.is_none());
+    let _ = p;
 }

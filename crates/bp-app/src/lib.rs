@@ -55,6 +55,22 @@ pub enum QrKind {
         slot: u8,
         compact: bool,
     },
+    /// The signed PSBT in the review's work buffer.
+    SignedPsbt {
+        format: PsbtFormat,
+    },
+}
+
+/// QR formats for the signed PSBT (decision 5: UR by default).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PsbtFormat {
+    Ur,
+    Bbqr,
+    Specter,
+}
+
+impl PsbtFormat {
+    pub const ALL: [PsbtFormat; 3] = [PsbtFormat::Ur, PsbtFormat::Bbqr, PsbtFormat::Specter];
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1016,6 +1032,18 @@ impl App {
                 bp_crypto::secret::wipe(&mut ent);
                 s
             }
+            QrKind::SignedPsbt { format } => {
+                let Some(len) = self.review.as_ref().and_then(|r| r.signed).map(|s| s.len) else {
+                    return;
+                };
+                let psbt = &self.scan.work()[..len];
+                let s = signed_psbt_session(psbt, format);
+                if s.is_none() {
+                    self.notice = Some(self.text().rv.qr_too_large);
+                    return;
+                }
+                s
+            }
         };
         // keep the viewer's display preferences when only the content changes
         let keep = self
@@ -1048,7 +1076,10 @@ impl App {
             self.pop();
             return;
         };
-        let animatable = matches!(q.format, qrview::Format::Ur(_) | qrview::Format::Specter);
+        let animatable = matches!(
+            q.format,
+            qrview::Format::Ur(_) | qrview::Format::Specter | qrview::Format::Bbqr { .. }
+        );
         match ev.key {
             Key::Left if animatable => q.set_density(q.density.step(-1)),
             Key::Right if animatable => q.set_density(q.density.step(1)),
@@ -1523,6 +1554,44 @@ fn pick(key: Key, sel: u8, n: u8) -> Pick {
         Key::Esc | Key::Backspace => Pick::Back,
         _ => Pick::None,
     }
+}
+
+/// QR session for a signed PSBT: UR crypto-psbt (CBOR bytes), BBQr
+/// (zlib + base32) or Specter (base64 text). `None` if it does not fit.
+fn signed_psbt_session(psbt: &[u8], format: PsbtFormat) -> Option<qrview::QrSession> {
+    let mut buf = [0u8; qrview::PAYLOAD_MAX];
+    let (fmt, n) = match format {
+        PsbtFormat::Ur => {
+            let mut w = bp_qr::ur::cbor::Writer::new(&mut buf);
+            w.bytes(psbt).ok()?;
+            (qrview::Format::Ur("crypto-psbt"), w.len())
+        }
+        PsbtFormat::Specter => (
+            qrview::Format::Specter,
+            bp_bitcoin::base64::encode(psbt, &mut buf).ok()?,
+        ),
+        PsbtFormat::Bbqr => {
+            let mut work = [0u8; qrview::PAYLOAD_MAX];
+            let b = bp_qr::bbqr::Bbqr::new(
+                psbt,
+                bp_qr::bbqr::FileType::Psbt,
+                bp_qr::bbqr::Encoding::Zlib,
+                1,
+                40,
+                &mut work,
+                &mut buf,
+            )
+            .ok()?;
+            (
+                qrview::Format::Bbqr {
+                    encoding: b.encoding(),
+                    file_type: bp_qr::bbqr::FileType::Psbt,
+                },
+                b.chars().len(),
+            )
+        }
+    };
+    qrview::QrSession::new(fmt, &buf[..n], qrview::Density::Auto, qrview::Speed::Normal)
 }
 
 #[cfg(test)]

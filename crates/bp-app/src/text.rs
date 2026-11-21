@@ -340,6 +340,11 @@ pub struct ReviewStrings {
     pub at_input: &'static str,
     pub at_output: &'static str,
     pub at_global: &'static str,
+    pub show_qr: [&'static str; 4],
+    pub qr_title: &'static str,
+    pub formats: [&'static str; 3],
+    pub qr_keys: &'static str,
+    pub qr_too_large: &'static str,
     pub h_discard: &'static str,
     pub h_next: &'static str,
     /// (title, explanation) per issue kind.
@@ -380,7 +385,7 @@ pub static EN_REVIEW: ReviewStrings = ReviewStrings {
     options: ["Cancel", "Sign"],
     signed: "Signed",
     signed_1: "{} input(s) signed. Every signature was verified.",
-    signed_2: "Showing the signed PSBT as a QR code arrives in the next step.",
+    signed_2: "Show it as a QR code and scan it with your wallet.",
     failed: "Signing failed",
     sign_errors: [
         "The transaction changed after you approved it. Nothing was signed.",
@@ -394,6 +399,16 @@ pub static EN_REVIEW: ReviewStrings = ReviewStrings {
     at_input: "input #{}",
     at_output: "output #{}",
     at_global: "wallet xpub",
+    show_qr: [
+        "Show QR: UR (most wallets)",
+        "Show QR: BBQr (Coldcard, Sparrow)",
+        "Show QR: Specter (text)",
+        "Done (discard)",
+    ],
+    qr_title: "Signed PSBT, {}",
+    formats: ["UR", "BBQr", "Specter"],
+    qr_keys: "Scan with your wallet, then Esc",
+    qr_too_large: "Too large for QR codes (microSD arrives in M8)",
     h_discard: "Discard",
     h_next: "Next",
     issues: [

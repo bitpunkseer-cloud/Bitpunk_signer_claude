@@ -167,6 +167,43 @@ impl<'a> Bbqr<'a> {
         })
     }
 
+    /// Parts from characters already encoded with `encoding` ('H', '2' or
+    /// 'Z'), e.g. kept by a display session so frames are cut on demand.
+    pub fn from_encoded(
+        chars: &'a [u8],
+        encoding: u8,
+        file_type: FileType,
+        min_ver: u8,
+        max_ver: u8,
+    ) -> Result<Self, Error> {
+        let split_mod = if encoding == b'H' { 2 } else { 8 };
+        let min_ver = min_ver.min(max_ver).max(1);
+        let mut best: Option<(u8, usize, usize)> = None;
+        for ver in min_ver..=max_ver.min(40) {
+            let (count, per) = num_qr_needed(ver, chars.len(), split_mod);
+            if !(1..=MAX_PARTS).contains(&count) {
+                continue;
+            }
+            if best.is_none_or(|(_, c, _)| count < c) {
+                best = Some((ver, count, per));
+            }
+        }
+        let (version, count, per_part) = best.ok_or(Error::CannotFit)?;
+        Ok(Self {
+            chars,
+            encoding,
+            file_type: file_type.code(),
+            version,
+            count,
+            per_part,
+        })
+    }
+
+    /// The encoded characters (all parts' bodies, concatenated).
+    pub fn chars(&self) -> &'a [u8] {
+        self.chars
+    }
+
     pub fn version(&self) -> u8 {
         self.version
     }
