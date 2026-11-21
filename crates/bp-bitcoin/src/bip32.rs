@@ -249,6 +249,22 @@ impl Xpriv {
         Ok(k)
     }
 
+    /// A 32-byte symmetric key bound to this key and `label` (domain
+    /// separation): HMAC-SHA512(label, chain code ‖ private key), first half.
+    /// Nothing about the key can be learned from it.
+    pub fn symmetric_key(&self, label: &[u8]) -> [u8; 32] {
+        let mut mac = HmacSha512::new(label);
+        let mut k = self.key.to_bytes();
+        mac.update(&self.chain_code);
+        mac.update(&k);
+        wipe(&mut k);
+        let mut full = mac.finalize();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&full[..32]);
+        wipe(&mut full);
+        out
+    }
+
     pub fn to_xpub(&self) -> Xpub {
         Xpub {
             depth: self.depth,

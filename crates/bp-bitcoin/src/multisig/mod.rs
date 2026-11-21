@@ -7,6 +7,7 @@
 
 pub mod descriptor;
 pub mod formats;
+pub mod register;
 
 use crate::address::MAX_ADDRESS_LEN;
 use crate::bip32::{self, DerivationPath, KeyVersion, Xpub, HARDENED};
