@@ -25,6 +25,8 @@ use crate::bip32::{DerivationPath, Xpriv, Xpub, HARDENED};
 use crate::psbt::{KeySource, ParseError, Psbt};
 use crate::Network;
 use bp_crypto::secp256k1::PublicKey;
+use bp_crypto::sha256::Sha256;
+use core::fmt::Write as _;
 
 /// A value as the host stated it. It may be shown, never relied on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -405,6 +407,33 @@ impl Report {
     /// Other fingerprints the PSBT names (the "need / found" screen).
     pub fn fingerprints(&self) -> &[[u8; 4]] {
         &self.fingerprints[..self.n_fingerprints]
+    }
+
+    /// A hash of the whole verdict (issues, inputs, outputs, totals, lock
+    /// time). The signer recomputes the report right before signing and
+    /// refuses if this differs from the approved one.
+    pub fn digest(&self) -> [u8; 32] {
+        struct H(Sha256);
+        impl core::fmt::Write for H {
+            fn write_str(&mut self, s: &str) -> core::fmt::Result {
+                self.0.update(s.as_bytes());
+                Ok(())
+            }
+        }
+        let mut h = H(Sha256::new());
+        let _ = write!(
+            h,
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}",
+            self.master_fingerprint,
+            self.issues(),
+            self.inputs(),
+            self.outputs(),
+            self.totals,
+            self.lock_time,
+            self.rbf,
+            self.fingerprints()
+        );
+        h.0.finalize()
     }
 
     pub fn worst(&self) -> Option<Class> {

@@ -15,6 +15,7 @@ pub mod psbt;
 pub mod qrinput;
 pub mod seedqr;
 pub mod sighash;
+pub mod sign;
 pub mod tx;
 pub mod urtypes;
 pub mod validate;
