@@ -344,14 +344,12 @@ impl Registry {
         }
     }
 
-    /// Forget wallets whose code came from `slot` (the seed was unloaded);
-    /// later slots shift down like the seed list does.
+    /// Forget wallets whose code came from `slot` (that seed was unloaded:
+    /// its key and its code key are gone).
     pub fn forget_slot(&mut self, slot: u8) {
         for e in self.entries.iter_mut() {
-            match e {
-                Some(x) if x.slot == slot => *e = None,
-                Some(x) if x.slot > slot => x.slot -= 1,
-                _ => {}
+            if e.is_some_and(|x| x.slot == slot) {
+                *e = None;
             }
         }
     }

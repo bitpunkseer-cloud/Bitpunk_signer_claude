@@ -15,6 +15,7 @@ mod sigverify;
 mod text;
 mod verify;
 mod view;
+mod wallets;
 
 use bp_bitcoin::address::ScriptType;
 use bp_bitcoin::bip39::{self, Mnemonic};
@@ -66,6 +67,11 @@ pub enum QrKind {
     MessageSig,
     /// Every setting as a SettingsQR.
     Settings,
+    /// A registered multisig wallet (descriptor, Coldcard file...).
+    Wallet {
+        idx: u8,
+        format: wallets::WalletFormat,
+    },
 }
 
 /// QR formats for the signed PSBT (decision 5: UR by default).
@@ -251,6 +257,10 @@ pub enum Screen {
     SettingsImport {
         sel: u8,
     },
+    /// Tools > Multisig wallets.
+    Wallets {
+        step: wallets::WlStep,
+    },
 }
 
 pub struct App {
@@ -293,6 +303,10 @@ pub struct App {
     sig: Option<sigverify::SigState>,
     /// A scanned SettingsQR waiting for Apply.
     import: Option<Result<settings::Import, settings::ImportError>>,
+    /// Multisig wallets registered this session.
+    wallets: bp_bitcoin::multisig::register::Registry,
+    /// A scanned wallet waiting for registration, and the code typed.
+    wl: wallets::WlState,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -361,6 +375,8 @@ impl App {
             msg: None,
             sig: None,
             import: None,
+            wallets: bp_bitcoin::multisig::register::Registry::new(),
+            wl: wallets::WlState::default(),
         }
     }
 
@@ -622,6 +638,22 @@ impl App {
             self.start_verify(&addr[..n], index);
             bp_crypto::secret::wipe(&mut addr);
             // the scan buffers are no longer needed: wipe them now
+            self.end_scan_if_left();
+        } else if let Some((len, ur)) = match (purpose, self.scan.outcome) {
+            (_, Some(scan::Outcome::Descriptor { len })) => Some((len, false)),
+            (
+                _,
+                Some(scan::Outcome::KeyUr {
+                    len,
+                    kind: bp_bitcoin::qrinput::UrKey::Output,
+                }),
+            ) => Some((len, true)),
+            _ => None,
+        } {
+            let mut data = [0u8; bp_bitcoin::multisig::descriptor::MAX_DESCRIPTOR];
+            let n = len.min(data.len());
+            data[..n].copy_from_slice(&self.scan.out[..n]);
+            self.wallet_import(&data[..n], ur);
             self.end_scan_if_left();
         } else {
             self.set_current(Screen::ScanResult);
@@ -1055,6 +1087,7 @@ impl App {
                     Pick::None => {}
                 }
             }
+            Screen::Wallets { step } => self.wallets_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1066,6 +1099,7 @@ impl App {
                     Confirm::CancelFlow => self.go_seeds(None),
                     Confirm::DiscardSeed(slot) => {
                         self.seeds[slot as usize] = None; // Mnemonic wipes itself
+                        self.wallets.forget_slot(slot);
                         self.go_seeds(None);
                     }
                 },
@@ -1208,6 +1242,14 @@ impl App {
                     qrview::Density::Auto,
                     qrview::Speed::Normal,
                 )
+            }
+            QrKind::Wallet { idx, format } => {
+                let s = self.wallet_qr(idx, format);
+                if s.is_none() {
+                    self.notice = Some(self.text().wl.too_large);
+                    return;
+                }
+                s
             }
             QrKind::SignedPsbt { format } => {
                 let Some(len) = self.review.as_ref().and_then(|r| r.signed).map(|s| s.len) else {
@@ -1427,6 +1469,7 @@ impl App {
             Action::Explorer => self.open_explorer(),
             Action::SignMessage => self.start_msg_typing(None),
             Action::VerifySignature => self.start_scan(scan::Purpose::Signed),
+            Action::Multisig => self.open_wallets(),
             Action::SettingsQr => self.open_qr(QrKind::Settings),
             Action::VerifyAddress => {
                 if self.seed_count() == 0 {

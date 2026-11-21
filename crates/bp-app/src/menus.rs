@@ -49,6 +49,8 @@ pub enum Action {
     SignMessage,
     /// Tools > Verify signature.
     VerifySignature,
+    /// Tools > Multisig wallets.
+    Multisig,
     /// Settings > Settings as QR.
     SettingsQr,
     Start(Start),
@@ -132,7 +134,7 @@ static LOAD_SEED: [Entry; 6] = [
     todo_entry!(|s| s.encrypted_backup, "M10", |s| s.ms_backup),
 ];
 
-static TOOLS: [Entry; 8] = [
+static TOOLS: [Entry; 9] = [
     start(|s| s.final_word, Start::FinalWord),
     Entry {
         label: |s| s.address_explorer,
@@ -153,6 +155,11 @@ static TOOLS: [Entry; 8] = [
         label: |s| s.verify_sig,
         detail: ">",
         action: Action::VerifySignature,
+    },
+    Entry {
+        label: |s| s.wl.menu,
+        detail: ">",
+        action: Action::Multisig,
     },
     todo_entry!(|s| s.bip85, "M8", |s| s.ms_keys),
     todo_entry!(|s| s.secure_notes, "M10", |s| s.ms_tools),

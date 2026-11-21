@@ -72,6 +72,11 @@ pub enum Content {
     Descriptor {
         len: usize,
     },
+    /// A UR wallet or key (CBOR payload in `out[..len]`).
+    KeyUr {
+        len: usize,
+        kind: UrKey,
+    },
     /// A UR type Bitpunk does not handle yet; its name in `out[..len]`.
     UnknownUr {
         len: usize,
@@ -82,6 +87,17 @@ pub enum Content {
     Binary {
         len: usize,
     },
+}
+
+/// Which UR key type a `KeyUr` payload is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UrKey {
+    /// `crypto-output`: a wallet (multisig) or one key with its script.
+    Output,
+    /// `crypto-account`: a cosigner's keys per script type.
+    Account,
+    /// `crypto-hdkey`: one key with its origin.
+    HdKey,
 }
 
 /// How the payload arrived.
@@ -207,7 +223,8 @@ fn uri_index(query: &[u8]) -> Option<u32> {
 }
 
 fn is_descriptor(t: &[u8]) -> bool {
-    const MARKS: [&[u8]; 8] = [
+    const MARKS: [&[u8]; 9] = [
+        b"policy:",
         b"wpkh(",
         b"wsh(",
         b"tr(",
@@ -337,6 +354,14 @@ pub fn classify_ur(ur_type: &str, message: &[u8], out: &mut [u8]) -> Result<Cont
             let inner = Reader::new(message).bytes().map_err(|_| Error::Corrupt)?;
             classify(inner, out)
         }
+        "crypto-output" | "crypto-account" | "crypto-hdkey" => Ok(Content::KeyUr {
+            len: copy(out, message)?,
+            kind: match ur_type {
+                "crypto-output" => UrKey::Output,
+                "crypto-account" => UrKey::Account,
+                _ => UrKey::HdKey,
+            },
+        }),
         "crypto-seed" | "seed" => {
             // map {1: entropy bytes, ...}; deterministic CBOR puts key 1 first
             let mut r = Reader::new(message);

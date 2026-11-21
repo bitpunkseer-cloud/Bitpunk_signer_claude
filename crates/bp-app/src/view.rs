@@ -385,6 +385,7 @@ impl App {
             Screen::MsgSign { step } => self.render_msg(c, step),
             Screen::SigVerify { step } => self.render_sig(c, step),
             Screen::SettingsImport { sel } => self.render_settings_import(c, sel),
+            Screen::Wallets { step } => self.render_wallets(c, step),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
@@ -1061,6 +1062,14 @@ impl App {
             QrKind::SignedPsbt { format } => fill(s.rv.qr_title, &[&s.rv.formats[format as usize]]),
             QrKind::MessageSig => fill(s.ms_sig_qr, &[]),
             QrKind::Settings => fill(s.settings_qr, &[]),
+            QrKind::Wallet { idx, .. } => {
+                let name = self
+                    .wallets
+                    .get(idx)
+                    .map(|e| self.wallet_name(e))
+                    .unwrap_or_default();
+                fill(s.wl.qr_title, &[&name.as_str()])
+            }
         }
     }
 
@@ -1190,6 +1199,7 @@ impl App {
             QrKind::SeedQr { .. } => s.qr_keys_seed,
             QrKind::SignedPsbt { .. } | QrKind::MessageSig => s.rv.qr_keys,
             QrKind::Settings => s.si_note_short,
+            QrKind::Wallet { .. } => s.wl.qr_keys,
         };
         let y0 = h - 4 * 21 - 6;
         for (i, k) in s.qr_keys.iter().chain(core::iter::once(&extra)).enumerate() {
@@ -1303,6 +1313,7 @@ impl App {
             Purpose::Address => s.verify_address,
             Purpose::Signed => s.verify_sig,
             Purpose::SigText => s.sv_scan_sig,
+            Purpose::Wallet => s.wl.scan_title,
         };
         self.status(c, title);
         let (bx, by) = (MARGIN, STATUS_H + 20);
@@ -1504,6 +1515,25 @@ impl App {
                 TITLE.draw(c, MARGIN, y0, s.res_descriptor, theme::ACCENT);
                 wrap(c, MARGIN, y0 + 56, text(len), 10);
                 SMALL.draw(c, MARGIN, y0 + 290, s.res_m7, theme::TEXT_DIM);
+            }
+            Outcome::KeyUr { kind, .. } => {
+                self.status(c, s.res_xpub);
+                let name = match kind {
+                    bp_bitcoin::qrinput::UrKey::Output => "UR crypto-output",
+                    bp_bitcoin::qrinput::UrKey::Account => "UR crypto-account",
+                    bp_bitcoin::qrinput::UrKey::HdKey => "UR crypto-hdkey",
+                };
+                widgets::message_at(c, STATUS_H + 90, s.res_xpub, theme::ACCENT, &[name]);
+            }
+            Outcome::NotAWallet => {
+                self.status(c, s.wl.scan_title);
+                widgets::message_at(
+                    c,
+                    STATUS_H + 90,
+                    s.wl.not_wallet,
+                    theme::WARN,
+                    &[s.wl.not_wallet_1],
+                );
             }
             Outcome::UnknownUr { len } => {
                 self.status(c, s.res_unknown_ur);

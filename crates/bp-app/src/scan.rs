@@ -3,7 +3,7 @@
 //! Everything here is wiped when scanning ends.
 
 use bp_bitcoin::bip39::Mnemonic;
-use bp_bitcoin::qrinput::{AddressKind, Collector, Content, Feed, Progress, SeedSource, Source};
+use bp_bitcoin::qrinput::{AddressKind, Collector, Content, Feed, Progress, SeedSource, Source, UrKey};
 use bp_bitcoin::{psbt, Network};
 use bp_qr::scan::{Image, Point, Scanner};
 
@@ -30,6 +30,9 @@ pub enum Purpose {
     Signed,
     /// The signature itself (text), after the address and the message.
     SigText,
+    /// Tools > Multisig wallets > Import: a wallet (descriptor, Coldcard
+    /// file, JSON, UR crypto-output).
+    Wallet,
 }
 
 /// What the scan produced (data in `ScanState::out`).
@@ -63,6 +66,10 @@ pub enum Outcome {
     Settings {
         len: usize,
     },
+    KeyUr {
+        len: usize,
+        kind: UrKey,
+    },
     UnknownUr {
         len: usize,
     },
@@ -78,6 +85,8 @@ pub enum Outcome {
     NotAnAddress,
     /// Neither a signed message nor an address, for Verify signature.
     NotSigned,
+    /// Not a wallet, for Multisig > Import.
+    NotAWallet,
     Failed,
 }
 
@@ -250,6 +259,19 @@ impl ScanState {
                 Content::Text { len } => Outcome::Text { len },
                 _ => Outcome::Text { len: 0 },
             }),
+            // a wallet: descriptor-like text, plain text (checked later) or UR crypto-output
+            Ok((c, _)) if purpose == Purpose::Wallet => Some(match c {
+                Content::Descriptor { len } => Outcome::Descriptor { len },
+                Content::Text { len } => Outcome::Descriptor { len },
+                Content::KeyUr {
+                    len,
+                    kind: UrKey::Output,
+                } => Outcome::KeyUr {
+                    len,
+                    kind: UrKey::Output,
+                },
+                _ => Outcome::NotAWallet,
+            }),
             Ok((Content::Seed { mnemonic, source }, _)) => {
                 self.seed = Some(mnemonic);
                 self.seed_source = Some(source);
@@ -274,6 +296,7 @@ impl ScanState {
                 Content::SignMessage { len } => Outcome::SignMessage { len },
                 Content::SignedMessage { len } => Outcome::SignedMessage { len },
                 Content::Settings { len } => Outcome::Settings { len },
+                Content::KeyUr { len, kind } => Outcome::KeyUr { len, kind },
                 Content::UnknownUr { len } => Outcome::UnknownUr { len },
                 Content::Text { len } => Outcome::Text { len },
                 Content::Binary { len } => Outcome::Binary { len },

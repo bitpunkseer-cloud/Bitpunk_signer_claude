@@ -294,11 +294,11 @@ fn registry() {
     assert_eq!(MAX_WALLETS, 4);
     let e = wallet(MsScript::ShWsh, 1, &keys(MsScript::ShWsh, net), net);
     assert_eq!(reg.add(entry(e, 0)), Err(AddError::Full));
-    // unloading seed slot 1 drops its wallets and shifts later slots down
+    // unloading seed slot 1 drops its wallets; the others keep their slots
     reg.forget_slot(1);
     assert_eq!(reg.len(), 2);
     assert_eq!(reg.get(0).unwrap().slot, 0);
-    assert_eq!(reg.get(2).unwrap().slot, 1);
+    assert_eq!(reg.get(2).unwrap().slot, 2);
     reg.remove(0);
     assert_eq!(reg.add(entry(e, 0)), Ok(0));
     reg.clear();

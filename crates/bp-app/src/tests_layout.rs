@@ -800,7 +800,295 @@ fn tour(lang: Lang) -> usize {
     t.snap(&a, "d20-ready");
     press(&mut a, Key::Enter);
     t.snap(&a, "d20-summary");
+    wallet_tour(&mut t);
     t.n
+}
+
+/// Seeds > Load seed > Type words > 12 words (4-letter prefixes), back to main.
+fn load_words(a: &mut App, words: &[&str]) {
+    // loaded seeds are listed above the Seeds menu's static rows
+    let load = (b'2' + a.seed_count() as u8) as char;
+    for k in ['2', load, '1', '1'] {
+        press(a, Key::Char(k));
+    }
+    for w in words {
+        type_str(a, &w[..4.min(w.len())]);
+    }
+    assert!(
+        matches!(a.current(), Screen::SeedReady { .. }),
+        "{:?}",
+        a.current()
+    );
+    while !matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }) {
+        press(a, Key::Esc);
+    }
+}
+
+fn to_main(a: &mut App) {
+    while !matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }) {
+        press(a, Key::Esc);
+    }
+}
+
+/// Multisig wallet screens, including every refusal message and a summary
+/// with every warning.
+fn wallet_tour(t: &mut Tour) {
+    use super::wallets_flow::{descriptor_of, open_wallets, wallet_of};
+    use crate::wallets::{Problem, WlStep};
+    use bp_bitcoin::bip32::{DerivationPath, KeyVersion, Xpriv as BpXpriv};
+    use bp_bitcoin::multisig::register::{Reject, RejectKind};
+    use bp_bitcoin::multisig::{formats, Cosigner, MsScript, Wallet};
+
+    let mut a = t.app();
+    open_wallets(&mut a);
+    t.snap(&a, "wallets-need-seed");
+
+    let mut a = t.app();
+    load_abandon(&mut a);
+    open_wallets(&mut a);
+    t.snap(&a, "wallets-empty");
+    press(&mut a, Key::Char('1'));
+    t.snap(&a, "wallets-scan");
+    // 15 keys, P2SH-P2WSH, a 20-character label
+    let w = wallet_of(&a, MsScript::ShWsh, 11, 15);
+    let json = format!(
+        "{{\"label\": \"WWWWWWWWWWWWWWWWWWWW\", \"descriptor\": \"{}\"}}",
+        descriptor_of(&w)
+    );
+    a.on_qr_text(json.as_bytes());
+    t.snap(&a, "wallets-summary");
+    press(&mut a, Key::Char('1'));
+    t.snap(&a, "wallets-cosigner-1");
+    press(&mut a, Key::Right);
+    t.snap(&a, "wallets-cosigner-ours");
+    for _ in 2..15 {
+        press(&mut a, Key::Right);
+    }
+    t.snap(&a, "wallets-cosigner-15");
+    press(&mut a, Key::Right);
+    t.snap(&a, "wallets-addresses");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "wallets-code");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "wallets-code-entry");
+    type_str(&mut a, "0000-0000");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "wallets-code-mismatch");
+    for _ in 0..9 {
+        press(&mut a, Key::Backspace);
+    }
+    type_str(&mut a, "UUUU-UUUU-UUUU");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "wallets-code-invalid");
+    for _ in 0..14 {
+        press(&mut a, Key::Backspace);
+    }
+    let code = a.wl.pending.as_ref().unwrap().code;
+    type_str(&mut a, std::str::from_utf8(&code.0).unwrap());
+    press(&mut a, Key::Enter);
+    t.snap(&a, "wallets-registered");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "wallets-export");
+    for (k, name) in [
+        ('1', "wallets-qr-descriptor"),
+        ('2', "wallets-qr-specter"),
+        ('3', "wallets-qr-coldcard"),
+        ('4', "wallets-qr-bbqr"),
+    ] {
+        press(&mut a, Key::Char(k));
+        t.snap(&a, name);
+        press(&mut a, Key::Esc);
+    }
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    t.snap(&a, "wallets-list");
+    press(&mut a, Key::Char('1'));
+    t.snap(&a, "wallets-wallet");
+    press(&mut a, Key::Char('1'));
+    t.snap(&a, "wallets-keys");
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Char('3'));
+    t.snap(&a, "wallets-remove");
+    press(&mut a, Key::Esc);
+
+    // the re-registration path with a wrong code
+    to_main(&mut a);
+    open_wallets(&mut a);
+    press(&mut a, Key::Char('2'));
+    let w2 = wallet_of(&a, MsScript::Wsh, 2, 3);
+    a.on_qr_text(descriptor_of(&w2).as_bytes());
+    press(&mut a, Key::Char('2'));
+    type_str(&mut a, "ZZZZZZZZ");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "wallets-rereg-mismatch");
+
+    // export with keys on different paths: the Coldcard-file note
+    to_main(&mut a);
+    let net = a.settings.network;
+    let mut keys: Vec<Cosigner> = w2.keys().to_vec();
+    let p1 = MsScript::Wsh.account_path(net, 7);
+    let mk = BpXpriv::master(&[41; 32]).unwrap();
+    keys[0] = Cosigner {
+        fingerprint: mk.fingerprint(),
+        origin: p1,
+        xpub: mk.derive_path(&p1).unwrap().to_xpub(),
+        version: KeyVersion::MultiZ,
+    };
+    let w3 = Wallet::new(w2.test, MsScript::Wsh, 2, &keys).unwrap();
+    open_wallets(&mut a);
+    press(&mut a, Key::Char('2'));
+    a.on_qr_text(descriptor_of(&w3).as_bytes());
+    let code = a.wl.pending.as_ref().unwrap().code;
+    press(&mut a, Key::Char('2'));
+    type_str(&mut a, std::str::from_utf8(&code.0).unwrap());
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Down);
+    t.snap(&a, "wallets-export-paths-note");
+
+    // a summary with every warning: two loaded seeds in the wallet, our key
+    // and one cosigner off BIP-48, 1-of-3, and the 2-of-3 already registered
+    let mut b = t.app();
+    load_abandon(&mut b);
+    load_words(
+        &mut b,
+        &[
+            "legal", "winner", "thank", "year", "wave", "sausage", "worth", "useful", "legal", "winner",
+            "thank", "yellow",
+        ],
+    );
+    let net = b.settings.network;
+    let odd = DerivationPath::parse("m/48'/0'/0'/1'").unwrap();
+    let std_path = MsScript::Wsh.account_path(net, 0);
+    let s0 = b.slot(0).unwrap();
+    let s1 = b.slot(1).unwrap();
+    let mk = BpXpriv::master(&[77; 32]).unwrap();
+    let odd2 = DerivationPath::parse("m/87'/0'/0'").unwrap();
+    let keys = vec![
+        Cosigner {
+            fingerprint: s0.fingerprint,
+            origin: odd,
+            xpub: s0.master().derive_path(&odd).unwrap().to_xpub(),
+            version: KeyVersion::X,
+        },
+        Cosigner {
+            fingerprint: s1.fingerprint,
+            origin: std_path,
+            xpub: s1.master().derive_path(&std_path).unwrap().to_xpub(),
+            version: KeyVersion::X,
+        },
+        Cosigner {
+            fingerprint: mk.fingerprint(),
+            origin: odd2,
+            xpub: mk.derive_path(&odd2).unwrap().to_xpub(),
+            version: KeyVersion::X,
+        },
+    ];
+    let two = Wallet::new(false, MsScript::Wsh, 2, &keys).unwrap();
+    let one = Wallet::new(false, MsScript::Wsh, 1, &keys).unwrap();
+    open_wallets(&mut b);
+    press(&mut b, Key::Char('1'));
+    b.on_qr_text(descriptor_of(&two).as_bytes());
+    let code = b.wl.pending.as_ref().unwrap().code;
+    press(&mut b, Key::Char('2'));
+    type_str(&mut b, std::str::from_utf8(&code.0).unwrap());
+    press(&mut b, Key::Enter);
+    to_main(&mut b);
+    open_wallets(&mut b);
+    press(&mut b, Key::Char('2'));
+    b.on_qr_text(descriptor_of(&one).as_bytes());
+    let wn = b.wl.pending.as_ref().unwrap().checked.warnings;
+    assert!(wn.our_path && wn.cosigner_paths == 1 && wn.one_of_n && wn.similar.is_some());
+    assert!(b.wl.pending.as_ref().unwrap().two_seeds);
+    t.snap(&b, "wallets-summary-warnings");
+    // duplicate
+    to_main(&mut b);
+    open_wallets(&mut b);
+    press(&mut b, Key::Char('2'));
+    b.on_qr_text(descriptor_of(&two).as_bytes());
+    t.snap(&b, "wallets-summary-duplicate");
+    // verify-only
+    let watch = Wallet::new(false, MsScript::Wsh, 1, &keys[2..]).unwrap();
+    to_main(&mut b);
+    open_wallets(&mut b);
+    press(&mut b, Key::Char('2'));
+    b.on_qr_text(descriptor_of(&watch).as_bytes());
+    t.snap(&b, "wallets-summary-watch-only");
+
+    // every refusal message
+    let mut c = t.app();
+    load_abandon(&mut c);
+    let all_formats = [
+        formats::Error::Unknown,
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::Syntax),
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::Checksum),
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::Unsorted),
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::UnsupportedScript),
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::Threshold),
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::TooManyKeys),
+        formats::Error::MissingOrigin,
+        formats::Error::Key,
+        formats::Error::PrivateKey,
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::Hardened),
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::Suffix),
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::MixedSuffix),
+        formats::Error::MixedNetwork,
+        formats::Error::Descriptor(bp_bitcoin::multisig::descriptor::Error::PathTooDeep),
+        formats::Error::ChangeOnly,
+        formats::Error::LinesDiffer,
+        formats::Error::Policy,
+        formats::Error::Derivation,
+        formats::Error::ScriptFormat,
+        formats::Error::KeyCount,
+        formats::Error::Cbor,
+    ];
+    let mut seen = std::collections::BTreeSet::new();
+    for (i, e) in all_formats.iter().enumerate() {
+        seen.insert(crate::wallets::format_error_index(*e));
+        c.wl.problem = Some(Problem::Format(*e));
+        t.push_snap(
+            &mut c,
+            Screen::Wallets {
+                step: WlStep::Refused,
+            },
+            &format!("wallets-refused-format-{i}"),
+        );
+    }
+    assert_eq!(seen.len(), crate::text::WALLET_FORMAT_ERRORS);
+    let kinds = [
+        RejectKind::OurKeyMismatch,
+        RejectKind::OurKeyTwice,
+        RejectKind::OurKeyHidden,
+        RejectKind::DuplicateKey,
+        RejectKind::DuplicateFingerprint,
+        RejectKind::Depth,
+        RejectKind::ChildNumber,
+        RejectKind::ParentFingerprint,
+        RejectKind::Network,
+        RejectKind::CoinType,
+        RejectKind::VersionScript,
+    ];
+    for (i, k) in kinds.iter().enumerate() {
+        c.wl.problem = Some(Problem::Reject(Reject {
+            kind: *k,
+            key: Some(14),
+        }));
+        t.push_snap(
+            &mut c,
+            Screen::Wallets {
+                step: WlStep::Refused,
+            },
+            &format!("wallets-refused-rule-{i}"),
+        );
+    }
+    // not a wallet
+    to_main(&mut c);
+    open_wallets(&mut c);
+    press(&mut c, Key::Char('1'));
+    c.on_qr_text(b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
+    t.snap(&c, "wallets-not-a-wallet");
 }
 
 #[test]

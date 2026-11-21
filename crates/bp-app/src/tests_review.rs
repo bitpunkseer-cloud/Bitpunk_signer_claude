@@ -1419,3 +1419,6 @@ fn qr_text_of(a: &App) -> String {
 
 #[path = "tests_layout.rs"]
 mod layout;
+
+#[path = "tests_wallets.rs"]
+mod wallets_flow;

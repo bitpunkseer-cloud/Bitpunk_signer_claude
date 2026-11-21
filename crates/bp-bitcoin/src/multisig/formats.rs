@@ -753,3 +753,46 @@ fn read_untagged_hdkey(payload: &[u8]) -> Result<HdKey, Error> {
     }
     Ok(k)
 }
+
+/// The Coldcard multisig setup file for `w`. One `Derivation:` line when
+/// every key shares its origin (what SeedSigner's reader expects), one per
+/// key otherwise (Coldcard, Sparrow). Keys keep the wallet's order.
+pub fn write_coldcard(w: &Wallet, name: &str, out: &mut [u8]) -> Option<usize> {
+    use core::fmt::Write;
+    let mut o = descriptor::Out::new(out);
+    let net = if w.test {
+        crate::Network::Testnet
+    } else {
+        crate::Network::Mainnet
+    };
+    let keys = w.keys();
+    let shared = keys.iter().all(|k| k.origin == keys[0].origin);
+    let r: core::fmt::Result = (|| {
+        o.write_str("# Bitpunk multisig setup file\n#\n")?;
+        writeln!(o, "Name: {}", name)?;
+        writeln!(o, "Policy: {} of {}", w.m, w.n())?;
+        if shared {
+            writeln!(o, "Derivation: {}", keys[0].origin)?;
+        }
+        writeln!(o, "Format: {}", w.script.name())?;
+        o.write_str("\n")?;
+        for k in keys {
+            if !shared {
+                writeln!(o, "Derivation: {}", k.origin)?;
+            }
+            for b in k.fingerprint {
+                write!(o, "{:02X}", b)?;
+            }
+            let mut x = [0u8; crate::bip32::XKEY_LEN];
+            let n = k.xpub.encode(KeyVersion::X.public(net), &mut x);
+            writeln!(
+                o,
+                ": {}",
+                core::str::from_utf8(&x[..n]).map_err(|_| core::fmt::Error)?
+            )?;
+        }
+        Ok(())
+    })();
+    r.ok()?;
+    Some(o.len())
+}
