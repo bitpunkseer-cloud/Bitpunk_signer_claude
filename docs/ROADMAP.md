@@ -75,7 +75,7 @@ QR 디코더(흑백 프레임 → 데이터), UR fountain 디코딩, SeedQR 스�
 
 **결과:** 직접 만든 스캐너가 실사진 90.8% (rxing 86.6%, rqrr 67.9%), 스캔 시험대 기준 거리 98.2%. 상세: [M4_PLAN.md](milestones/M4_PLAN.md) 12장, [QR_SCAN_BENCH.md](QR_SCAN_BENCH.md).
 
-## M5 — PSBT 서명 (MVP) ✅ 구현 완료 (Signet 실송금 확인 대기)
+## M5 — PSBT 서명 (MVP) ✅ 완료 (Signet 실송금 확인)
 
 PSBT v0 파서, ECDSA(RFC 6979, low-S)·Schnorr(BIP-340/341) 서명, 거래 검토 화면(금액·수수료·거스름),
 SeedSigner 방식의 세분화된 경고(소유권 모순, 음수 수수료, 누락 UTXO, 스크립트 불일치, OP_RETURN 등),
@@ -99,7 +99,7 @@ QR로 주소 검증, 메시지 서명(BIP-137, BIP-322) 및 검증, BBQr, Specte
 
 **완료 기준:** Sparrow·Nunchuk에서 2-of-3 멀티시그 생성·등록·서명 성공.
 
-**계획(제안, 승인 대기):** [M7_PLAN.md](milestones/M7_PLAN.md) — 등록된 지갑만 서명, 저장 공간 없이 등록을 묶는 지갑 코드(시드 HMAC), 공동서명자 xpub을 직접 스캔하는 에어갭 생성, embit과 독립인 구현·3중 오라클 시험. 조사: [M7_SURVEY.md](M7_SURVEY.md).
+**계획(승인, 구현 중):** [M7_PLAN.md](milestones/M7_PLAN.md) — 등록된 지갑만 서명, 저장 공간 없이 등록을 묶는 지갑 코드(시드 HMAC), 공동서명자 xpub을 직접 스캔하는 에어갭 생성, embit과 독립인 구현·3중 오라클 시험. 조사: [M7_SURVEY.md](M7_SURVEY.md).
 
 ## M8 — microSD
 
