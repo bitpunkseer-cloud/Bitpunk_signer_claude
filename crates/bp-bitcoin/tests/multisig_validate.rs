@@ -654,3 +654,47 @@ fn wallet_reconstructed_from_global_xpubs() {
         );
     }
 }
+
+#[test]
+fn verify_only_with_a_seed_outside_the_wallet() {
+    let s = Signer3::new();
+    // a wallet of three keys, none of them this seed's
+    let w = s.wallet(Wrap::Wsh, 2, &[0, 1, 2], 0);
+    let p = honest(&s, Wrap::Wsh);
+    let raw = p.serialize();
+    let outsider = Xpriv::master(&[0x99; 32]).unwrap();
+    let wallets = [Some(&w)];
+    let mut ctx = Context::new(&outsider, Network::Signet);
+    ctx.multisig = &wallets;
+    // without verify-only: nothing here for this seed
+    assert!(validate(&raw, &ctx).1.has(Issue::NoInputsForSeed));
+    ctx.watch = true;
+    let r = validate(&raw, &ctx).1;
+    assert!(r.watch_only);
+    assert_eq!(r.issues(), &[], "{:?}", r.issues());
+    assert!(!r.can_sign(true), "verify-only is never signable");
+    assert_eq!(r.wallet, Some(0));
+    assert!(matches!(r.outputs()[1].kind, OutputKind::Change(_)));
+    assert_eq!(r.totals.fee, Some(1_000));
+    // the attacks are still attacks
+    let path = Signer3::path(Wrap::Wsh, 0, 1, 3);
+    let evil = SecretKey::from_slice(&[0x66; 32]).unwrap().public_key(&s.secp);
+    let ws = multisig_ws(2, &[s.pk(0, &path), s.pk(1, &path), evil]);
+    let (spk, _) = spk_of(Wrap::Wsh, &ws);
+    let swapped = Addr {
+        ws,
+        spk,
+        redeem: None,
+        derivs: vec![
+            (s.pk(0, &path), (s.fp(0), path.clone())),
+            (s.pk(1, &path), (s.fp(1), path.clone())),
+        ],
+    };
+    let raw = with_change(&s, swapped).serialize();
+    let r = validate(&raw, &ctx).1;
+    assert!(r.has(Issue::ChangeContradiction(1)), "{:?}", r.issues());
+    // an unregistered script is simply not verified
+    let none: [Option<&Wallet>; 0] = [];
+    ctx.multisig = &none;
+    assert!(validate(&p.serialize(), &ctx).1.has(Issue::NoInputsForSeed));
+}

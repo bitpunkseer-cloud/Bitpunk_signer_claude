@@ -93,6 +93,18 @@ pub enum WlStep {
         script: u8,
         sel: u8,
     },
+    /// A registered wallet's address, with its QR.
+    Address {
+        idx: u8,
+        change: bool,
+        index: u32,
+    },
+    /// Is a scanned address one of the registered wallets'?
+    AddrSearch,
+    AddrPaused {
+        sel: u8,
+    },
+    AddrFound,
 }
 
 /// Formats for exporting this device's multisig key.
@@ -185,20 +197,44 @@ impl Pending {
     }
 }
 
-#[derive(Default)]
 pub struct WlState {
     pub pending: Option<Pending>,
     pub problem: Option<Problem>,
     pub creating: Option<Creating>,
     /// Account for "Export my multisig key".
     pub key_account: u32,
+    /// Address search over the registered wallets, and the address.
+    pub search: Option<bp_bitcoin::multisig::Search>,
+    search_addr: [u8; MAX_ADDRESS_LEN],
+    search_len: usize,
     input: [u8; CODE_INPUT],
     len: usize,
     /// 0 none, 1 mismatch, 2 not a code.
     pub bad: u8,
 }
 
+impl Default for WlState {
+    fn default() -> Self {
+        WlState {
+            pending: None,
+            problem: None,
+            creating: None,
+            key_account: 0,
+            search: None,
+            search_addr: [0; MAX_ADDRESS_LEN],
+            search_len: 0,
+            input: [0; CODE_INPUT],
+            len: 0,
+            bad: 0,
+        }
+    }
+}
+
 impl WlState {
+    fn search_addr(&self) -> &str {
+        core::str::from_utf8(&self.search_addr[..self.search_len]).unwrap_or("")
+    }
+
     fn clear_input(&mut self) {
         self.input = [0; CODE_INPUT];
         self.len = 0;
@@ -743,12 +779,19 @@ impl App {
                 }
                 Pick::None => {}
             },
-            WlStep::Wallet { idx, sel } => match crate::pick(ev.key, sel, 3) {
+            WlStep::Wallet { idx, sel } => match crate::pick(ev.key, sel, 4) {
                 Pick::Move(s) => set(self, WlStep::Wallet { idx, sel: s }),
                 Pick::Choose(0) => self.push(Screen::Wallets {
-                    step: WlStep::Keys { idx, i: 0 },
+                    step: WlStep::Address {
+                        idx,
+                        change: false,
+                        index: 0,
+                    },
                 }),
                 Pick::Choose(1) => self.push(Screen::Wallets {
+                    step: WlStep::Keys { idx, i: 0 },
+                }),
+                Pick::Choose(2) => self.push(Screen::Wallets {
                     step: WlStep::Export { idx, sel: 0 },
                 }),
                 Pick::Choose(_) => self.push(Screen::Wallets {
@@ -791,6 +834,59 @@ impl App {
                 Pick::Choose(_) | Pick::Back => self.pop(),
                 Pick::None => {}
             },
+            WlStep::Address { idx, change, index } => match ev.key {
+                Key::Right => set(
+                    self,
+                    WlStep::Address {
+                        idx,
+                        change,
+                        index: (index + 1).min(0x7FFF_FFFF),
+                    },
+                ),
+                Key::Left => set(
+                    self,
+                    WlStep::Address {
+                        idx,
+                        change,
+                        index: index.saturating_sub(1),
+                    },
+                ),
+                Key::Tab | Key::Up | Key::Down => set(
+                    self,
+                    WlStep::Address {
+                        idx,
+                        change: !change,
+                        index,
+                    },
+                ),
+                Key::Esc | Key::Backspace | Key::Enter => self.pop(),
+                _ => {}
+            },
+            WlStep::AddrSearch => {
+                if matches!(ev.key, Key::Esc | Key::Backspace) {
+                    set(self, WlStep::AddrPaused { sel: 0 });
+                }
+            }
+            WlStep::AddrPaused { sel } => match crate::pick(ev.key, sel, 2) {
+                Pick::Move(s) => set(self, WlStep::AddrPaused { sel: s }),
+                Pick::Choose(0) => {
+                    if let Some(sr) = self.wl.search.as_mut() {
+                        sr.more();
+                    }
+                    set(self, WlStep::AddrSearch);
+                }
+                Pick::Choose(_) | Pick::Back => {
+                    self.wl.search = None;
+                    self.pop();
+                }
+                Pick::None => {}
+            },
+            WlStep::AddrFound => {
+                if matches!(ev.key, Key::Enter | Key::Esc | Key::Backspace) {
+                    self.wl.search = None;
+                    self.pop();
+                }
+            }
             WlStep::PickSeed { sel, export } => {
                 let slots = self.loaded_slots();
                 match crate::pick(ev.key, sel, slots.1 as u8) {
@@ -994,6 +1090,56 @@ impl App {
         }
     }
 
+    /// Can `addr` (scanned) be one of the registered wallets' addresses?
+    pub(crate) fn ms_search_possible(&self, addr: &str) -> bool {
+        let Some((spk, n)) = bp_bitcoin::address::script_of(addr, self.settings.network) else {
+            return false;
+        };
+        bp_bitcoin::multisig::Search::new(&spk[..n], &self.multisig_wallets()).is_some()
+    }
+
+    /// Search the registered wallets for `addr` (replaces the current screen).
+    pub(crate) fn start_ms_search(&mut self, addr: &str) {
+        let Some((spk, n)) = bp_bitcoin::address::script_of(addr, self.settings.network) else {
+            return;
+        };
+        self.wl.search = bp_bitcoin::multisig::Search::new(&spk[..n], &self.multisig_wallets());
+        let len = addr.len().min(MAX_ADDRESS_LEN);
+        self.wl.search_addr[..len].copy_from_slice(&addr.as_bytes()[..len]);
+        self.wl.search_len = len;
+        self.set_current(Screen::Wallets {
+            step: WlStep::AddrSearch,
+        });
+    }
+
+    /// Run the address search while its screen is shown. True to redraw.
+    pub(crate) fn wallets_tick(&mut self) -> bool {
+        if self.current()
+            != (Screen::Wallets {
+                step: WlStep::AddrSearch,
+            })
+        {
+            return false;
+        }
+        let wallets: [Option<Wallet>; register::MAX_WALLETS] =
+            core::array::from_fn(|i| self.wallets.get(i as u8).map(|e| e.wallet));
+        let refs: [Option<&Wallet>; register::MAX_WALLETS] = core::array::from_fn(|i| wallets[i].as_ref());
+        let Some(sr) = self.wl.search.as_mut() else {
+            return false;
+        };
+        use bp_bitcoin::multisig::SearchState;
+        match sr.step(&refs, 8) {
+            SearchState::Searching => {}
+            SearchState::Paused => self.set_current(Screen::Wallets {
+                step: WlStep::AddrPaused { sel: 0 },
+            }),
+            SearchState::Found { .. } => self.set_current(Screen::Wallets {
+                step: WlStep::AddrFound,
+            }),
+        }
+        true
+    }
+
     /// Why the last wallet or key was refused.
     fn problem_line(&self) -> Buf<256> {
         let t = self.text().wl;
@@ -1145,7 +1291,7 @@ impl App {
                 );
                 BODY.draw(c, MARGIN, top + 46, line.as_str(), theme::TEXT_DIM);
                 let items = t.wallet_options.map(|l| MenuItem { label: l, detail: "" });
-                widgets::list(c, MARGIN, top + 90, W, 170, &items, sel as usize, false);
+                widgets::list(c, MARGIN, top + 90, W, 220, &items, sel as usize, false);
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
             WlStep::Export { idx, sel } => {
@@ -1162,6 +1308,112 @@ impl App {
                     SMALL.draw_wrapped(c, MARGIN, top + 276, W, 22, 2, t.export_paths_note, theme::WARN);
                 }
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+            }
+            WlStep::Address { idx, change, index } => {
+                let Some(e) = self.wallets.get(idx) else { return };
+                let name = self.wallet_name(e);
+                let pos: Buf<32> = fill(if change { t.change_n } else { t.receive_n }, &[&index]);
+                let title: Buf<96> = fill(t.addr_view_title, &[&name.as_str(), &pos.as_str()]);
+                TITLE.draw(c, MARGIN, top, title.as_str(), theme::TEXT);
+                let mut a = [0u8; MAX_ADDRESS_LEN];
+                let n = e
+                    .wallet
+                    .derive(change as u32, index)
+                    .map(|sc| sc.address(self.settings.network, &mut a))
+                    .unwrap_or(0);
+                let addr = core::str::from_utf8(&a[..n]).unwrap_or("");
+                // the QR on the right (bech32 upper-cased: alphanumeric mode)
+                let mut q = a;
+                if addr.starts_with(self.settings.network.hrp()) {
+                    q[..n].make_ascii_uppercase();
+                }
+                if let Ok(code) = bp_qr::QrCode::encode(&q[..n], bp_qr::qr::Ecc::Medium, 1, 40, None) {
+                    widgets::qr_code(
+                        c,
+                        &code,
+                        800 - MARGIN - 300,
+                        top + 50,
+                        300,
+                        300,
+                        widgets::QrStyle {
+                            light: 255,
+                            invert: false,
+                        },
+                    );
+                }
+                // 4 groups of 4 per line: room for the QR on the right
+                let mut y = top + 60;
+                for chunk in addr.as_bytes().chunks(16) {
+                    let mut line = Buf::<24>::new();
+                    for (i, g) in chunk.chunks(4).enumerate() {
+                        if i > 0 {
+                            line.push_str(" ");
+                        }
+                        line.push_str(core::str::from_utf8(g).unwrap_or(""));
+                    }
+                    TITLE.draw(c, MARGIN, y, line.as_str(), theme::TEXT);
+                    y += TITLE.height as i32 + 8;
+                }
+                let pol: Buf<64> = fill(t.policy, &[&e.wallet.m, &e.wallet.n(), &e.wallet.script.name()]);
+                SMALL.draw(c, MARGIN, top + 330, pol.as_str(), theme::TEXT_DIM);
+                widgets::hint_bar(c, &[("<>", t.h_index), ("Tab", t.h_branch), ("Esc", s.h_back)]);
+            }
+            WlStep::AddrSearch | WlStep::AddrPaused { .. } => {
+                let Some(sr) = self.wl.search.as_ref() else { return };
+                SMALL.draw(c, MARGIN, top - 4, self.wl.search_addr(), theme::TEXT_DIM);
+                let paused = matches!(step, WlStep::AddrPaused { .. });
+                let (head, col) = if paused {
+                    (s.va_not_found, theme::WARN)
+                } else {
+                    (t.va_ms_searching, theme::TEXT)
+                };
+                TITLE.draw(c, MARGIN, top + 18, head, col);
+                let mut names: Buf<128> = Buf::new();
+                for (i, (_, e)) in self.wallets.iter().enumerate() {
+                    if i > 0 {
+                        names.push_str(", ");
+                    }
+                    names.push_str(self.wallet_name(e).as_str());
+                }
+                let l: Buf<160> = fill(t.va_ms_wallets, &[&names.as_str()]);
+                let mut y = BODY.draw_wrapped(c, MARGIN, top + 64, W, 28, 2, l.as_str(), theme::TEXT) + 8;
+                let limit = sr.limit();
+                let frac = sr.scanned() as f64 / limit.max(1) as f64;
+                widgets::progress_bar(c, MARGIN, y, W, 10, frac, theme::ACCENT);
+                y += 24;
+                if let WlStep::AddrPaused { sel } = step {
+                    if sr.state() == bp_bitcoin::multisig::SearchState::Paused {
+                        let l: Buf<192> = fill(t.va_ms_not_found_1, &[&limit.saturating_sub(1)]);
+                        y = SMALL.draw_wrapped(c, MARGIN, y, W, 22, 2, l.as_str(), theme::TEXT_DIM) + 6;
+                    }
+                    let items = t.va_ms_more.map(|l| MenuItem { label: l, detail: "" });
+                    widgets::list(c, MARGIN, y, W, 110, &items, sel as usize, false);
+                    widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+                } else {
+                    widgets::hint_bar(c, &[("Esc", s.h_stop)]);
+                }
+            }
+            WlStep::AddrFound => {
+                let Some(sr) = self.wl.search.as_ref() else { return };
+                let bp_bitcoin::multisig::SearchState::Found {
+                    wallet,
+                    branch,
+                    index,
+                } = sr.state()
+                else {
+                    return;
+                };
+                TITLE.draw(c, MARGIN, top, s.va_found, theme::OK);
+                let name = self
+                    .wallets
+                    .get(wallet)
+                    .map(|e| self.wallet_name(e))
+                    .unwrap_or_default();
+                let pos: Buf<32> = fill(if branch == 1 { t.change_n } else { t.receive_n }, &[&index]);
+                let l: Buf<192> = fill(t.va_ms_found_1, &[&pos.as_str(), &name.as_str()]);
+                let y = BODY.draw_wrapped(c, MARGIN, top + 50, W, 28, 2, l.as_str(), theme::TEXT) + 12;
+                crate::review_view::address_lines(c, MARGIN, y, self.wl.search_addr());
+                widgets::hint_bar(c, &[("Enter", s.h_done)]);
             }
             WlStep::PickSeed { sel, .. } => {
                 TITLE.draw(c, MARGIN, top, t.pick_seed, theme::TEXT);

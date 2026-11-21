@@ -1721,7 +1721,7 @@ pub struct WalletStrings {
     pub done_title: &'static str,
     pub done_line: &'static str,
     pub done_options: [&'static str; 2],
-    pub wallet_options: [&'static str; 3],
+    pub wallet_options: [&'static str; 4],
     pub export_title: &'static str,
     pub export_formats: [(&'static str, &'static str); 4],
     pub export_paths_note: &'static str,
@@ -1777,6 +1777,25 @@ pub struct WalletStrings {
     /// "Cosigners: {}"
     pub unreg_keys: &'static str,
     pub unreg_rule: &'static str,
+    // addresses and verify-only (M7-8)
+    /// "{}: {}" wallet name, "Receive #3"
+    pub addr_view_title: &'static str,
+    pub h_index: &'static str,
+    pub h_branch: &'static str,
+    pub va_ms_option: &'static str,
+    pub va_ms_searching: &'static str,
+    /// "Wallets: {}"
+    pub va_ms_wallets: &'static str,
+    /// "Not among indices 0-{} ..."
+    pub va_ms_not_found_1: &'static str,
+    pub va_ms_more: [&'static str; 2],
+    /// "This address is {} of multisig wallet "{}"."
+    pub va_ms_found_1: &'static str,
+    pub verified_title: &'static str,
+    pub verified_lines: [&'static str; 2],
+    pub rv_spending_watch: &'static str,
+    /// "Signatures: {} of {} (this device does not sign)"
+    pub rv_sigs_watch: &'static str,
 }
 
 pub static EN_WALLET: WalletStrings = WalletStrings {
@@ -1866,7 +1885,7 @@ pub static EN_WALLET: WalletStrings = WalletStrings {
     done_title: "Wallet registered",
     done_line: "Kept for this session, until power off.",
     done_options: ["Export wallet QR", "Done"],
-    wallet_options: ["Cosigners", "Export wallet QR", "Remove from this session"],
+    wallet_options: ["Addresses", "Cosigners", "Export wallet QR", "Remove from this session"],
     export_title: "Export wallet",
     export_formats: [
         ("Descriptor (one QR)", "Sparrow, SeedSigner, Krux"),
@@ -1921,6 +1940,22 @@ pub static EN_WALLET: WalletStrings = WalletStrings {
     unreg_options: ["Type its wallet code", "Cancel"],
     unreg_keys: "Cosigners: {}",
     unreg_rule: "This wallet breaks a registration rule: import it in Tools > Multisig wallets to see why.",
+    addr_view_title: "{}: {}",
+    h_index: "Index",
+    h_branch: "Receive/Change",
+    va_ms_option: "Verify with multisig wallets",
+    va_ms_searching: "Searching multisig wallets...",
+    va_ms_wallets: "Wallets: {}",
+    va_ms_not_found_1: "Not among indices 0-{} (receive and change) of the registered multisig wallets.",
+    va_ms_more: ["Search the next 1,000", "Stop"],
+    va_ms_found_1: "This address is {} of multisig wallet \"{}\".",
+    verified_title: "Verified, not signed",
+    verified_lines: [
+        "This device checked the transaction against the registered wallet, but holds none of its keys: nothing was signed.",
+        "Compare what you saw here with the screens of the devices that sign.",
+    ],
+    rv_spending_watch: "Spending (the wallet)",
+    rv_sigs_watch: "Signatures: {} of {} (this device does not sign)",
 };
 
 pub static KO_WALLET: WalletStrings = WalletStrings {
@@ -2010,7 +2045,7 @@ pub static KO_WALLET: WalletStrings = WalletStrings {
     done_title: "지갑 등록됨",
     done_line: "이번 세션 동안(전원을 끌 때까지) 유지됩니다.",
     done_options: ["지갑 QR 내보내기", "완료"],
-    wallet_options: ["공동서명자", "지갑 QR 내보내기", "이번 세션에서 지우기"],
+    wallet_options: ["주소", "공동서명자", "지갑 QR 내보내기", "이번 세션에서 지우기"],
     export_title: "지갑 내보내기",
     export_formats: [
         ("디스크립터 (QR 한 장)", "Sparrow, SeedSigner, Krux"),
@@ -2065,6 +2100,22 @@ pub static KO_WALLET: WalletStrings = WalletStrings {
     unreg_options: ["지갑 코드 입력", "취소"],
     unreg_keys: "공동서명자: {}",
     unreg_rule: "이 지갑은 등록 규칙에 맞지 않습니다: 도구 > 멀티시그 지갑에서 가져와 이유를 확인하세요.",
+    addr_view_title: "{}: {}",
+    h_index: "번호",
+    h_branch: "받기/거스름",
+    va_ms_option: "멀티시그 지갑에서 확인",
+    va_ms_searching: "멀티시그 지갑에서 찾는 중...",
+    va_ms_wallets: "지갑: {}",
+    va_ms_not_found_1: "등록된 멀티시그 지갑의 0-{}번(받기, 거스름)에 없습니다.",
+    va_ms_more: ["다음 1,000개 찾기", "그만"],
+    va_ms_found_1: "이 주소는 멀티시그 지갑 \"{1}\"의 {0}입니다.",
+    verified_title: "검증만 함, 서명 안 함",
+    verified_lines: [
+        "이 기기는 등록된 지갑으로 거래를 확인했지만 그 지갑의 키가 없습니다: 아무것도 서명하지 않았습니다.",
+        "여기서 본 내용을 서명할 기기들의 화면과 비교하세요.",
+    ],
+    rv_spending_watch: "보내는 금액 (지갑)",
+    rv_sigs_watch: "서명: {} / {} (이 기기는 서명하지 않음)",
 };
 
 #[cfg(test)]

@@ -277,23 +277,38 @@ fn multisig_output(
         return Ok(None);
     }
     for (k, src) in map.bip32_derivations() {
-        if src.fingerprint != d.fingerprint {
+        // this seed's claims (re-derived); verify-only: the wallet's cosigners'
+        let derived = if src.fingerprint == d.fingerprint {
+            let derived = match d.xpub(&src) {
+                Ok(x) => x.key,
+                Err(DeriveError::TooDeep) => return Err(Issue::PathTooDeep(At::Output(idx))),
+                Err(DeriveError::Failed) => return Err(Issue::KeyNotFromSeed(At::Output(idx))),
+            };
+            if PublicKey::parse(k) != Some(derived) {
+                return Err(Issue::KeyNotFromSeed(At::Output(idx)));
+            }
+            derived
+        } else if report.watch_only {
+            match PublicKey::parse(k) {
+                Some(pk) => pk,
+                None => continue,
+            }
+        } else {
             continue;
-        }
-        let derived = match d.xpub(&src) {
-            Ok(x) => x.key,
-            Err(DeriveError::TooDeep) => return Err(Issue::PathTooDeep(At::Output(idx))),
-            Err(DeriveError::Failed) => return Err(Issue::KeyNotFromSeed(At::Output(idx))),
         };
-        if PublicKey::parse(k) != Some(derived) {
-            return Err(Issue::KeyNotFromSeed(At::Output(idx)));
-        }
         let Some(path) = src.to_path() else {
             return Err(Issue::PathTooDeep(At::Output(idx)));
         };
-        let m = multisig::output(ctx, cache, idx, &path, spk, map.witness_script(), &|| {
-            map.bip32_derivations()
-        })?;
+        let m = multisig::output(
+            ctx,
+            cache,
+            idx,
+            src.fingerprint,
+            &path,
+            spk,
+            map.witness_script(),
+            &|| map.bip32_derivations(),
+        )?;
         let OutputMatch::Registered(spend) = m else {
             continue;
         };

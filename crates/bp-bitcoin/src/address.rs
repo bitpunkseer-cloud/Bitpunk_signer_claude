@@ -140,3 +140,36 @@ pub fn from_script(spk: &[u8], net: Network, out: &mut [u8; MAX_ADDRESS_LEN]) ->
         _ => None,
     }
 }
+
+/// The scriptPubKey an address of `net` pays (any segwit version, P2SH,
+/// P2PKH); `None` if it is not a valid address for `net`.
+pub fn script_of(addr: &str, net: Network) -> Option<([u8; 42], usize)> {
+    let mut out = [0u8; 42];
+    let hrp = net.hrp();
+    if addr.len() > hrp.len() + 1
+        && addr.as_bytes()[..hrp.len()].eq_ignore_ascii_case(hrp.as_bytes())
+        && addr.as_bytes()[hrp.len()] == b'1'
+    {
+        let a = bech32::decode_segwit(hrp, addr).ok()?;
+        let n = a.script_pubkey(&mut out);
+        return Some((out, n));
+    }
+    let mut raw = [0u8; 25];
+    if base58::decode_check(addr, &mut raw).ok()? != 21 {
+        return None;
+    }
+    if raw[0] == net.p2sh_version() {
+        out[0] = 0xA9;
+        out[1] = 0x14;
+        out[2..22].copy_from_slice(&raw[1..21]);
+        out[22] = 0x87;
+        Some((out, 23))
+    } else if raw[0] == net.p2pkh_version() {
+        out[..3].copy_from_slice(&[0x76, 0xA9, 0x14]);
+        out[3..23].copy_from_slice(&raw[1..21]);
+        out[23..25].copy_from_slice(&[0x88, 0xAC]);
+        Some((out, 25))
+    } else {
+        None
+    }
+}

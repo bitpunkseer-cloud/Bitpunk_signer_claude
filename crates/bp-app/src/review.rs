@@ -62,6 +62,8 @@ pub enum Step {
     },
     /// Typing that wallet's code.
     MsCode,
+    /// Verify-only: the review ended without signing.
+    VerifiedOnly,
 }
 
 /// A BIP-322 message (or Proof of Reserves) PSBT.
@@ -161,6 +163,7 @@ impl Review {
             Step::Overview if self.n_outputs() > 0 => Step::Output { idx: 0 },
             Step::Output { idx } if idx + 1 < self.n_outputs() => Step::Output { idx: idx + 1 },
             Step::Overview | Step::Output { .. } => Step::Fee,
+            Step::Fee if self.report.as_ref().is_some_and(|r| r.watch_only) => Step::VerifiedOnly,
             Step::Fee => Step::Approve { sel: 0 },
             _ => return None,
         })
@@ -183,7 +186,7 @@ impl Review {
                 n => Step::Output { idx: n - 1 },
             }),
             Step::Approve { .. } if self.message.is_some() => Some(Step::MsgAddress),
-            Step::Approve { .. } => Some(Step::Fee),
+            Step::Approve { .. } | Step::VerifiedOnly => Some(Step::Fee),
             Step::MsgPage { page: 0 } => last_warning(),
             Step::MsgPage { page } => Some(Step::MsgPage { page: page - 1 }),
             _ => None,
@@ -269,11 +272,41 @@ impl App {
                 policy,
                 memory: Some(&self.memory),
                 multisig: &wallets,
+                watch: false,
             };
             let (_, report) = validate(raw, &ctx);
             if !report.has(Issue::NoInputsForSeed) {
                 chosen = Some((slot as u8, report));
                 break;
+            }
+        }
+        // verify-only: no seed has inputs, but a registered wallet without
+        // this device's key may (decision 5); never signable
+        if chosen.is_none()
+            && forgery.is_none()
+            && rule.is_none()
+            && message.is_none()
+            && !self.wallets.is_empty()
+        {
+            if let Some((slot, seed)) = self
+                .seeds
+                .iter()
+                .enumerate()
+                .find_map(|(i, s)| s.as_ref().map(|s| (i, s)))
+            {
+                let wallets = self.multisig_wallets();
+                let ctx = Context {
+                    master: seed.master(),
+                    network: self.settings.network,
+                    policy,
+                    memory: Some(&self.memory),
+                    multisig: &wallets,
+                    watch: true,
+                };
+                let (_, report) = validate(raw, &ctx);
+                if report.watch_only && !report.has(Issue::NoInputsForSeed) {
+                    chosen = Some((slot as u8, report));
+                }
             }
         }
         let (slot, report) = match chosen {
@@ -374,6 +407,11 @@ impl App {
                     _ => {}
                 }
             }
+            Step::VerifiedOnly => match ev.key {
+                Key::Enter => self.end_review(),
+                _ if back => self.set_current(Screen::Review { step: Step::Fee }),
+                _ => {}
+            },
             Step::WrongSeed | Step::Problem | Step::Failed | Step::Forged | Step::MsgOff | Step::MsgRule => {
                 if back || ev.key == Key::Enter {
                     self.end_review();

@@ -91,6 +91,16 @@ impl App {
         self.seed_count() > 0 && self.verify.as_ref().is_some_and(|v| v.target.is_ok())
     }
 
+    /// What the address can be checked against: loaded seeds (single-key),
+    /// registered multisig wallets.
+    fn verify_options(&self) -> (bool, bool) {
+        let ms = self
+            .verify
+            .as_ref()
+            .is_some_and(|v| self.ms_search_possible(v.addr()));
+        (self.can_verify(), ms)
+    }
+
     /// Every loaded seed at the session's accounts, or at `only`.
     fn verify_accounts(
         &self,
@@ -193,17 +203,28 @@ impl App {
         let back = matches!(ev.key, Key::Esc | Key::Backspace);
         match step {
             VaStep::Confirm { sel } => {
-                if !self.can_verify() {
+                let (seeds, ms) = self.verify_options();
+                if !seeds && !ms {
                     if back || ev.key == Key::Enter {
                         self.pop();
                     }
                     return;
                 }
-                match crate::pick(ev.key, sel, 2) {
+                let n = seeds as u8 + ms as u8 + 1;
+                match crate::pick(ev.key, sel, n) {
                     crate::Pick::Move(s) => self.set_current(Screen::VerifyAddr {
                         step: VaStep::Confirm { sel: s },
                     }),
-                    crate::Pick::Choose(0) => self.begin_search(None),
+                    crate::Pick::Choose(0) if seeds => self.begin_search(None),
+                    crate::Pick::Choose(c) if ms && c == seeds as u8 => {
+                        let mut a = [0u8; address::MAX_ADDRESS_LEN];
+                        let len = self.verify.as_ref().map_or(0, |v| v.len);
+                        if let Some(v) = self.verify.as_ref() {
+                            a[..len].copy_from_slice(&v.addr[..len]);
+                        }
+                        self.verify = None;
+                        self.start_ms_search(core::str::from_utf8(&a[..len]).unwrap_or(""));
+                    }
                     crate::Pick::Choose(_) | crate::Pick::Back => self.pop(),
                     crate::Pick::None => {}
                 }
@@ -272,6 +293,29 @@ impl App {
                     y += 40;
                 }
                 let y = address_lines(c, MARGIN, y, v.addr()) + 12;
+                let (seeds, ms) = self.verify_options();
+                if ms {
+                    // the options: loaded seeds (if any), multisig wallets, done
+                    let labels: [&str; 3] = if seeds {
+                        [s.va_options[0], s.wl.va_ms_option, s.va_options[1]]
+                    } else {
+                        [s.wl.va_ms_option, s.va_options[1], ""]
+                    };
+                    let n = if seeds { 3 } else { 2 };
+                    let items = labels.map(|label| MenuItem { label, detail: "" });
+                    widgets::list(
+                        c,
+                        MARGIN,
+                        y,
+                        800 - 2 * MARGIN,
+                        160,
+                        &items[..n],
+                        sel as usize,
+                        false,
+                    );
+                    widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+                    return;
+                }
                 match v.target {
                     Err(e) => {
                         let i = match e {

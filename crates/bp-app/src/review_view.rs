@@ -316,13 +316,18 @@ impl App {
                 let Some(rep) = r.report.as_ref() else { return };
                 let t = rep.totals;
                 let mut y = top + 10;
+                let spending = if rep.watch_only {
+                    s.wl.rv_spending_watch
+                } else {
+                    rv.spending
+                };
                 if let Some((head, sigs)) = self.multisig_lines(rep) {
                     SMALL.draw(c, MARGIN, top - 6, head.as_str(), theme::ACCENT);
                     SMALL.draw(c, MARGIN, top + 14, sigs.as_str(), theme::TEXT_DIM);
                     y += 34;
                 }
                 let gap = BODY.height as i32 + 24;
-                row(c, y, rv.spending, amount(t.ours, units).as_str(), theme::TEXT);
+                row(c, y, spending, amount(t.ours, units).as_str(), theme::TEXT);
                 y += gap;
                 if let Some(all) = t.inputs.filter(|&a| a > t.ours) {
                     row(
@@ -649,6 +654,12 @@ impl App {
                 );
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
+            Step::VerifiedOnly => {
+                self.status(c, rv.title);
+                let t = s.wl;
+                widgets::message_at(c, STATUS_H + 70, t.verified_title, theme::OK, &t.verified_lines);
+                widgets::hint_bar(c, &[("Enter", s.h_done), ("Esc", s.h_back)]);
+            }
             Step::MsCode => {
                 self.status(c, rv.title);
                 let t = s.wl;
@@ -698,7 +709,11 @@ impl App {
             let Some(o) = i.owned.as_ref() else { continue };
             let Some(ms) = o.get().ms else { continue };
             let now = i.cosigs + i.signed as u8;
-            let after = now + (!i.signed && !i.finalized) as u8;
+            let after = if rep.watch_only {
+                now
+            } else {
+                now + (!i.signed && !i.finalized) as u8
+            };
             best = Some(match best {
                 None => (now, after, ms.m),
                 Some((n, a, m)) => (n.min(now), a.min(after), m),
@@ -723,7 +738,11 @@ impl App {
             ],
         );
         let (now, after, m) = self.multisig_progress(rep)?;
-        let sigs: Buf<128> = fill(t.rv_sigs, &[&now, &m, &after]);
+        let sigs: Buf<128> = if rep.watch_only {
+            fill(t.rv_sigs_watch, &[&now, &m])
+        } else {
+            fill(t.rv_sigs, &[&now, &m, &after])
+        };
         Some((head, sigs))
     }
 }

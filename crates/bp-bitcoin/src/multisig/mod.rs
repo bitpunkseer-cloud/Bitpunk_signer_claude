@@ -489,3 +489,139 @@ fn xpub_from_raw(x: &[u8], test: bool) -> Option<Xpub> {
         key: PublicKey::parse(&x[45..78])?,
     })
 }
+
+/// Addresses searched per batch (receive and change each), as for
+/// single-key verification.
+pub const SEARCH_BATCH: u32 = 1000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchState {
+    Searching,
+    /// The batch ended without a match.
+    Paused,
+    Found {
+        wallet: u8,
+        branch: u8,
+        index: u32,
+    },
+}
+
+/// Is `spk` an address of a registered multisig wallet? Runs a few
+/// derivations per step; wallets are passed to every step (by registry
+/// slot) so the search holds no borrow.
+pub struct Search {
+    spk: [u8; 34],
+    spk_len: u8,
+    script: MsScript,
+    start: u32,
+    limit: u32,
+    /// Position: wallet slot, index, branch.
+    slot: usize,
+    index: u32,
+    branch: u8,
+    cache: Option<(usize, [Branch; 2])>,
+    state: SearchState,
+}
+
+impl Search {
+    /// `None` unless `spk` is P2WSH or P2SH and some wallet has that type.
+    pub fn new(spk: &[u8], wallets: &[Option<&Wallet>]) -> Option<Search> {
+        use crate::validate::script::{classify, ScriptKind};
+        let script = match classify(spk) {
+            ScriptKind::P2wsh(_) => MsScript::Wsh,
+            ScriptKind::P2sh(_) => MsScript::ShWsh,
+            _ => return None,
+        };
+        wallets.iter().flatten().any(|w| w.script == script).then(|| {
+            let mut s = [0u8; 34];
+            s[..spk.len()].copy_from_slice(spk);
+            Search {
+                spk: s,
+                spk_len: spk.len() as u8,
+                script,
+                start: 0,
+                limit: SEARCH_BATCH,
+                slot: 0,
+                index: 0,
+                branch: 0,
+                cache: None,
+                state: SearchState::Searching,
+            }
+        })
+    }
+
+    pub fn state(&self) -> SearchState {
+        self.state
+    }
+
+    /// Indexes below this are checked in every searched wallet.
+    pub fn limit(&self) -> u32 {
+        self.limit
+    }
+
+    /// Addresses checked in the current batch's wallets so far.
+    pub fn scanned(&self) -> u32 {
+        self.index
+    }
+
+    /// Search the next batch of indexes.
+    pub fn more(&mut self) {
+        if self.state == SearchState::Paused {
+            self.start = self.limit;
+            self.limit = self.limit.saturating_add(SEARCH_BATCH).min(HARDENED);
+            self.slot = 0;
+            self.index = self.start;
+            self.branch = 0;
+            self.state = SearchState::Searching;
+        }
+    }
+
+    /// Check up to `budget` addresses.
+    pub fn step(&mut self, wallets: &[Option<&Wallet>], budget: usize) -> SearchState {
+        for _ in 0..budget {
+            if self.state != SearchState::Searching {
+                break;
+            }
+            // the next wallet of this script type
+            while self.slot < wallets.len() && !wallets[self.slot].is_some_and(|w| w.script == self.script) {
+                self.slot += 1;
+                self.index = self.start;
+                self.branch = 0;
+            }
+            let Some(w) = wallets.get(self.slot).copied().flatten() else {
+                self.state = SearchState::Paused;
+                break;
+            };
+            if self.cache.as_ref().map(|c| c.0) != Some(self.slot) {
+                let (Ok(b0), Ok(b1)) = (w.branch(0), w.branch(1)) else {
+                    self.slot += 1;
+                    continue;
+                };
+                self.cache = Some((self.slot, [b0, b1]));
+            }
+            let (_, branches) = self.cache.as_ref().expect("set");
+            if let Ok(sc) = branches[self.branch as usize].derive(self.index) {
+                if sc.script_pubkey() == &self.spk[..self.spk_len as usize] {
+                    self.state = SearchState::Found {
+                        wallet: self.slot as u8,
+                        branch: self.branch,
+                        index: self.index,
+                    };
+                    break;
+                }
+            }
+            // next: change, then the next index, then the next wallet
+            if self.branch == 0 {
+                self.branch = 1;
+            } else {
+                self.branch = 0;
+                self.index += 1;
+                if self.index >= self.limit {
+                    self.slot += 1;
+                    self.index = self.start;
+                }
+            }
+        }
+        self.state
+    }
+}

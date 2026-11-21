@@ -306,6 +306,10 @@ fn check_one(
         });
     }
     let Some(key) = ours else {
+        // verify-only: a registered wallet's input without a key of ours
+        if ms.ctx.watch {
+            watch(i, &mut r, map, ms, report);
+        }
         return r; // not this seed's input
     };
     if distinct > 1 {
@@ -516,4 +520,57 @@ fn multisig_input(
             None
         }
     }
+}
+
+/// Verify-only: rebuild a multisig input from a cosigner's claim. The input
+/// counts as "owned" for the review (amounts, change), and the report is
+/// marked verify-only so it can never be signed.
+fn watch(i: usize, r: &mut InputReport, map: &InputMap, ms: &mut Ms, report: &mut Report) {
+    let idx = i as u16;
+    let (Some(ws), Some(amount), Some(source)) = (map.witness_script(), r.amount, r.source) else {
+        return;
+    };
+    let vout = ms.tx.input(i).map(|t| t.vout as usize);
+    let prev = map
+        .witness_utxo()
+        .or_else(|| map.non_witness_utxo().and_then(|t| t.output(vout?)));
+    let Some(prev) = prev else { return };
+    let script = match classify(prev.script_pubkey) {
+        ScriptKind::P2wsh(_) => MsScript::Wsh,
+        ScriptKind::P2sh(_) => MsScript::ShWsh,
+        _ => return,
+    };
+    let Some((spend, pk, path)) =
+        multisig::watch_input(ms.ctx, ms.cache, script, prev.script_pubkey, ws, &|| {
+            map.bip32_derivations()
+        })
+    else {
+        return;
+    };
+    let Some(w) = ms.ctx.multisig.get(spend.wallet as usize).copied().flatten() else {
+        return;
+    };
+    let Ok(sc) = w.derive(spend.branch as u32, spend.index) else {
+        return;
+    };
+    // every signature counts: this device signs nothing
+    let none = PublicKey::GENERATOR;
+    let (good, bad) = multisig::cosigner_signatures(ms.tx, ms.v0, i, &sc, amount, &none, map.partial_sigs());
+    r.cosigs = good;
+    if bad {
+        report.push(Issue::BadCosignerSignature(idx));
+    }
+    report.watch_only = true;
+    r.owned = Some(Verified(OwnedInput {
+        kind: if script == MsScript::Wsh {
+            SpendKind::P2wshMulti
+        } else {
+            SpendKind::P2shP2wshMulti
+        },
+        path,
+        pubkey: pk,
+        amount,
+        source,
+        ms: Some(spend),
+    }));
 }

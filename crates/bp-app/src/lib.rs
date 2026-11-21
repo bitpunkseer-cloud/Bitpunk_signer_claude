@@ -487,6 +487,9 @@ impl App {
                 }
             }
         }
+        if self.wallets_tick() {
+            self.dirty = true;
+        }
         if self.verify_tick() {
             self.dirty = true;
         }

@@ -378,3 +378,70 @@ fn script_parser_is_exact() {
     assert!(w.derive(2, 0).is_err());
     assert!(w.derive(0, 0x8000_0000).is_err());
 }
+
+#[test]
+fn address_search_finds_wallet_branch_index() {
+    use bp_bitcoin::multisig::{Search, SearchState, SEARCH_BATCH};
+    let net = Network::Mainnet;
+    let keys = |acct: u32, script: MsScript| -> Vec<Cosigner> {
+        (1..=3)
+            .map(|i| {
+                let m = master(i);
+                let path = script.account_path(net, acct);
+                Cosigner {
+                    fingerprint: m.fingerprint(),
+                    origin: path,
+                    xpub: m.derive_path(&path).unwrap().to_xpub(),
+                    version: KeyVersion::X,
+                }
+            })
+            .collect()
+    };
+    let a = Wallet::new(false, MsScript::Wsh, 2, &keys(0, MsScript::Wsh)).unwrap();
+    let b = Wallet::new(false, MsScript::Wsh, 2, &keys(1, MsScript::Wsh)).unwrap();
+    let c = Wallet::new(false, MsScript::ShWsh, 2, &keys(0, MsScript::ShWsh)).unwrap();
+    let wallets = [Some(&a), None, Some(&b), Some(&c)];
+    let run = |s: &mut Search| loop {
+        match s.step(&wallets, 64) {
+            SearchState::Searching => continue,
+            st => break st,
+        }
+    };
+    // change #7 of the wallet in slot 2
+    let spk = b.derive(1, 7).unwrap().script_pubkey().to_vec();
+    let mut s = Search::new(&spk, &wallets).unwrap();
+    assert_eq!(
+        run(&mut s),
+        SearchState::Found {
+            wallet: 2,
+            branch: 1,
+            index: 7
+        }
+    );
+    // P2SH-P2WSH, receive #1234: needs a second batch
+    let spk = c.derive(0, 1234).unwrap().script_pubkey().to_vec();
+    let mut s = Search::new(&spk, &wallets).unwrap();
+    assert_eq!(run(&mut s), SearchState::Paused);
+    assert_eq!(s.limit(), SEARCH_BATCH);
+    s.more();
+    assert_eq!(
+        run(&mut s),
+        SearchState::Found {
+            wallet: 3,
+            branch: 0,
+            index: 1234
+        }
+    );
+    // an address of no wallet: paused after each batch
+    let other = Wallet::new(false, MsScript::Wsh, 1, &keys(0, MsScript::Wsh)).unwrap();
+    let spk = other.derive(0, 0).unwrap().script_pubkey().to_vec();
+    let mut s = Search::new(&spk, &wallets).unwrap();
+    assert_eq!(run(&mut s), SearchState::Paused);
+    // no wallet of the address's type: no search at all
+    assert!(Search::new(&spk, &[Some(&c)]).is_none());
+    assert!(Search::new(
+        &[0x00, 0x14, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+        &wallets
+    )
+    .is_none());
+}

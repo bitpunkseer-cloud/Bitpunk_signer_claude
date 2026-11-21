@@ -122,6 +122,7 @@ fn sign_into(
         policy: signer.policy,
         memory: Some(&*memory),
         multisig: signer.multisig,
+        watch: false,
     };
     let (psbt, report) = validate(raw, &ctx);
     if report.digest() != *approved {

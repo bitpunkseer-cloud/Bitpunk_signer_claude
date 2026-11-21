@@ -906,9 +906,17 @@ fn wallet_tour(t: &mut Tour) {
     press(&mut a, Key::Char('1'));
     t.snap(&a, "wallets-wallet");
     press(&mut a, Key::Char('1'));
+    t.snap(&a, "wallets-address");
+    press(&mut a, Key::Tab);
+    for _ in 0..12 {
+        press(&mut a, Key::Right);
+    }
+    t.snap(&a, "wallets-address-change-12");
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Char('2'));
     t.snap(&a, "wallets-keys");
     press(&mut a, Key::Esc);
-    press(&mut a, Key::Char('3'));
+    press(&mut a, Key::Char('4'));
     t.snap(&a, "wallets-remove");
     press(&mut a, Key::Esc);
 
@@ -1187,6 +1195,59 @@ fn wallet_tour(t: &mut Tour) {
         press(&mut r, Key::Down);
         press(&mut r, Key::Enter);
         t.snap(&r, "ms-review-signed-more");
+    }
+
+    // verifying a multisig address; a verify-only review
+    {
+        use super::wallets_flow::{address_of, ms_psbt, register_quick, run_search};
+        let mut v = t.app();
+        load_abandon(&mut v);
+        let w = wallet_of(&v, MsScript::Wsh, 2, 3);
+        register_quick(&mut v, &w);
+        to_main(&mut v);
+        press(&mut v, Key::Char('1'));
+        v.on_qr_text(address_of(&v, &w, 1, 5).as_bytes());
+        t.snap(&v, "ms-verify-confirm");
+        press(&mut v, Key::Enter);
+        t.snap(&v, "ms-verify-searching");
+        run_search(&mut v);
+        t.snap(&v, "ms-verify-found");
+        to_main(&mut v);
+        let other = wallet_of(&v, MsScript::Wsh, 1, 3);
+        press(&mut v, Key::Char('1'));
+        v.on_qr_text(address_of(&v, &other, 0, 0).as_bytes());
+        press(&mut v, Key::Enter);
+        run_search(&mut v);
+        t.snap(&v, "ms-verify-not-found");
+
+        let mut o = t.app();
+        load_abandon(&mut o);
+        let net = o.settings.network;
+        let path = MsScript::Wsh.account_path(net, 0);
+        let keys: Vec<Cosigner> = (1..=3u8)
+            .map(|i| {
+                let mk = BpXpriv::master(&[i + 70; 32]).unwrap();
+                Cosigner {
+                    fingerprint: mk.fingerprint(),
+                    origin: path,
+                    xpub: mk.derive_path(&path).unwrap().to_xpub(),
+                    version: KeyVersion::X,
+                }
+            })
+            .collect();
+        let watch = Wallet::new(false, MsScript::Wsh, 2, &keys).unwrap();
+        register_quick(&mut o, &watch);
+        to_main(&mut o);
+        let raw = ms_psbt(&watch, false, false).serialize();
+        let mut b64 = vec![0u8; raw.len() * 4 / 3 + 8];
+        let n = bp_bitcoin::base64::encode(&raw, &mut b64).unwrap();
+        press(&mut o, Key::Char('1'));
+        o.on_qr_text(&b64[..n]);
+        t.snap(&o, "ms-verify-only-overview");
+        for _ in 0..4 {
+            press(&mut o, Key::Enter);
+        }
+        t.snap(&o, "ms-verified-only");
     }
 
     // export this device's key

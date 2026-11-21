@@ -344,14 +344,14 @@ fn wallet_menu_keys_and_remove() {
     press(&mut a, Key::Char('1')); // the wallet
     assert!(matches!(step(&a), WlStep::Wallet { idx: 0, .. }));
     render(&a);
-    press(&mut a, Key::Char('1')); // cosigners
+    press(&mut a, Key::Char('2')); // cosigners
     for i in 0..3 {
         assert_eq!(step(&a), WlStep::Keys { idx: 0, i });
         render(&a);
         press(&mut a, Key::Right);
     }
     press(&mut a, Key::Esc);
-    press(&mut a, Key::Char('3')); // remove
+    press(&mut a, Key::Char('4')); // remove
     assert!(matches!(step(&a), WlStep::Remove { .. }));
     render(&a);
     press(&mut a, Key::Char('2'));
@@ -924,4 +924,149 @@ fn unregistered_spend_without_xpubs_cannot_be_signed() {
     let rep = a.review.as_ref().unwrap().report.as_ref().unwrap();
     assert!(rep.has(bp_bitcoin::validate::Issue::UnregisteredMultisig(0)));
     render(&a);
+}
+
+// ---------- M7-8: addresses, address verification, verify-only ----------
+
+pub(super) fn address_of(a: &App, w: &Wallet, b: u32, i: u32) -> String {
+    let mut o = [0u8; 90];
+    let n = w.derive(b, i).unwrap().address(a.settings.network, &mut o);
+    String::from_utf8(o[..n].to_vec()).unwrap()
+}
+
+#[test]
+fn wallet_addresses_view() {
+    let mut a = app();
+    load_abandon(&mut a);
+    let w = wallet_of(&a, MsScript::Wsh, 2, 3);
+    register_quick(&mut a, &w);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter); // Done -> list
+    press(&mut a, Key::Char('1')); // the wallet
+    press(&mut a, Key::Char('1')); // addresses
+    assert_eq!(
+        step(&a),
+        WlStep::Address {
+            idx: 0,
+            change: false,
+            index: 0
+        }
+    );
+    render(&a);
+    press(&mut a, Key::Right);
+    press(&mut a, Key::Tab);
+    assert_eq!(
+        step(&a),
+        WlStep::Address {
+            idx: 0,
+            change: true,
+            index: 1
+        }
+    );
+    render(&a);
+    press(&mut a, Key::Left);
+    press(&mut a, Key::Left);
+    assert_eq!(
+        step(&a),
+        WlStep::Address {
+            idx: 0,
+            change: true,
+            index: 0
+        }
+    );
+}
+
+pub(super) fn run_search(a: &mut App) {
+    for _ in 0..5000 {
+        if !matches!(
+            a.current(),
+            Screen::Wallets {
+                step: WlStep::AddrSearch
+            }
+        ) {
+            return;
+        }
+        a.tick(16);
+    }
+    panic!("search did not stop");
+}
+
+#[test]
+fn multisig_address_is_verified() {
+    let mut a = app();
+    load_abandon(&mut a);
+    let w = wallet_of(&a, MsScript::Wsh, 2, 3);
+    register_quick(&mut a, &w);
+    to_main(&mut a);
+    // change #5 of the wallet, scanned from the main menu
+    press(&mut a, Key::Char('1'));
+    a.on_qr_text(address_of(&a, &w, 1, 5).as_bytes());
+    assert!(matches!(a.current(), Screen::VerifyAddr { .. }));
+    render(&a);
+    // P2WSH: loaded seeds cannot hold it; the options are multisig, done
+    press(&mut a, Key::Enter);
+    assert_eq!(step(&a), WlStep::AddrSearch);
+    render(&a);
+    run_search(&mut a);
+    assert_eq!(step(&a), WlStep::AddrFound);
+    assert_eq!(
+        a.wl.search.as_ref().unwrap().state(),
+        bp_bitcoin::multisig::SearchState::Found {
+            wallet: 0,
+            branch: 1,
+            index: 5
+        }
+    );
+    render(&a);
+    press(&mut a, Key::Enter);
+    // a P2WSH address of no registered wallet: not found in the batch
+    to_main(&mut a);
+    let other = wallet_of(&a, MsScript::Wsh, 1, 3);
+    press(&mut a, Key::Char('1'));
+    a.on_qr_text(address_of(&a, &other, 0, 0).as_bytes());
+    press(&mut a, Key::Enter);
+    run_search(&mut a);
+    assert_eq!(step(&a), WlStep::AddrPaused { sel: 0 });
+    render(&a);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    assert!(a.wl.search.is_none());
+}
+
+#[test]
+fn verify_only_review_never_signs() {
+    use crate::review::Step;
+    let mut a = app();
+    load_abandon(&mut a);
+    // a wallet of three other keys, registered verify-only
+    let net = a.settings.network;
+    let path = MsScript::Wsh.account_path(net, 0);
+    let keys: Vec<Cosigner> = (1..=3u8)
+        .map(|i| {
+            let mk = BpXpriv::master(&[i + 70; 32]).unwrap();
+            Cosigner {
+                fingerprint: mk.fingerprint(),
+                origin: path,
+                xpub: mk.derive_path(&path).unwrap().to_xpub(),
+                version: KeyVersion::X,
+            }
+        })
+        .collect();
+    let w = Wallet::new(false, MsScript::Wsh, 2, &keys).unwrap();
+    register_quick(&mut a, &w);
+    assert_eq!(a.wallets.get(0).unwrap().ours, None);
+    to_main(&mut a);
+    scan_psbt(&mut a, &ms_psbt(&w, false, false));
+    let rep = a.review.as_ref().unwrap().report.as_ref().unwrap();
+    assert!(rep.watch_only);
+    assert!(!rep.can_sign(true));
+    assert_eq!(review_step(&a), Step::Overview);
+    render(&a);
+    for _ in 0..4 {
+        press(&mut a, Key::Enter);
+        render(&a);
+    }
+    assert_eq!(review_step(&a), Step::VerifiedOnly);
+    press(&mut a, Key::Enter);
+    assert!(a.review.is_none());
 }

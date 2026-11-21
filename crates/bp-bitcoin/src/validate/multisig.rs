@@ -179,16 +179,17 @@ pub(super) enum OutputMatch {
 /// An output paying `spk` (P2WSH, or P2SH that may wrap one) with this
 /// seed's key claimed at `path`: if the path is a registered wallet's, the
 /// script must be that wallet's (else `Err`: an attack).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn output<'a, I: Iterator<Item = (&'a [u8], KeySource<'a>)>>(
     ctx: &Context,
     cache: &mut Cache,
     idx: u16,
+    fp: [u8; 4],
     path: &DerivationPath,
     spk: &[u8],
     ws: Option<&[u8]>,
     claims: &dyn Fn() -> I,
 ) -> Result<OutputMatch, Issue> {
-    let fp = ctx.master.fingerprint();
     let mut claimed = false;
     for script in [MsScript::Wsh, MsScript::ShWsh] {
         for (slot, w, b, i) in candidates(ctx, fp, script, path) {
@@ -278,4 +279,41 @@ pub(super) fn global_xpubs(psbt: &crate::psbt::Psbt, w: &Wallet) -> Option<Issue
 /// For `Issue` locations in this module.
 pub(super) fn at_input(i: usize) -> At {
     At::Input(i as u16)
+}
+
+/// Verify-only: a multisig input with no key of this seed, rebuilt from a
+/// cosigner's claim: the registered wallet, the claimed key and its path.
+pub(super) fn watch_input<'a, I: Iterator<Item = (&'a [u8], KeySource<'a>)>>(
+    ctx: &Context,
+    cache: &mut Cache,
+    script: MsScript,
+    spk: &[u8],
+    ws: &[u8],
+    claims: &dyn Fn() -> I,
+) -> Option<(MsSpend, PublicKey, DerivationPath)> {
+    for (key, src) in claims() {
+        let path = src.to_path()?;
+        for (slot, w, b, i) in candidates(ctx, src.fingerprint, script, &path) {
+            let Some(br) = cache.branch(slot, w, b) else {
+                continue;
+            };
+            let Ok(child) = br.child_keys(i) else { continue };
+            let sc = br.scripts(&child);
+            if sc.witness_script() != ws
+                || sc.script_pubkey() != spk
+                || !claims_agree(w, &child, b, i, claims)
+            {
+                continue;
+            }
+            let spend = MsSpend {
+                wallet: slot,
+                m: w.m,
+                n: w.n(),
+                branch: b,
+                index: i,
+            };
+            return Some((spend, PublicKey::parse(key)?, path));
+        }
+    }
+    None
 }

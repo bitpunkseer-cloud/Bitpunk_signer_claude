@@ -432,6 +432,9 @@ pub struct Report {
     n_fingerprints: usize,
     /// Registry slot of the multisig wallet this seed's inputs spend from.
     pub wallet: Option<u8>,
+    /// Verify-only: the inputs are a registered wallet's that holds no key
+    /// of this seed. Never signable.
+    pub watch_only: bool,
 }
 
 impl Report {
@@ -460,6 +463,7 @@ impl Report {
             fingerprints: [[0; 4]; MAX_FINGERPRINTS],
             n_fingerprints: 0,
             wallet: None,
+            watch_only: false,
         }
     }
 
@@ -494,7 +498,7 @@ impl Report {
         let mut h = H(Sha256::new());
         let _ = write!(
             h,
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:?}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:?}|{}",
             self.master_fingerprint,
             self.issues(),
             self.inputs(),
@@ -503,7 +507,8 @@ impl Report {
             self.lock_time,
             self.rbf,
             self.fingerprints(),
-            self.wallet
+            self.wallet,
+            self.watch_only
         );
         h.0.finalize()
     }
@@ -519,7 +524,9 @@ impl Report {
     /// Signing is possible: no attack or error, and every blocking
     /// warning overridden.
     pub fn can_sign(&self, overridden: bool) -> bool {
-        self.worst() < Some(Class::Error) && (overridden || !self.issues().iter().any(|i| i.needs_override()))
+        !self.watch_only
+            && self.worst() < Some(Class::Error)
+            && (overridden || !self.issues().iter().any(|i| i.needs_override()))
     }
 
     fn push(&mut self, issue: Issue) {
@@ -558,6 +565,10 @@ pub struct Context<'a> {
     pub memory: Option<&'a UtxoMemory>,
     /// Registered multisig wallets, by registry slot.
     pub multisig: &'a [Option<&'a crate::multisig::Wallet>],
+    /// Verify-only: also accept multisig inputs of registered wallets that
+    /// hold no key of this seed (rebuilt from a cosigner's claim). The
+    /// report is then marked `watch_only` and cannot be signed.
+    pub watch: bool,
 }
 
 impl<'a> Context<'a> {
@@ -568,6 +579,7 @@ impl<'a> Context<'a> {
             policy: Policy::default(),
             memory: None,
             multisig: &[],
+            watch: false,
         }
     }
 }
