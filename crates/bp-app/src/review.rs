@@ -55,6 +55,13 @@ pub enum Step {
     },
     /// The address (input 0) and, for Proof of Reserves, the total.
     MsgAddress,
+    /// A multisig spend from a wallet not registered this session, which
+    /// the PSBT's global xpubs rebuild: type its code or cancel.
+    MsRegister {
+        sel: u8,
+    },
+    /// Typing that wallet's code.
+    MsCode,
 }
 
 /// A BIP-322 message (or Proof of Reserves) PSBT.
@@ -81,6 +88,12 @@ pub struct Review {
     pub message: Option<MessageMode>,
     pub forgery: Option<Forgery>,
     pub rule: Option<MessageError>,
+    /// The unregistered multisig wallet the PSBT's global xpubs rebuild.
+    pub candidate: Option<bp_bitcoin::multisig::Wallet>,
+    pub code_in: [u8; 16],
+    pub code_len: usize,
+    /// 0 none, 1 not this wallet's code, 2 not a code, 3 breaks a rule, 4 full.
+    pub code_bad: u8,
 }
 
 impl Review {
@@ -98,6 +111,10 @@ impl Review {
             message: None,
             forgery: None,
             rule: None,
+            candidate: None,
+            code_in: [0; 16],
+            code_len: 0,
+            code_bad: 0,
         }
     }
 
@@ -125,6 +142,7 @@ impl Review {
             _ if self.forgery.is_some() => Step::Forged,
             _ if self.rule.is_some() => Step::MsgRule,
             _ if self.slot.is_none() => Step::WrongSeed,
+            Some(r) if self.candidate.is_some() && only_unregistered(r) => Step::MsRegister { sel: 0 },
             Some(r) if r.worst() >= Some(Class::Error) => Step::Problem,
             _ if self.n_warnings() > 0 => Step::Warning { idx: 0, sel: 0 },
             _ if self.message.is_some() => Step::MsgPage { page: 0 },
@@ -171,6 +189,17 @@ impl Review {
             _ => None,
         }
     }
+}
+
+/// Every error is an unregistered multisig input (nothing else blocks).
+fn only_unregistered(r: &Report) -> bool {
+    r.issues()
+        .iter()
+        .filter(|i| i.class() >= Class::Error)
+        .all(|i| matches!(i, Issue::UnregisteredMultisig(_)))
+        && r.issues()
+            .iter()
+            .any(|i| matches!(i, Issue::UnregisteredMultisig(_)))
 }
 
 /// Fingerprints named by the PSBT's derivations and xpubs.
@@ -252,10 +281,29 @@ impl App {
             None => (None, None),
         };
         let digest = report.as_ref().map_or([0; 32], |r| r.digest());
+        // an unregistered multisig wallet the PSBT can rebuild (code entry)
+        let candidate = match (slot, report.as_ref()) {
+            (Some(sl), Some(rep))
+                if rep
+                    .issues()
+                    .iter()
+                    .any(|i| matches!(i, Issue::UnregisteredMultisig(_))) =>
+            {
+                let raw = &self.scan.out[..len.min(self.scan.out.len())];
+                let fp = self.seeds[sl as usize].as_ref().map(|s| s.fingerprint);
+                let test = self.settings.network != bp_bitcoin::Network::Mainnet;
+                match (Psbt::parse(raw), fp) {
+                    (Ok(p), Some(fp)) => bp_bitcoin::multisig::reconstruct(&p, fp, test),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
         let review = Review {
             slot,
             report,
             digest,
+            candidate,
             message,
             forgery: forgery.take(),
             rule: rule.take(),
@@ -289,6 +337,43 @@ impl App {
         };
         let back = matches!(ev.key, Key::Esc | Key::Backspace);
         match step {
+            Step::MsRegister { sel } => match crate::pick(ev.key, sel, 2) {
+                crate::Pick::Move(s) => self.set_current(Screen::Review {
+                    step: Step::MsRegister { sel: s },
+                }),
+                crate::Pick::Choose(0) => {
+                    if let Some(r) = self.review.as_mut() {
+                        r.code_in = [0; 16];
+                        r.code_len = 0;
+                        r.code_bad = 0;
+                    }
+                    self.set_current(Screen::Review { step: Step::MsCode });
+                }
+                crate::Pick::Choose(_) | crate::Pick::Back => self.end_review(),
+                crate::Pick::None => {}
+            },
+            Step::MsCode => {
+                let Some(r) = self.review.as_mut() else { return };
+                match ev.key {
+                    Key::Char(c) if c.is_ascii_alphanumeric() || c == '-' || c == ' ' => {
+                        if r.code_len < r.code_in.len() {
+                            r.code_in[r.code_len] = c.to_ascii_uppercase() as u8;
+                            r.code_len += 1;
+                        }
+                        r.code_bad = 0;
+                    }
+                    Key::Backspace if r.code_len > 0 => {
+                        r.code_len -= 1;
+                        r.code_in[r.code_len] = 0;
+                        r.code_bad = 0;
+                    }
+                    Key::Enter => self.review_register_code(),
+                    Key::Esc | Key::Backspace => self.set_current(Screen::Review {
+                        step: Step::MsRegister { sel: 0 },
+                    }),
+                    _ => {}
+                }
+            }
             Step::WrongSeed | Step::Problem | Step::Failed | Step::Forged | Step::MsgOff | Step::MsgRule => {
                 if back || ev.key == Key::Enter {
                     self.end_review();
@@ -401,6 +486,52 @@ impl App {
                 _ => {}
             },
         }
+    }
+
+    /// The typed code must be the candidate wallet's (this seed's code key);
+    /// then the wallet must pass the registration rules. Registered, the
+    /// PSBT is reviewed again from the start.
+    fn review_register_code(&mut self) {
+        use bp_bitcoin::multisig::register::{self, AddError, Code, CodeKey, Entry};
+        let net = self.settings.network;
+        let Some(r) = self.review.as_ref() else { return };
+        let (Some(cand), Some(slot)) = (r.candidate, r.slot) else {
+            return;
+        };
+        let Some(seed) = self.seeds[slot as usize].as_ref() else {
+            return;
+        };
+        let typed = core::str::from_utf8(&r.code_in[..r.code_len]).unwrap_or("");
+        let ck = CodeKey::new(seed.master());
+        let code = ck.code(&cand);
+        let bad = match Code::parse(typed) {
+            None => 2,
+            Some(c) if c != code => 1,
+            Some(_) => match register::check(&cand, net, seed.master(), &self.wallets) {
+                Err(_) => 3,
+                Ok(checked) => {
+                    let e = Entry {
+                        wallet: cand,
+                        slot,
+                        ours: checked.ours,
+                        code,
+                        tag: ck.tag(&cand),
+                    };
+                    match self.wallets.add(e) {
+                        Ok(_) | Err(AddError::Duplicate(_)) => 0,
+                        Err(AddError::Full) => 4,
+                    }
+                }
+            },
+        };
+        if bad != 0 {
+            if let Some(r) = self.review.as_mut() {
+                r.code_bad = bad;
+            }
+            return;
+        }
+        let len = r.psbt_len;
+        self.start_review(len);
     }
 
     fn review_sign(&mut self) {

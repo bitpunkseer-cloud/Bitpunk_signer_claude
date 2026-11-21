@@ -1761,6 +1761,22 @@ pub struct WalletStrings {
     /// "Multisig key: {}, account {}"
     pub key_qr_title: &'static str,
     pub h_change: &'static str,
+    // PSBT review of a multisig spend (M7-7)
+    /// "Wallet: {} ({}) {}": name, policy, code
+    pub rv_wallet: &'static str,
+    /// "Signatures: {} of {} now, {} after this device signs"
+    pub rv_sigs: &'static str,
+    pub rv_complete: &'static str,
+    /// "{} more signature(s) needed: pass it to another cosigner."
+    pub rv_more: &'static str,
+    /// "Wallet "{}": {}" with "Receive #3" / "Change #3"
+    pub rv_in_wallet: &'static str,
+    pub unreg_title: &'static str,
+    pub unreg_lines: [&'static str; 2],
+    pub unreg_options: [&'static str; 2],
+    /// "Cosigners: {}"
+    pub unreg_keys: &'static str,
+    pub unreg_rule: &'static str,
 }
 
 pub static EN_WALLET: WalletStrings = WalletStrings {
@@ -1892,6 +1908,19 @@ pub static EN_WALLET: WalletStrings = WalletStrings {
     ],
     key_qr_title: "Multisig key: {}, account {}",
     h_change: "Change",
+    rv_wallet: "Wallet: {}  ({})  {}",
+    rv_sigs: "Signatures: {} of {} now, {} after this device signs",
+    rv_complete: "Complete: ready to broadcast.",
+    rv_more: "{} more signature(s) needed: pass it to another cosigner.",
+    rv_in_wallet: "Wallet \"{}\": {}",
+    unreg_title: "Unregistered multisig wallet",
+    unreg_lines: [
+        "This PSBT spends from a multisig wallet that is not registered in this session.",
+        "Registered before? Type the wallet code you wrote down. First time: import it in Tools > Multisig wallets and check every cosigner.",
+    ],
+    unreg_options: ["Type its wallet code", "Cancel"],
+    unreg_keys: "Cosigners: {}",
+    unreg_rule: "This wallet breaks a registration rule: import it in Tools > Multisig wallets to see why.",
 };
 
 pub static KO_WALLET: WalletStrings = WalletStrings {
@@ -2023,6 +2052,19 @@ pub static KO_WALLET: WalletStrings = WalletStrings {
     ],
     key_qr_title: "멀티시그 키: {}, 계정 {}",
     h_change: "바꾸기",
+    rv_wallet: "지갑: {}  ({})  {}",
+    rv_sigs: "서명: 지금 {} / {}, 이 기기가 서명하면 {}",
+    rv_complete: "완료: 바로 방송할 수 있습니다.",
+    rv_more: "서명이 {}개 더 필요합니다: 다른 공동서명자에게 넘기세요.",
+    rv_in_wallet: "지갑 \"{}\": {}",
+    unreg_title: "등록되지 않은 멀티시그 지갑",
+    unreg_lines: [
+        "이 PSBT는 이번 세션에 등록되지 않은 멀티시그 지갑에서 지출합니다.",
+        "전에 등록했다면 적어 둔 지갑 코드를 입력하세요. 처음이면 도구 > 멀티시그 지갑에서 가져와 공동서명자를 모두 확인하세요.",
+    ],
+    unreg_options: ["지갑 코드 입력", "취소"],
+    unreg_keys: "공동서명자: {}",
+    unreg_rule: "이 지갑은 등록 규칙에 맞지 않습니다: 도구 > 멀티시그 지갑에서 가져와 이유를 확인하세요.",
 };
 
 #[cfg(test)]

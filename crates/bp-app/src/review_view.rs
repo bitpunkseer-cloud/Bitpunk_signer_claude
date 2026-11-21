@@ -316,6 +316,11 @@ impl App {
                 let Some(rep) = r.report.as_ref() else { return };
                 let t = rep.totals;
                 let mut y = top + 10;
+                if let Some((head, sigs)) = self.multisig_lines(rep) {
+                    SMALL.draw(c, MARGIN, top - 6, head.as_str(), theme::ACCENT);
+                    SMALL.draw(c, MARGIN, top + 14, sigs.as_str(), theme::TEXT_DIM);
+                    y += 34;
+                }
                 let gap = BODY.height as i32 + 24;
                 row(c, y, rv.spending, amount(t.ours, units).as_str(), theme::TEXT);
                 y += gap;
@@ -400,7 +405,29 @@ impl App {
                 if let Some(path) = owned {
                     let p: Buf<48> = bformat!(48, "{}", path);
                     BODY.draw(c, MARGIN, y + 4, p.as_str(), theme::TEXT_DIM);
-                    SMALL.draw(c, MARGIN, y + 4 + BODY.height as i32 + 6, rv.verified, theme::OK);
+                    let ms = match &o.kind {
+                        OutputKind::Change(v) | OutputKind::SelfSend(v) | OutputKind::OtherWallet(v) => {
+                            v.get().ms
+                        }
+                        _ => None,
+                    };
+                    match ms {
+                        Some(m) => {
+                            let t = s.wl;
+                            let name = self
+                                .wallets
+                                .get(m.wallet)
+                                .map(|e| self.wallet_name(e))
+                                .unwrap_or_default();
+                            let pos: Buf<32> =
+                                fill(if m.branch == 1 { t.change_n } else { t.receive_n }, &[&m.index]);
+                            let l: Buf<96> = fill(t.rv_in_wallet, &[&name.as_str(), &pos.as_str()]);
+                            SMALL.draw(c, MARGIN, y + 4 + BODY.height as i32 + 6, l.as_str(), theme::OK);
+                        }
+                        None => {
+                            SMALL.draw(c, MARGIN, y + 4 + BODY.height as i32 + 6, rv.verified, theme::OK);
+                        }
+                    }
                 }
                 widgets::hint_bar(
                     c,
@@ -549,12 +576,18 @@ impl App {
                 self.status(c, rv.title);
                 let n = r.signed.map_or(0, |x| x.signatures);
                 let l1: Buf<80> = fill(rv.signed_1, &[&n]);
+                // multisig: whether the signatures are now enough
+                let more: Buf<160> = match r.report.as_ref().and_then(|rep| self.multisig_progress(rep)) {
+                    Some((_, after, m)) if after >= m => fill(s.wl.rv_complete, &[]),
+                    Some((_, after, m)) => fill(s.wl.rv_more, &[&(m - after)]),
+                    None => fill(rv.signed_2, &[]),
+                };
                 let y = widgets::message_at(
                     c,
                     STATUS_H + 30,
                     rv.signed,
                     theme::OK,
-                    &[l1.as_str(), rv.signed_2],
+                    &[l1.as_str(), more.as_str()],
                 );
                 let items = rv.show_qr.map(|label| MenuItem { label, detail: "" });
                 widgets::list(
@@ -575,6 +608,68 @@ impl App {
                     &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", rv.h_discard)],
                 );
             }
+            Step::MsRegister { sel } => {
+                self.status(c, rv.title);
+                let t = s.wl;
+                let Some(w) = r.candidate.as_ref() else { return };
+                TITLE.draw(c, MARGIN, top, t.unreg_title, theme::WARN);
+                let pol: Buf<64> = fill(t.policy, &[&w.m, &w.n(), &w.script.name()]);
+                BODY.draw(c, MARGIN, top + 44, pol.as_str(), theme::TEXT);
+                let mut fpl: Buf<160> = Buf::new();
+                for (i, k) in w.keys().iter().enumerate() {
+                    if i > 0 {
+                        fpl.push_str(", ");
+                    }
+                    fpl.push_str(crate::seeds::fingerprint_hex(&k.fingerprint).as_str());
+                }
+                let keys: Buf<192> = fill(t.unreg_keys, &[&fpl.as_str()]);
+                let mut y = SMALL.draw_wrapped(
+                    c,
+                    MARGIN,
+                    top + 76,
+                    W - 2 * MARGIN,
+                    20,
+                    2,
+                    keys.as_str(),
+                    theme::TEXT_DIM,
+                ) + 8;
+                for l in t.unreg_lines {
+                    y = BODY.draw_wrapped(c, MARGIN, y, W - 2 * MARGIN, 26, 3, l, theme::TEXT) + 6;
+                }
+                let items = t.unreg_options.map(|label| MenuItem { label, detail: "" });
+                widgets::list(
+                    c,
+                    MARGIN,
+                    y.max(300) + 4,
+                    W - 2 * MARGIN,
+                    104,
+                    &items,
+                    sel as usize,
+                    false,
+                );
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+            }
+            Step::MsCode => {
+                self.status(c, rv.title);
+                let t = s.wl;
+                TITLE.draw(c, MARGIN, top, t.entry_title, theme::TEXT);
+                widgets::label(c, MARGIN, top + 56, t.entry_label);
+                let typed = core::str::from_utf8(&r.code_in[..r.code_len]).unwrap_or("");
+                const PLACEHOLDER: &str = "XXXX-XXXX";
+                let ghost = PLACEHOLDER.get(typed.len()..).unwrap_or("");
+                widgets::text_field(c, MARGIN, top + 80, 360, typed, ghost, &TITLE);
+                let msg = match r.code_bad {
+                    1 => Some(t.entry_bad_rereg),
+                    2 => Some(t.entry_invalid),
+                    3 => Some(t.unreg_rule),
+                    4 => Some(t.full),
+                    _ => None,
+                };
+                if let Some(m) = msg {
+                    BODY.draw_wrapped(c, MARGIN, top + 160, W - 2 * MARGIN, 28, 3, m, theme::DANGER);
+                }
+                widgets::hint_bar(c, &[("Enter", s.h_select), ("Esc", s.h_back)]);
+            }
             Step::Failed => {
                 self.status(c, rv.title);
                 let i = match r.error {
@@ -590,5 +685,45 @@ impl App {
                 widgets::hint_bar(c, &[("Enter", s.h_done)]);
             }
         }
+    }
+}
+
+impl App {
+    /// Signatures on this seed's multisig inputs: (now, after signing, m),
+    /// the fewest over the inputs.
+    pub(crate) fn multisig_progress(&self, rep: &bp_bitcoin::validate::Report) -> Option<(u8, u8, u8)> {
+        rep.wallet?;
+        let mut best: Option<(u8, u8, u8)> = None;
+        for i in rep.inputs() {
+            let Some(o) = i.owned.as_ref() else { continue };
+            let Some(ms) = o.get().ms else { continue };
+            let now = i.cosigs + i.signed as u8;
+            let after = now + (!i.signed && !i.finalized) as u8;
+            best = Some(match best {
+                None => (now, after, ms.m),
+                Some((n, a, m)) => (n.min(now), a.min(after), m),
+            });
+        }
+        best
+    }
+
+    /// Overview lines for a multisig spend: the wallet, and the signatures.
+    fn multisig_lines(&self, rep: &bp_bitcoin::validate::Report) -> Option<(Buf<96>, Buf<128>)> {
+        let t = self.text().wl;
+        let e = self.wallets.get(rep.wallet?)?;
+        let name = self.wallet_name(e);
+        let pol: Buf<48> = fill(t.policy, &[&e.wallet.m, &e.wallet.n(), &e.wallet.script.name()]);
+        let d = e.code.display();
+        let head: Buf<96> = fill(
+            t.rv_wallet,
+            &[
+                &name.as_str(),
+                &pol.as_str(),
+                &core::str::from_utf8(&d).unwrap_or(""),
+            ],
+        );
+        let (now, after, m) = self.multisig_progress(rep)?;
+        let sigs: Buf<128> = fill(t.rv_sigs, &[&now, &m, &after]);
+        Some((head, sigs))
     }
 }

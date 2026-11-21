@@ -415,3 +415,77 @@ pub fn decode_xpub(s: &str) -> Result<(Xpub, bool, KeyVersion), bip32::Error> {
     let (x, net, v) = Xpub::decode(s)?;
     Ok((x, net != Network::Mainnet, v))
 }
+
+/// The wallet a multisig input of this seed (`master_fp`) belongs to, as
+/// far as the PSBT tells: the witness script's keys, each matched to a
+/// global xpub that derives it at the input's `/branch/index`. Only a
+/// candidate: it becomes a registered wallet when the user types the code
+/// they wrote down at registration (which no one can forge without the
+/// seed), and passes `register::check`. `None` without global xpubs.
+pub fn reconstruct(psbt: &crate::psbt::Psbt, master_fp: [u8; 4], test: bool) -> Option<Wallet> {
+    use crate::validate::script::{classify, ScriptKind};
+    for (txin, map) in psbt.tx.inputs().zip(psbt.inputs()) {
+        let Some(ws) = map.witness_script() else { continue };
+        let Some((m, keys, n)) = parse_multisig_script(ws) else {
+            continue;
+        };
+        let spk = match (map.witness_utxo(), map.non_witness_utxo()) {
+            (Some(o), _) => o.script_pubkey,
+            (None, Some(t)) => t.output(txin.vout as usize)?.script_pubkey,
+            _ => continue,
+        };
+        let script = match classify(spk) {
+            ScriptKind::P2wsh(_) => MsScript::Wsh,
+            ScriptKind::P2sh(_) => MsScript::ShWsh,
+            _ => continue,
+        };
+        let Some((_, src)) = map.bip32_derivations().find(|(_, s)| s.fingerprint == master_fp) else {
+            continue;
+        };
+        let path = src.to_path()?;
+        let steps = path.steps();
+        if steps.len() < 3 {
+            continue;
+        }
+        let (b, i) = (steps[steps.len() - 2], steps[steps.len() - 1]);
+        if b > 1 || i & HARDENED != 0 {
+            continue;
+        }
+        let mut list = [NO_KEY; MAX_KEYS];
+        for (slot, key) in list.iter_mut().zip(&keys[..n as usize]) {
+            *slot = psbt.xpubs().find_map(|(x, s)| {
+                let xpub = xpub_from_raw(x, test)?;
+                let child = xpub.derive_child(b).ok()?.derive_child(i).ok()?;
+                if child.key.serialize() != *key {
+                    return None;
+                }
+                Some(Cosigner {
+                    fingerprint: s.fingerprint,
+                    origin: s.to_path()?,
+                    xpub,
+                    version: KeyVersion::X,
+                })
+            })?;
+        }
+        return Wallet::new(test, script, m, &list[..n as usize]);
+    }
+    None
+}
+
+/// A serialized extended public key (78 bytes) of the expected network.
+fn xpub_from_raw(x: &[u8], test: bool) -> Option<Xpub> {
+    if x.len() != 78 {
+        return None;
+    }
+    let net = if test { Network::Testnet } else { Network::Mainnet };
+    if x[..4] != KeyVersion::X.public(net) {
+        return None;
+    }
+    Some(Xpub {
+        depth: x[4],
+        parent_fingerprint: x[5..9].try_into().ok()?,
+        child_number: u32::from_be_bytes(x[9..13].try_into().ok()?),
+        chain_code: x[13..45].try_into().ok()?,
+        key: PublicKey::parse(&x[45..78])?,
+    })
+}

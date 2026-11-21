@@ -1141,6 +1141,54 @@ fn wallet_tour(t: &mut Tour) {
     b.on_qr_text(b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
     t.snap(&b, "wallets-not-a-key");
 
+    // reviewing multisig spends: wallet header, change in the wallet,
+    // signatures; an unregistered wallet and its code
+    {
+        use super::wallets_flow::{ms_psbt, register_quick};
+        let mut r = t.app();
+        load_abandon(&mut r);
+        let w = wallet_of(&r, MsScript::Wsh, 2, 3);
+        let p = ms_psbt(&w, true, true);
+        let b64 = |p: &bitcoin::psbt::Psbt| {
+            let raw = p.serialize();
+            let mut out = vec![0u8; raw.len() * 4 / 3 + 8];
+            let n = bp_bitcoin::base64::encode(&raw, &mut out).unwrap();
+            out.truncate(n);
+            out
+        };
+        press(&mut r, Key::Char('1'));
+        r.on_qr_text(&b64(&p));
+        t.snap(&r, "ms-review-unregistered");
+        press(&mut r, Key::Char('1'));
+        t.snap(&r, "ms-review-code");
+        type_str(&mut r, "ZZZZZZZZ");
+        press(&mut r, Key::Enter);
+        t.snap(&r, "ms-review-code-wrong");
+        to_main(&mut r);
+        register_quick(&mut r, &w);
+        to_main(&mut r);
+        press(&mut r, Key::Char('1'));
+        r.on_qr_text(&b64(&p));
+        t.snap(&r, "ms-review-overview");
+        press(&mut r, Key::Enter);
+        press(&mut r, Key::Enter);
+        t.snap(&r, "ms-review-change");
+        press(&mut r, Key::Enter);
+        press(&mut r, Key::Enter);
+        press(&mut r, Key::Down);
+        press(&mut r, Key::Enter);
+        t.snap(&r, "ms-review-signed-complete");
+        to_main(&mut r);
+        press(&mut r, Key::Char('1'));
+        r.on_qr_text(&b64(&ms_psbt(&w, false, false)));
+        for _ in 0..4 {
+            press(&mut r, Key::Enter);
+        }
+        press(&mut r, Key::Down);
+        press(&mut r, Key::Enter);
+        t.snap(&r, "ms-review-signed-more");
+    }
+
     // export this device's key
     to_main(&mut c);
     open_wallets(&mut c);

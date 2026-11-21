@@ -285,7 +285,7 @@ fn verify_only_wallet() {
     render(&a);
 }
 
-fn register_quick(a: &mut App, w: &Wallet) {
+pub(super) fn register_quick(a: &mut App, w: &Wallet) {
     import(a, &descriptor_of(w));
     let code = code_of(a);
     press(a, Key::Char('2'));
@@ -671,4 +671,257 @@ fn export_my_multisig_key() {
     let json = qr_text_of(&a);
     let (k, _) = formats::parse_cosigner(json.as_bytes(), MsScript::ShWsh).unwrap();
     assert_eq!((k.origin, k.xpub), (sh_path, want_sh));
+}
+
+// ---------- M7-7: reviewing and signing multisig spends ----------
+
+fn review_step(a: &App) -> crate::review::Step {
+    super::step(a)
+}
+
+/// A 2-of-3 spend from `w`: input at /0/2 (100 000 sat), a payment of
+/// 60 000 and change at /1/0. Global xpubs if asked, and a cosigner's
+/// signature (cosigner master `[41; 32]`) if asked.
+pub(super) fn ms_psbt(w: &Wallet, xpubs: bool, cosign: bool) -> RefPsbt {
+    use bitcoin::secp256k1::PublicKey as RefPk;
+    let child = |b: u32, i: u32| w.branch(b).unwrap().child_keys(i).unwrap();
+    let deriv = |b: u32, i: u32| -> Vec<(RefPk, (bitcoin::bip32::Fingerprint, DerivationPath))> {
+        let keys = child(b, i);
+        w.keys()
+            .iter()
+            .enumerate()
+            .map(|(j, k)| {
+                let path = DerivationPath::from_str(&format!("{}/{b}/{i}", k.origin)).unwrap();
+                (
+                    RefPk::from_slice(&keys[j]).unwrap(),
+                    (bitcoin::bip32::Fingerprint::from(k.fingerprint), path),
+                )
+            })
+            .collect()
+    };
+    let input = w.derive(0, 2).unwrap();
+    let change = w.derive(1, 0).unwrap();
+    let prev = Transaction {
+        version: transaction::Version::TWO,
+        lock_time: absolute::LockTime::ZERO,
+        input: vec![TxIn::default()],
+        output: vec![TxOut {
+            value: Amount::from_sat(100_000),
+            script_pubkey: ScriptBuf::from_bytes(input.script_pubkey().to_vec()),
+        }],
+    };
+    let tx = Transaction {
+        version: transaction::Version::TWO,
+        lock_time: absolute::LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint {
+                txid: prev.compute_txid(),
+                vout: 0,
+            },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness: Witness::new(),
+        }],
+        output: vec![
+            TxOut {
+                value: Amount::from_sat(60_000),
+                script_pubkey: W::other().wpkh("m/84'/0'/0'/0/5"),
+            },
+            TxOut {
+                value: Amount::from_sat(39_000),
+                script_pubkey: ScriptBuf::from_bytes(change.script_pubkey().to_vec()),
+            },
+        ],
+    };
+    let mut p = RefPsbt::from_unsigned_tx(tx).unwrap();
+    p.inputs[0].witness_utxo = Some(prev.output[0].clone());
+    p.inputs[0].non_witness_utxo = Some(prev);
+    p.inputs[0].witness_script = Some(ScriptBuf::from_bytes(input.witness_script().to_vec()));
+    for (pk, d) in deriv(0, 2) {
+        p.inputs[0].bip32_derivation.insert(pk, d);
+    }
+    p.outputs[1].witness_script = Some(ScriptBuf::from_bytes(change.witness_script().to_vec()));
+    for (pk, d) in deriv(1, 0) {
+        p.outputs[1].bip32_derivation.insert(pk, d);
+    }
+    if xpubs {
+        for k in w.keys() {
+            let mut x = [0u8; bp_bitcoin::bip32::XKEY_LEN];
+            let n = k
+                .xpub
+                .encode(KeyVersion::X.public(bp_bitcoin::Network::Mainnet), &mut x);
+            let xp = bitcoin::bip32::Xpub::from_str(std::str::from_utf8(&x[..n]).unwrap()).unwrap();
+            p.xpub.insert(
+                xp,
+                (
+                    bitcoin::bip32::Fingerprint::from(k.fingerprint),
+                    DerivationPath::from_str(&format!("{}", k.origin)).unwrap(),
+                ),
+            );
+        }
+    }
+    if cosign {
+        let mk = BpXpriv::master(&[41; 32]).unwrap();
+        let path = MsScript::Wsh.account_path(bp_bitcoin::Network::Mainnet, 0);
+        let sk = mk
+            .derive_path(&path)
+            .unwrap()
+            .derive_child(0)
+            .unwrap()
+            .derive_child(2)
+            .unwrap();
+        let h = bitcoin::sighash::SighashCache::new(&p.unsigned_tx)
+            .p2wsh_signature_hash(
+                0,
+                p.inputs[0].witness_script.as_ref().unwrap(),
+                Amount::from_sat(100_000),
+                bitcoin::EcdsaSighashType::All,
+            )
+            .unwrap();
+        let s = bp_crypto::secp256k1::ecdsa::sign(sk.secret_key(), &h.to_byte_array());
+        let mut der = [0u8; 72];
+        let n = s.to_der(&mut der);
+        let pk = RefPk::from_slice(&sk.public_key().serialize()).unwrap();
+        p.inputs[0].partial_sigs.insert(
+            bitcoin::PublicKey::new(pk),
+            bitcoin::ecdsa::Signature {
+                signature: bitcoin::secp256k1::ecdsa::Signature::from_der(&der[..n]).unwrap(),
+                sighash_type: bitcoin::EcdsaSighashType::All,
+            },
+        );
+    }
+    p
+}
+
+fn sign_through(a: &mut App) {
+    use crate::review::Step;
+    assert_eq!(review_step(a), Step::Overview);
+    render(a);
+    for _ in 0..4 {
+        press(a, Key::Enter);
+        render(a);
+    }
+    assert_eq!(review_step(a), Step::Approve { sel: 0 });
+    press(a, Key::Down);
+    press(a, Key::Enter);
+    assert_eq!(
+        review_step(a),
+        Step::Signed { sel: 0 },
+        "{:?}",
+        a.review.as_ref().unwrap().error
+    );
+    render(a);
+}
+
+/// Our partial signature in the signed PSBT verifies for the P2WSH sighash.
+fn assert_signed(a: &App, p: &RefPsbt, w: &Wallet) {
+    let signed = a.review.as_ref().unwrap().signed.unwrap();
+    let out = RefPsbt::deserialize(&a.scan.work()[..signed.len]).unwrap();
+    let ours = w.keys()[1]
+        .xpub
+        .derive_child(0)
+        .unwrap()
+        .derive_child(2)
+        .unwrap()
+        .key
+        .serialize();
+    let pk = bitcoin::PublicKey::from_slice(&ours).unwrap();
+    let sig = out.inputs[0].partial_sigs[&pk];
+    let h = bitcoin::sighash::SighashCache::new(&p.unsigned_tx)
+        .p2wsh_signature_hash(
+            0,
+            p.inputs[0].witness_script.as_ref().unwrap(),
+            Amount::from_sat(100_000),
+            bitcoin::EcdsaSighashType::All,
+        )
+        .unwrap();
+    bitcoin::key::Secp256k1::new()
+        .verify_ecdsa(
+            &bitcoin::secp256k1::Message::from_digest(h.to_byte_array()),
+            &sig.signature,
+            &pk.inner,
+        )
+        .unwrap();
+}
+
+#[test]
+fn registered_multisig_spend_is_reviewed_and_signed() {
+    let mut a = app();
+    load_abandon(&mut a);
+    let w = wallet_of(&a, MsScript::Wsh, 2, 3);
+    register_quick(&mut a, &w);
+    to_main(&mut a);
+    let p = ms_psbt(&w, false, false);
+    scan_psbt(&mut a, &p);
+    let rep = a.review.as_ref().unwrap().report.as_ref().unwrap();
+    assert_eq!(rep.issues(), &[]);
+    assert_eq!(rep.wallet, Some(0));
+    assert!(matches!(
+        rep.outputs()[1].kind,
+        bp_bitcoin::validate::OutputKind::Change(_)
+    ));
+    assert_eq!(a.multisig_progress(rep), Some((0, 1, 2)));
+    sign_through(&mut a);
+    assert_signed(&a, &p, &w);
+}
+
+#[test]
+fn cosigner_signed_first_then_complete() {
+    let mut a = app();
+    load_abandon(&mut a);
+    let w = wallet_of(&a, MsScript::Wsh, 2, 3);
+    register_quick(&mut a, &w);
+    to_main(&mut a);
+    let p = ms_psbt(&w, false, true);
+    scan_psbt(&mut a, &p);
+    let rep = a.review.as_ref().unwrap().report.as_ref().unwrap();
+    assert_eq!(rep.issues(), &[], "the cosigner's signature verifies");
+    assert_eq!(a.multisig_progress(rep), Some((1, 2, 2)));
+    sign_through(&mut a);
+    assert_signed(&a, &p, &w);
+}
+
+#[test]
+fn unregistered_spend_registers_by_code() {
+    use crate::review::Step;
+    // the code written down in an earlier session
+    let mut a = app();
+    load_abandon(&mut a);
+    let w = wallet_of(&a, MsScript::Wsh, 2, 3);
+    let code = bp_bitcoin::multisig::register::CodeKey::new(a.slot(0).unwrap().master()).code(&w);
+    let p = ms_psbt(&w, true, false);
+    scan_psbt(&mut a, &p);
+    assert_eq!(review_step(&a), Step::MsRegister { sel: 0 });
+    render(&a);
+    press(&mut a, Key::Char('1'));
+    assert_eq!(review_step(&a), Step::MsCode);
+    // a wrong code registers nothing
+    type_str(&mut a, "ZZZZ-ZZZZ");
+    press(&mut a, Key::Enter);
+    assert_eq!(a.review.as_ref().unwrap().code_bad, 1);
+    render(&a);
+    assert!(a.wallets.is_empty());
+    for _ in 0..9 {
+        press(&mut a, Key::Backspace);
+    }
+    type_str(&mut a, std::str::from_utf8(&code.0).unwrap());
+    press(&mut a, Key::Enter);
+    // registered, and the PSBT reviewed again from the start
+    assert_eq!(a.wallets.len(), 1);
+    assert_eq!(a.wallets.get(0).unwrap().wallet.id(), w.id());
+    sign_through(&mut a);
+    assert_signed(&a, &p, &w);
+}
+
+#[test]
+fn unregistered_spend_without_xpubs_cannot_be_signed() {
+    use crate::review::Step;
+    let mut a = app();
+    load_abandon(&mut a);
+    let w = wallet_of(&a, MsScript::Wsh, 2, 3);
+    scan_psbt(&mut a, &ms_psbt(&w, false, false));
+    assert_eq!(review_step(&a), Step::Problem);
+    let rep = a.review.as_ref().unwrap().report.as_ref().unwrap();
+    assert!(rep.has(bp_bitcoin::validate::Issue::UnregisteredMultisig(0)));
+    render(&a);
 }

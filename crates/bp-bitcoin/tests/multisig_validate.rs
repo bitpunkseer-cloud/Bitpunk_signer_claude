@@ -616,3 +616,41 @@ fn signing_uses_the_rebuilt_script() {
         assert!(sign_psbt(&raw, &signer, &mut mem, &report.digest(), false, &mut out).is_err());
     }
 }
+
+#[test]
+fn wallet_reconstructed_from_global_xpubs() {
+    let s = Signer3::new();
+    for wrap in [Wrap::Wsh, Wrap::ShWsh] {
+        let w = s.wallet(wrap, 2, &[0, 1, 2], 0);
+        let mut p = honest(&s, wrap);
+        let raw = p.serialize();
+        let parsed = bp_bitcoin::psbt::Psbt::parse(&raw).unwrap();
+        let fp = master().fingerprint();
+        // no global xpubs: nothing to rebuild from
+        assert!(bp_bitcoin::multisig::reconstruct(&parsed, fp, true).is_none());
+        let origin = DerivationPath::from_str(&Signer3::origin(wrap, 0)).unwrap();
+        for k in [2, 0, 1] {
+            p.xpub
+                .insert(s.account_xpub(k, wrap, 0), (s.fp(k), origin.clone()));
+        }
+        let raw = p.serialize();
+        let parsed = bp_bitcoin::psbt::Psbt::parse(&raw).unwrap();
+        let got = bp_bitcoin::multisig::reconstruct(&parsed, fp, true).unwrap();
+        assert_eq!(got.id(), w.id(), "{wrap:?}");
+        // a swapped global xpub gives another wallet (and another code)
+        let mut q = honest(&s, wrap);
+        let evil = RefXpriv::new_master(NetworkKind::Test, &[0x66; 32]).unwrap();
+        let evil = RefXpub::from_priv(&s.secp, &evil.derive_priv(&s.secp, &origin).unwrap());
+        q.xpub
+            .insert(s.account_xpub(0, wrap, 0), (s.fp(0), origin.clone()));
+        q.xpub.insert(evil, (s.fp(1), origin.clone()));
+        q.xpub
+            .insert(s.account_xpub(2, wrap, 0), (s.fp(2), origin.clone()));
+        let raw = q.serialize();
+        let parsed = bp_bitcoin::psbt::Psbt::parse(&raw).unwrap();
+        assert!(
+            bp_bitcoin::multisig::reconstruct(&parsed, fp, true).is_none(),
+            "keys must match the script"
+        );
+    }
+}
