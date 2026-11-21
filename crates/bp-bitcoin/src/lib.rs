@@ -12,6 +12,7 @@ pub mod bech32;
 pub mod bip32;
 pub mod bip39;
 pub mod entropy;
+pub mod message;
 pub mod psbt;
 pub mod qrinput;
 pub mod seedqr;

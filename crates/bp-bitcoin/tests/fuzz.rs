@@ -296,3 +296,28 @@ fn address_parser_never_panics() {
         }
     }
 }
+
+#[test]
+fn armored_messages_never_panic() {
+    use bp_bitcoin::message::{check_message, parse_armored, verify};
+    use bp_bitcoin::Network;
+    let valid = b"-----BEGIN BITCOIN SIGNED MESSAGE-----\naaaaaaaaaaaaaaaaaa\n-----BEGIN BITCOIN SIGNATURE-----\ntb1qkxgmh66fdthecudx042feulz3ymzkyuf7gma0x\nJ3jE1G2pv+6GG35Unak824xig8GzotLE8pFfvNwlgGU7KebANAxo7RuwybCNXrK9+RvjUEohtffM521N+phQNX0=\n-----END BITCOIN SIGNATURE-----\n";
+    let a = parse_armored(valid).unwrap();
+    assert!(verify(a.address, Network::Testnet, a.message, a.signature).is_ok());
+    let mut rng = Rng(0x5167);
+    let mut parsed = 0;
+    for i in 0..4000 {
+        let v = if i % 4 == 0 {
+            let n = rng.below(300);
+            rng.bytes(n)
+        } else {
+            mutate(&mut rng, valid)
+        };
+        let _ = check_message(&v);
+        if let Some(a) = parse_armored(&v) {
+            parsed += 1;
+            let _ = verify(a.address, Network::Testnet, a.message, a.signature);
+        }
+    }
+    assert!(parsed > 100);
+}

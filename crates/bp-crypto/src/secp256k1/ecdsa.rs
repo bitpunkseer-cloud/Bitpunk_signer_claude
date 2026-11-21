@@ -3,7 +3,8 @@
 //! nonce is re-derived with an extra-entropy counter until r < 2^255, as
 //! Bitcoin Core and libsecp256k1's `sign_ecdsa_low_r` do, so signatures are
 //! 70-71 bytes in DER and look like everyone else's). DER encoding and
-//! strict DER parsing (BIP-66). Signing is constant time in the key and the
+//! strict DER parsing (BIP-66). Recoverable signatures and public key
+//! recovery for signed messages. Signing is constant time in the key and the
 //! nonce; verification works on public data only.
 
 use super::point::{Point, PublicKey};
@@ -76,7 +77,7 @@ fn x_mod_n(p: &Point) -> Option<Scalar> {
 /// One signing attempt with optional extra entropy; `None` only in the
 /// negligible cases (r or s zero after every nonce retry is impossible in
 /// practice, but the loop is bounded).
-fn sign_with(sk: &SecretKey, msg: &[u8; 32], extra: Option<&[u8; 32]>) -> Option<Signature> {
+fn sign_with(sk: &SecretKey, msg: &[u8; 32], extra: Option<&[u8; 32]>) -> Option<(Signature, u8)> {
     let z = Scalar::from_bytes_reduce(msg);
     let mut seed = [0u8; 96];
     seed[..32].copy_from_slice(&sk.to_bytes());
@@ -99,10 +100,13 @@ fn sign_with(sk: &SecretKey, msg: &[u8; 32], extra: Option<&[u8; 32]>) -> Option
             continue;
         }
         let rp = Point::generator().mul(&k);
-        let Some(r) = x_mod_n(&rp) else {
+        let Some((rx, ry)) = rp.to_affine() else {
             k.wipe();
             continue;
         };
+        let r = Scalar::from_bytes_reduce(&rx.to_bytes());
+        // recovery id: R.y parity, and whether R.x >= n (r = R.x - n)
+        let mut recid = ry.is_odd().unwrap_public() as u8 | ((r.to_bytes() != rx.to_bytes()) as u8) << 1;
         if r.is_zero().unwrap_public() {
             k.wipe();
             continue;
@@ -113,8 +117,10 @@ fn sign_with(sk: &SecretKey, msg: &[u8; 32], extra: Option<&[u8; 32]>) -> Option
         let mut s = kinv.mul(&z.add(&rd));
         k.wipe();
         kinv.wipe();
-        // low S
-        s = Scalar::select(&s, &s.neg(), s.is_high());
+        // low S (negating s flips the parity the recovery id records)
+        let high = s.is_high();
+        s = Scalar::select(&s, &s.neg(), high);
+        recid ^= high.unwrap_public() as u8;
         if s.is_zero().unwrap_public() {
             continue;
         }
@@ -123,7 +129,7 @@ fn sign_with(sk: &SecretKey, msg: &[u8; 32], extra: Option<&[u8; 32]>) -> Option
             s: s.to_bytes(),
         };
         s.wipe();
-        return Some(sig);
+        return Some((sig, recid));
     }
     None
 }
@@ -136,7 +142,7 @@ pub fn sign(sk: &SecretKey, msg: &[u8; 32]) -> Signature {
     let mut counter: u32 = 0;
     loop {
         let e = (counter > 0).then_some(&extra);
-        if let Some(sig) = sign_with(sk, msg, e) {
+        if let Some((sig, _)) = sign_with(sk, msg, e) {
             if sig.r[0] < 0x80 {
                 return sig;
             }
@@ -148,7 +154,58 @@ pub fn sign(sk: &SecretKey, msg: &[u8; 32]) -> Signature {
 
 /// Sign without grinding (plain RFC 6979 + low S), for vectors.
 pub fn sign_no_grind(sk: &SecretKey, msg: &[u8; 32]) -> Option<Signature> {
+    sign_with(sk, msg, None).map(|(sig, _)| sig)
+}
+
+/// Sign with a recovery id (bit 0: R.y odd, bit 1: R.x >= n): plain RFC 6979
+/// nonce and low S, no grinding, as libsecp256k1
+/// `ecdsa_sign_recoverable` (Bitcoin Core `signmessage`).
+pub fn sign_recoverable(sk: &SecretKey, msg: &[u8; 32]) -> Option<(Signature, u8)> {
     sign_with(sk, msg, None)
+}
+
+/// The curve order n, big-endian.
+const N: [u8; 32] = [
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xBA,
+    0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x41,
+];
+
+/// The public key that made `sig` over `msg` with recovery id `recid`
+/// (public data only). Like libsecp256k1 `ecdsa_recover`, a high S is
+/// accepted: Bitcoin Core's `verifymessage` does not require low S.
+pub fn recover(msg: &[u8; 32], sig: &Signature, recid: u8) -> Option<PublicKey> {
+    if recid > 3 {
+        return None;
+    }
+    let r = Scalar::from_bytes(&sig.r)?;
+    let s = Scalar::from_bytes(&sig.s)?;
+    if r.is_zero().unwrap_public() || s.is_zero().unwrap_public() {
+        return None;
+    }
+    // R.x = r (+ n when bit 1 is set; must stay below p)
+    let mut x = sig.r;
+    if recid & 2 != 0 {
+        let mut carry = 0u16;
+        for i in (0..32).rev() {
+            let v = x[i] as u16 + N[i] as u16 + carry;
+            x[i] = v as u8;
+            carry = v >> 8;
+        }
+        if carry != 0 {
+            return None;
+        }
+    }
+    let mut enc = [0u8; 33];
+    enc[0] = 0x02 | (recid & 1);
+    enc[1..].copy_from_slice(&x);
+    let rp = PublicKey::parse(&enc)?.to_point();
+    // Q = r^-1 (s R - z G)
+    let z = Scalar::from_bytes_reduce(msg);
+    let rinv = r.invert();
+    let q = rp
+        .mul(&rinv.mul(&s))
+        .add(&Point::generator().mul(&rinv.mul(&z).neg()));
+    PublicKey::from_point(&q)
 }
 
 /// Verify a signature on public data. High-S signatures are rejected

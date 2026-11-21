@@ -11,4 +11,4 @@ bp-qr.workspace = true
 
 [dev-dependencies]
 bip39_ref = { package = "bip39", version = "2.1" }
-bitcoin = "0.32"
+bitcoin = { version = "0.32", features = ["secp-recovery"] }

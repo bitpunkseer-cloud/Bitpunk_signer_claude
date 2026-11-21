@@ -107,6 +107,60 @@ fn signatures_match_libsecp_byte_for_byte() {
 }
 
 #[test]
+fn recoverable_signatures_match_libsecp_and_recover() {
+    use ref_secp::ecdsa::{RecoverableSignature, RecoveryId};
+    let ctx = ref_secp::Secp256k1::new();
+    let mut rng = Rng(9);
+    let mut ids = [0u32; 4];
+    for i in 0..600 {
+        let (_, sk, rsk) = key(&mut rng);
+        let msg = rng.bytes32();
+        let m = ref_secp::Message::from_digest(msg);
+        let (sig, recid) = ecdsa::sign_recoverable(&sk, &msg).unwrap();
+        let theirs = ctx.sign_ecdsa_recoverable(&m, &rsk);
+        let (tid, tbytes) = theirs.serialize_compact();
+        assert_eq!((recid as i32, sig.to_compact()), (tid.to_i32(), tbytes), "#{i}");
+        ids[recid as usize] += 1;
+        let pk = sk.public_key();
+        assert_eq!(ecdsa::recover(&msg, &sig, recid), Some(pk));
+        // a wrong recovery id gives another key (or none)
+        assert_ne!(ecdsa::recover(&msg, &sig, recid ^ 1), Some(pk));
+        // high S still recovers the same key (Core accepts it)
+        let high_s = Scalar::from_bytes(&sig.s).unwrap().neg().to_bytes();
+        let hs = Signature { r: sig.r, s: high_s };
+        assert_eq!(ecdsa::recover(&msg, &hs, recid ^ 1), Some(pk));
+        // arbitrary (r, s, id), including R.x >= n: same answer as libsecp
+        let mut r = rng.bytes32();
+        if i % 4 == 0 {
+            r[..16].fill(0); // small r, so r + n < p
+        }
+        let s2 = rng.bytes32();
+        let id = (i % 4) as u8;
+        let mut c = [0u8; 64];
+        c[..32].copy_from_slice(&r);
+        c[32..].copy_from_slice(&s2);
+        let want = RecoverableSignature::from_compact(&c, RecoveryId::from_i32(id as i32).unwrap())
+            .ok()
+            .and_then(|rs| ctx.recover_ecdsa(&m, &rs).ok())
+            .map(|k| k.serialize());
+        let got = ecdsa::recover(&msg, &Signature::from_compact(&c), id).map(|k| k.serialize());
+        assert_eq!(got, want, "arbitrary #{i} id {id}");
+    }
+    assert!(ids[0] > 200 && ids[1] > 200, "{ids:?}");
+    assert_eq!(
+        ecdsa::recover(
+            &[1; 32],
+            &Signature {
+                r: [1; 32],
+                s: [1; 32]
+            },
+            4
+        ),
+        None
+    );
+}
+
+#[test]
 fn cross_verification() {
     let ctx = ref_secp::Secp256k1::new();
     let mut rng = Rng(4);
