@@ -28,6 +28,8 @@ pub struct Entry {
 pub enum Start {
     Dice,
     Coin,
+    /// Twenty-sided die.
+    D20,
     TypeWords,
     WordNumbers,
     /// Words drawn by the user + coin flips for the last word's free bits.
@@ -110,9 +112,10 @@ static SEEDS: [Entry; 4] = [
     todo_entry!(|s| s.seed_vault, "M9", |s| s.ms_storage),
 ];
 
-static NEW_SEED: [Entry; 3] = [
+static NEW_SEED: [Entry; 4] = [
     start(|s| s.dice_rolls, Start::Dice),
     start(|s| s.coin_flips, Start::Coin),
+    start(|s| s.d20_rolls, Start::D20),
     todo_entry!(|s| s.slip39, "M10", |s| s.ms_backup),
 ];
 

@@ -18,6 +18,9 @@ pub struct Flow {
     /// Final-word calculator: coin flips for the last word's free bits.
     pub coins: [u8; 7],
     pub coin_len: usize,
+    /// D20: the number being typed (digits so far).
+    pub d20: u8,
+    pub d20_digits: u8,
 }
 
 impl Flow {
@@ -25,6 +28,7 @@ impl Flow {
         let entropy = match kind {
             Start::Dice => Some(PhysicalEntropy::new(Source::Dice, words)),
             Start::Coin => Some(PhysicalEntropy::new(Source::Coin, words)),
+            Start::D20 => Some(PhysicalEntropy::new(Source::D20, words)),
             _ => None,
         };
         Self {
@@ -41,6 +45,8 @@ impl Flow {
             quiz: Quiz::default(),
             coins: [0; 7],
             coin_len: 0,
+            d20: 0,
+            d20_digits: 0,
         }
     }
 

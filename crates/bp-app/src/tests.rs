@@ -1192,3 +1192,74 @@ fn scan_screens_render() {
     a.on_frame(&img, w, h); // also a camera frame with a foreign code
     a.render(&mut c);
 }
+
+// ---------- M6: D20 ----------
+
+#[test]
+fn d20_rolls_are_typed_then_recorded_with_space() {
+    let mut a = app();
+    press(&mut a, Key::Char('2')); // Seeds
+    press(&mut a, Key::Char('1')); // Create new seed
+    press(&mut a, Key::Char('3')); // D20
+    press(&mut a, Key::Char('1')); // 12 words
+    assert_eq!(a.current(), Screen::EntropyIntro);
+    press(&mut a, Key::Enter);
+    assert_eq!(a.current(), Screen::EntropyEntry);
+    let rec = |a: &App| {
+        a.flow
+            .as_ref()
+            .unwrap()
+            .entropy
+            .as_ref()
+            .unwrap()
+            .record()
+            .to_vec()
+    };
+    type_str(&mut a, "21 ");
+    assert!(rec(&a).is_empty(), "21 is not a face");
+    assert!(a.notice.is_some());
+    type_str(&mut a, "7 ");
+    type_str(&mut a, "19");
+    press(&mut a, Key::Backspace); // "1"
+    type_str(&mut a, "2 ");
+    type_str(&mut a, "20");
+    press(&mut a, Key::Enter); // Enter records a typed number too
+    assert_eq!(rec(&a), [7, 12, 20]);
+    press(&mut a, Key::Backspace); // nothing typed: removes the last roll
+    assert_eq!(rec(&a), [7, 12]);
+    press(&mut a, Key::Enter); // not ready
+    assert_eq!(a.current(), Screen::EntropyEntry);
+    // fair rolls until every check passes, then the seed is SHA-256 of
+    // "7-12-..." as Krux computes it
+    let mut x = 0x1234_5678_9abc_def1u64;
+    for _ in 0..200 {
+        if a.flow
+            .as_ref()
+            .unwrap()
+            .entropy
+            .as_ref()
+            .unwrap()
+            .analyze()
+            .all_pass()
+        {
+            break;
+        }
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        type_str(&mut a, &std::format!("{} ", x % 20 + 1));
+    }
+    let r = rec(&a);
+    press(&mut a, Key::Enter);
+    assert_eq!(a.current(), Screen::EntropySummary);
+    let text = r
+        .iter()
+        .map(|v| std::format!("{v}"))
+        .collect::<std::vec::Vec<_>>()
+        .join("-");
+    let want = bp_bitcoin::entropy::mnemonic_from_record(text.as_bytes(), 12);
+    assert_eq!(
+        a.flow.as_ref().unwrap().mnemonic.as_ref().unwrap().indices(),
+        want.indices()
+    );
+}

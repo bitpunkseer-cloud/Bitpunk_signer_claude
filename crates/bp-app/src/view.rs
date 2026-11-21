@@ -95,6 +95,7 @@ impl App {
                     match kind {
                         Start::Dice => fill(s.count_plus, &[&Source::Dice.min_count(words), &s.rolls]),
                         Start::Coin => fill(s.count_plus, &[&Source::Coin.min_count(words), &s.flips]),
+                        Start::D20 => fill(s.count_plus, &[&Source::D20.min_count(words), &s.rolls]),
                         Start::FinalWord => fill(
                             s.final_detail,
                             &[&(words - 1), &bp_bitcoin::bip39::final_word_free_bits(words)],
@@ -127,17 +128,15 @@ impl App {
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
             Screen::EntropyIntro => {
-                let dice = self.flow_kind() == Some(Start::Dice);
-                let (title, lines) = if dice {
-                    (s.dice_intro_title, &s.dice_intro)
-                } else {
-                    (s.coin_intro_title, &s.coin_intro)
+                let kind = self.flow_kind();
+                let (title, lines, src, unit) = match kind {
+                    Some(Start::Dice) => (s.dice_intro_title, &s.dice_intro, Source::Dice, s.rolls),
+                    Some(Start::D20) => (s.d20_intro_title, &s.d20_intro, Source::D20, s.rolls),
+                    _ => (s.coin_intro_title, &s.coin_intro, Source::Coin, s.flips),
                 };
                 self.status(c, title);
                 widgets::message_at(c, STATUS_H + 36, title, theme::TEXT, lines);
                 if let Some(f) = self.flow.as_ref() {
-                    let src = if dice { Source::Dice } else { Source::Coin };
-                    let unit = if dice { s.rolls } else { s.flips };
                     let line: Buf<128> = fill(s.intro_min, &[&f.words, &src.min_count(f.words), &unit]);
                     BODY.draw_centered(c, 0, w, 360, line.as_str(), theme::ACCENT);
                 }
@@ -468,23 +467,19 @@ impl App {
         let Some(f) = self.flow.as_ref() else { return };
         let Some(pe) = f.entropy.as_ref() else { return };
         let dice = f.kind == Start::Dice;
+        let d20 = f.kind == Start::D20;
         let a = pe.analyze();
-        self.status(
-            c,
-            if dice {
-                s.dice_intro_title
-            } else {
-                s.coin_intro_title
-            },
-        );
+        self.status(c, start_title(self, f.kind));
 
         // Left: count and recent values
         let lx = MARGIN;
-        let unit = if dice { s.rolls } else { s.flips };
-        let head: Buf<112> = fill(
-            s.entry_head,
-            &[&if dice { s.dice_head } else { s.coin_head }, &f.words],
-        );
+        let unit = if dice || d20 { s.rolls } else { s.flips };
+        let head_name = match f.kind {
+            Start::Dice => s.dice_head,
+            Start::D20 => s.d20_head,
+            _ => s.coin_head,
+        };
+        let head: Buf<112> = fill(s.entry_head, &[&head_name, &f.words]);
         widgets::label(c, lx, STATUS_H + 14, head.as_str());
         let count = bformat!(8, "{}", a.count);
         let x = HUGE.draw(c, lx - 4, STATUS_H + 30, count.as_str(), theme::TEXT);
@@ -499,11 +494,31 @@ impl App {
 
         widgets::label(c, lx, 168, s.recent);
         let rec = pe.record();
-        let per_row = 14;
+        if d20 {
+            // two-digit values, ten per row
+            let shown = rec.len().min(40);
+            let start = rec.len() - shown;
+            bp_ui::draw::round_rect(c, lx, 190, 360, 4 * 28 + 14, 8, theme::SURFACE);
+            for (i, &v) in rec[start..].iter().enumerate() {
+                let t = bformat!(4, "{:>2}", v);
+                let last = start + i + 1 == rec.len();
+                let (col, row) = ((i % 10) as i32, (i / 10) as i32);
+                BODY.draw(
+                    c,
+                    lx + 14 + col * 34,
+                    197 + row * 28,
+                    t.as_str(),
+                    if last { theme::ACCENT } else { theme::TEXT },
+                );
+            }
+        }
+        let per_row = if d20 { 0 } else { 14 };
         let rows = 4;
         let shown = rec.len().min(per_row * rows);
         let start = rec.len() - shown;
-        bp_ui::draw::round_rect(c, lx, 190, 360, rows as i32 * 28 + 14, 8, theme::SURFACE);
+        if !d20 {
+            bp_ui::draw::round_rect(c, lx, 190, 360, rows as i32 * 28 + 14, 8, theme::SURFACE);
+        }
         for (i, &v) in rec[start..].iter().enumerate() {
             let ch = match (dice, v) {
                 (true, _) => v as char,
@@ -523,8 +538,17 @@ impl App {
                 if last { theme::ACCENT } else { theme::TEXT },
             );
         }
-        let keys = if dice { s.dice_keys } else { s.coin_keys };
-        SMALL.draw(c, lx, 330, keys, theme::TEXT_DIM);
+        let keys = match f.kind {
+            Start::Dice => s.dice_keys,
+            Start::D20 => s.d20_keys,
+            _ => s.coin_keys,
+        };
+        if d20 && f.d20_digits > 0 {
+            let t: Buf<64> = fill(s.d20_typing, &[&f.d20]);
+            SMALL.draw(c, lx, 330, t.as_str(), theme::ACCENT);
+        } else {
+            SMALL.draw(c, lx, 330, keys, theme::TEXT_DIM);
+        }
         SMALL.draw(c, lx, 352, s.entry_keys2, theme::TEXT_FAINT);
 
         // Right: frequency, entropy, checks
@@ -533,7 +557,12 @@ impl App {
         widgets::label(c, rx, STATUS_H + 14, s.frequency);
         let src = pe.source();
         let expected = a.count as f64 / src.sides() as f64;
-        if dice {
+        if d20 {
+            const L: [&str; 20] = [
+                "1", "", "", "", "5", "", "", "", "", "10", "", "", "", "", "15", "", "", "", "", "20",
+            ];
+            widgets::bar_chart(c, rx, 76, rw, 112, &a.counts[..20], &L, expected);
+        } else if dice {
             widgets::bar_chart(
                 c,
                 rx,
@@ -605,7 +634,15 @@ impl App {
         if a.any_fail() && self.notice.is_none() {
             SMALL.draw(c, lx, 424, s.st_failed_2, theme::TEXT_DIM);
         }
-        let hints: &[(&str, &str)] = if dice {
+        let hints: &[(&str, &str)] = if d20 {
+            &[
+                ("1-20", s.h_roll),
+                ("Space", s.h_accept),
+                ("Del", s.h_undo),
+                ("Enter", s.h_finish),
+                ("Esc", s.h_cancel),
+            ]
+        } else if dice {
             &[
                 ("1-6", s.h_roll),
                 ("Del", s.h_undo),
@@ -1575,15 +1612,8 @@ impl App {
         let s = self.text();
         let Some(f) = self.flow.as_ref() else { return };
         let Some(pe) = f.entropy.as_ref() else { return };
-        let dice = f.kind == Start::Dice;
-        self.status(
-            c,
-            if dice {
-                s.dice_intro_title
-            } else {
-                s.coin_intro_title
-            },
-        );
+        let dice = f.kind != Start::Coin;
+        self.status(c, start_title(self, f.kind));
         let a = pe.analyze();
         let w = 800;
         TITLE.draw_centered(c, 0, w, STATUS_H + 14, s.summary_title, theme::OK);
@@ -1605,7 +1635,9 @@ impl App {
         BODY.draw(c, MARGIN, 194, &hs[32..], theme::ACCENT);
 
         widgets::label(c, MARGIN, 232, s.summary_record);
-        let rec = pe.record();
+        let mut text = [0u8; bp_bitcoin::entropy::MAX_TEXT];
+        let n = pe.text(&mut text);
+        let rec = &text[..n];
         let per_row = 80;
         for (row, chunk) in rec.chunks(per_row).take(7).enumerate() {
             let line = core::str::from_utf8(chunk).unwrap_or("");
@@ -1895,6 +1927,7 @@ fn start_title(app: &App, kind: Start) -> &'static str {
     match kind {
         Start::Dice => s.dice_intro_title,
         Start::Coin => s.coin_intro_title,
+        Start::D20 => s.d20_intro_title,
         Start::TypeWords => s.entry_title_words,
         Start::WordNumbers => s.entry_title_numbers,
         Start::FinalWord => s.final_title,

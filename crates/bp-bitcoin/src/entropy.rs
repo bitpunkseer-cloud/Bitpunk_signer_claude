@@ -1,7 +1,9 @@
-//! Seed entropy from **physical** sources only: dice (D6) and coin flips.
+//! Seed entropy from **physical** sources only: dice (D6, D20) and coin
+//! flips.
 //!
-//! The recorded values are concatenated as ASCII digits and hashed with
-//! SHA-256, the same method SeedSigner, Krux and Coldcard use. Before a seed
+//! D6 and coin values are concatenated as ASCII digits and hashed with
+//! SHA-256, the same method SeedSigner, Krux and Coldcard use; D20 values
+//! are joined with '-' (`"1-20-7"`), as Krux does. Before a seed
 //! may be created every check in [`Analysis`] must pass:
 //!
 //! | check | rule |
@@ -10,7 +12,7 @@
 //! | entropy | `N * H(observed frequencies)` >= target bits (conservative) |
 //! | bias | chi-square goodness of fit, 0.1% significance |
 //! | pattern | lag 1..=16 autocorrelation within 4 sigma (+ Krux step-entropy test for dice) |
-//! | repeats | longest run of one value below 8 (dice) / 20 (coin) |
+//! | repeats | longest run of one value below 8 (D6) / 5 (D20) / 20 (coin) |
 //!
 //! Device or software random numbers are never used for seed material.
 
@@ -19,6 +21,10 @@ use bp_crypto::secret::wipe;
 use bp_crypto::Sha256;
 
 pub const MAX_VALUES: usize = 512;
+/// Longest hashed text: D20 values of up to two digits and a separator.
+pub const MAX_TEXT: usize = MAX_VALUES * 3;
+/// Most sides of any source.
+pub const MAX_SIDES: usize = 20;
 /// Minimum number of value pairs for an autocorrelation lag to be tested.
 const MIN_PAIRS: usize = 40;
 
@@ -28,6 +34,8 @@ pub enum Source {
     Dice,
     /// Coin; heads recorded as '1', tails as '0'.
     Coin,
+    /// Twenty-sided die; values 1..=20 recorded as bytes 1..=20.
+    D20,
 }
 
 impl Source {
@@ -35,6 +43,7 @@ impl Source {
         match self {
             Source::Dice => 6,
             Source::Coin => 2,
+            Source::D20 => 20,
         }
     }
 
@@ -59,6 +68,8 @@ impl Source {
         match self {
             Source::Dice => 8,
             Source::Coin => 20,
+            // (1/20)^4 per position, about the D6 limit's (1/6)^7
+            Source::D20 => 5,
         }
     }
 
@@ -67,6 +78,7 @@ impl Source {
         match self {
             Source::Dice => 20.515,
             Source::Coin => 10.828,
+            Source::D20 => 43.820,
         }
     }
 
@@ -75,6 +87,7 @@ impl Source {
         match self {
             Source::Dice => (c - b'1') as usize,
             Source::Coin => (c - b'0') as usize,
+            Source::D20 => (c - 1) as usize,
         }
     }
 
@@ -83,6 +96,7 @@ impl Source {
         match (self, v) {
             (Source::Dice, 1..=6) => Some(b'0' + v),
             (Source::Coin, 0 | 1) => Some(b'0' + v),
+            (Source::D20, 1..=20) => Some(v),
             _ => None,
         }
     }
@@ -109,7 +123,7 @@ pub enum Status {
 pub struct Analysis {
     pub count: usize,
     pub min_count: usize,
-    pub counts: [u16; 6],
+    pub counts: [u16; MAX_SIDES],
     /// Conservative entropy estimate: N * H(observed frequencies).
     pub est_bits: f64,
     /// Upper bound: N * log2(sides).
@@ -196,9 +210,16 @@ impl PhysicalEntropy {
         self.len == 0
     }
 
-    /// Recorded ASCII string (e.g. `b"3615..."`).
+    /// Recorded values: ASCII digits for D6 and coin (`b"3615..."`),
+    /// bytes 1..=20 for D20.
     pub fn record(&self) -> &[u8] {
         &self.rec[..self.len]
+    }
+
+    /// The text that is hashed (and shown): the record itself, or for
+    /// D20 the values joined with '-'.
+    pub fn text(&self, out: &mut [u8; MAX_TEXT]) -> usize {
+        record_text(self.source, self.record(), out)
     }
 
     /// Record a face: dice 1..=6, coin 1 = heads / 0 = tails.
@@ -224,9 +245,13 @@ impl PhysicalEntropy {
         self.len = 0;
     }
 
-    /// SHA-256 of the recorded string.
+    /// SHA-256 of the recorded text.
     pub fn sha256(&self) -> [u8; 32] {
-        Sha256::digest(self.record())
+        let mut t = [0u8; MAX_TEXT];
+        let n = self.text(&mut t);
+        let h = Sha256::digest(&t[..n]);
+        wipe(&mut t);
+        h
     }
 
     pub fn analyze(&self) -> Analysis {
@@ -238,7 +263,11 @@ impl PhysicalEntropy {
         if !self.analyze().all_pass() {
             return Err(Error::ChecksNotPassed);
         }
-        Ok(mnemonic_from_record(self.record(), self.words))
+        let mut t = [0u8; MAX_TEXT];
+        let n = self.text(&mut t);
+        let m = mnemonic_from_record(&t[..n], self.words);
+        wipe(&mut t);
+        Ok(m)
     }
 }
 
@@ -248,7 +277,30 @@ impl Drop for PhysicalEntropy {
     }
 }
 
-/// SHA-256(record) truncated to 16 bytes (12 words) or 32 bytes (24 words).
+/// The hashed text of `record`: D6 and coin as they are, D20 as decimal
+/// values joined with '-'.
+pub fn record_text(source: Source, record: &[u8], out: &mut [u8; MAX_TEXT]) -> usize {
+    if source != Source::D20 {
+        out[..record.len()].copy_from_slice(record);
+        return record.len();
+    }
+    let mut n = 0;
+    for (i, &v) in record.iter().enumerate() {
+        if i > 0 {
+            out[n] = b'-';
+            n += 1;
+        }
+        if v >= 10 {
+            out[n] = b'0' + v / 10;
+            n += 1;
+        }
+        out[n] = b'0' + v % 10;
+        n += 1;
+    }
+    n
+}
+
+/// SHA-256(text) truncated to 16 bytes (12 words) or 32 bytes (24 words).
 /// No checks are applied; use [`PhysicalEntropy::to_mnemonic`] in the app.
 pub fn mnemonic_from_record(record: &[u8], words: usize) -> Mnemonic {
     let mut h = Sha256::digest(record);
@@ -264,7 +316,7 @@ pub fn analyze(source: Source, words: usize, rec: &[u8]) -> Analysis {
     let min_count = source.min_count(words);
     let target = target_bits(words);
 
-    let mut counts = [0u16; 6];
+    let mut counts = [0u16; MAX_SIDES];
     for &c in rec {
         counts[source.bucket(c)] += 1;
     }
@@ -309,10 +361,18 @@ pub fn analyze(source: Source, words: usize, rec: &[u8]) -> Analysis {
     // Autocorrelation: fraction of equal values at lag L vs. 1/sides.
     let mut autocorr_z = 0.0;
     let mut autocorr_bad = false;
+    // the normal approximation needs enough expected matches per lag: with
+    // 20 sides that takes about 10 * 20 pairs (D20 patterns are caught by
+    // the step test below until then)
+    let min_pairs = if sides > 6 {
+        MIN_PAIRS.max(10 * sides)
+    } else {
+        MIN_PAIRS
+    };
     if enough {
         let p = 1.0 / sides as f64;
         for lag in 1..=16usize {
-            if n < lag + MIN_PAIRS {
+            if n < lag + min_pairs {
                 break;
             }
             let pairs = (n - lag) as f64;
@@ -334,21 +394,24 @@ pub fn analyze(source: Source, words: usize, rec: &[u8]) -> Analysis {
     // Krux: entropy deficit of consecutive differences (dice only).
     let mut step_deficit_pct = 0.0;
     let mut step_bad = false;
-    if enough && source == Source::Dice && n >= 2 {
-        let mut bins = [0u16; 11];
+    if enough && source != Source::Coin && n >= 2 {
+        let span = sides as i16 - 1;
+        let n_bins = 2 * sides - 1;
+        let mut bins = [0u16; 2 * MAX_SIDES - 1];
         for i in 1..n {
             let d = rec[i] as i16 - rec[i - 1] as i16;
-            bins[(d + 5) as usize] += 1;
+            bins[(d + span) as usize] += 1;
         }
+        let bins = &bins[..n_bins];
         let total = (n - 1) as f64;
         let mut h = 0.0;
-        for &b in &bins {
+        for &b in bins {
             if b > 0 {
                 let p = b as f64 / total;
                 h -= p * log2(p);
             }
         }
-        let max = log2(11.0);
+        let max = log2(n_bins as f64);
         step_deficit_pct = (max - h) / max * 100.0;
         step_bad = step_deficit_pct > 30.0;
     }

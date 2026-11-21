@@ -399,6 +399,16 @@ pub struct Strings {
     pub si_note: &'static str,
     pub si_note_short: &'static str,
 
+    // M6: D20
+    pub d20_rolls: &'static str,
+    pub d20_intro_title: &'static str,
+    pub d20_intro: [&'static str; 6],
+    pub d20_head: &'static str,
+    pub d20_keys: &'static str,
+    pub d20_range: &'static str,
+    /// "Typing: {}"
+    pub d20_typing: &'static str,
+
     // PSBT review
     pub rv: &'static ReviewStrings,
 }
@@ -1034,6 +1044,20 @@ pub static EN: Strings = Strings {
     si_options: ["Cancel", "Apply"],
     si_note: "Settings reset at power off until secure storage (M9). Keep a settings QR.",
     si_note_short: "Scan to restore, then Esc",
+    d20_rolls: "Dice rolls (D20)",
+    d20_intro_title: "D20 dice rolls",
+    d20_intro: [
+        "Use a real twenty-sided die. Roll it again",
+        "before every entry: type the number (1-20)",
+        "and press Space.",
+        "Never make up numbers or use an app.",
+        "",
+        "Every check must pass before a seed is made.",
+    ],
+    d20_head: "D20 ROLLS",
+    d20_keys: "1-20, Space: record roll",
+    d20_range: "Enter a number from 1 to 20.",
+    d20_typing: "Typing: {}  (Space records it)",
     rv: &EN_REVIEW,
 };
 
@@ -1597,6 +1621,20 @@ pub static KO: Strings = Strings {
     si_options: ["취소", "적용"],
     si_note: "보안 저장소(M9) 전까지 전원을 끄면 설정이 초기화됩니다. 설정 QR을 보관하세요.",
     si_note_short: "스캔해서 복원, 그다음 Esc",
+    d20_rolls: "주사위 굴리기 (D20)",
+    d20_intro_title: "D20 주사위 굴리기",
+    d20_intro: [
+        "진짜 20면 주사위를 쓰세요. 입력할 때마다",
+        "다시 굴리고 나온 눈(1-20)을 입력한 뒤",
+        "Space를 누르세요.",
+        "숫자를 지어내거나 앱을 쓰지 마세요.",
+        "",
+        "모든 검사를 통과해야 시드가 만들어집니다.",
+    ],
+    d20_head: "D20 주사위",
+    d20_keys: "1-20, Space: 눈 기록",
+    d20_range: "1부터 20 사이의 숫자를 입력하세요.",
+    d20_typing: "입력 중: {}  (Space로 기록)",
     rv: &KO_REVIEW,
 };
 

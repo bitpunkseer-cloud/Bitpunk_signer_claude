@@ -1469,7 +1469,7 @@ impl App {
     fn start_flow(&mut self, kind: Start, words: usize) {
         self.flow = Some(Flow::new(kind, words));
         match kind {
-            Start::Dice | Start::Coin => self.push(Screen::EntropyIntro),
+            Start::Dice | Start::Coin | Start::D20 => self.push(Screen::EntropyIntro),
             Start::TypeWords | Start::WordNumbers => self.push(Screen::WordEntry),
             Start::FinalWord => self.push(Screen::FinalIntro),
         }
@@ -1527,8 +1527,55 @@ impl App {
 
     fn entropy_key(&mut self, ev: KeyEvent) {
         let Some(flow) = self.flow.as_mut() else { return };
-        let Some(pe) = flow.entropy.as_mut() else { return };
+        if flow.entropy.is_none() {
+            return;
+        }
         let dice = flow.kind == Start::Dice;
+        if flow.kind == Start::D20 {
+            // type 1-20, then Space (or Enter) records it
+            let commit = |flow: &mut flow::Flow| -> bool {
+                let v = flow.d20;
+                let typed = flow.d20_digits > 0;
+                flow.d20 = 0;
+                flow.d20_digits = 0;
+                if !typed {
+                    return false;
+                }
+                let ok = (1..=20).contains(&v);
+                if let (true, Some(pe)) = (ok, flow.entropy.as_mut()) {
+                    let _ = pe.push(v);
+                }
+                ok
+            };
+            match ev.key {
+                Key::Char(c @ '0'..='9') => {
+                    if flow.d20_digits < 2 {
+                        flow.d20 = flow.d20 * 10 + (c as u8 - b'0');
+                        flow.d20_digits += 1;
+                    }
+                    return;
+                }
+                Key::Char(' ') => {
+                    if !commit(flow) {
+                        self.notice = Some(self.text().d20_range);
+                    }
+                    return;
+                }
+                Key::Enter if flow.d20_digits > 0 => {
+                    if !commit(flow) {
+                        self.notice = Some(self.text().d20_range);
+                    }
+                    return;
+                }
+                Key::Backspace if flow.d20_digits > 0 => {
+                    flow.d20 /= 10;
+                    flow.d20_digits -= 1;
+                    return;
+                }
+                _ => {}
+            }
+        }
+        let Some(pe) = flow.entropy.as_mut() else { return };
         match ev.key {
             Key::Char(c) => {
                 let v = match (dice, c) {

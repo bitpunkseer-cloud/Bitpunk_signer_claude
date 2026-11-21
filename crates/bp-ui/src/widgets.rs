@@ -219,7 +219,7 @@ pub fn bar_chart(
     if n == 0 {
         return;
     }
-    let gap = 12;
+    let gap = if n > 8 { 3 } else { 12 };
     let bw = (w - gap * (n - 1)) / n;
     let label_h = SMALL.height as i32 + 2;
     let chart_h = h - label_h * 2;
@@ -233,9 +233,12 @@ pub fn bar_chart(
         if bh > 0 {
             c.fill_rect(bx, base - bh, bw, bh, ACCENT);
         }
-        let mut nb = crate::fmt::Buf::<8>::new();
-        let _ = core::fmt::Write::write_fmt(&mut nb, format_args!("{cnt}"));
-        SMALL.draw_centered(c, bx, bw, (base - bh - label_h).max(y), nb.as_str(), TEXT_DIM);
+        // with many narrow bars, empty ones carry no count
+        if cnt > 0 || n <= 8 {
+            let mut nb = crate::fmt::Buf::<8>::new();
+            let _ = core::fmt::Write::write_fmt(&mut nb, format_args!("{cnt}"));
+            SMALL.draw_centered(c, bx, bw, (base - bh - label_h).max(y), nb.as_str(), TEXT_DIM);
+        }
         if let Some(l) = labels.get(i) {
             SMALL.draw_centered(c, bx, bw, base + 2, l, TEXT);
         }

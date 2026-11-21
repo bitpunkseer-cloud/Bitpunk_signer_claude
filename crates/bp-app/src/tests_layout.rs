@@ -768,6 +768,38 @@ fn tour(lang: Lang) -> usize {
     press(&mut a, Key::Enter);
     scan_text(&mut a, "bitpunk-settings::v1 fee_warn=3");
     t.snap(&a, "settings-import-invalid");
+
+    // D20: intro, entry with a number being typed, ready, summary
+    let mut a = t.app();
+    for k in ['2', '1', '3', '2'] {
+        press(&mut a, Key::Char(k));
+    }
+    t.snap(&a, "d20-intro");
+    press(&mut a, Key::Enter);
+    type_str(&mut a, "7 12 20 3 1");
+    t.snap(&a, "d20-entry");
+    type_str(&mut a, " ");
+    let mut x = 0x0bad_c0de_1234_5677u64;
+    for _ in 0..300 {
+        if a.flow
+            .as_ref()
+            .unwrap()
+            .entropy
+            .as_ref()
+            .unwrap()
+            .analyze()
+            .all_pass()
+        {
+            break;
+        }
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        type_str(&mut a, &format!("{} ", x % 20 + 1));
+    }
+    t.snap(&a, "d20-ready");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "d20-summary");
     t.n
 }
 
