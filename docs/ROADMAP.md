@@ -92,14 +92,13 @@ QR로 주소 검증, 메시지 서명(BIP-137, BIP-322) 및 검증, BBQr, Specte
 
 **결과:** 주소 검증(scriptPubKey 비교, 모든 시드·세션 계정, 1,000개 단위), Electrum·BIP-137 서명이 rust-bitcoin·Bitcoin Core 벡터와 바이트 일치, BIP-322 공식 벡터 전부(simple 서명·검증, PSBT 판정, 보유 증명), 메시지 서명 기본 꺼짐, 수수료 기준 설정과 약화 금지 SettingsQR, D20, 한국어 UI(377자, 모든 화면 넘침 검사). 상세: [M6_PLAN.md](milestones/M6_PLAN.md) 13장, Sparrow 왕복 방법 14장, 조사: [M6_SURVEY.md](M6_SURVEY.md).
 
-## M7 — 멀티시그 · 디스크립터
+## M7 — 멀티시그 · 디스크립터 ✅ 구현 완료
 
-출력 디스크립터(BIP-380~386), 멀티시그(P2WSH / P2SH-P2WSH) **사전 등록 후에만 서명**, PSBT v2(BIP-370),
-지갑 내보내기(Sparrow, Nunchuk, Specter, BlueWallet, Electrum, Bitcoin Core).
+출력 디스크립터(BIP-380~383·389), 멀티시그(P2WSH / P2SH-P2WSH, BIP-67) **등록된 지갑만 서명**, 에어갭 지갑 생성,
+지갑·키 내보내기(Sparrow, Nunchuk, Specter, Krux, SeedSigner, Coldcard 형식), 멀티시그 주소 검증, 감시 전용 검증.
+PSBT v2·BSMS는 보류(결정 6·7).
 
-**완료 기준:** Sparrow·Nunchuk에서 2-of-3 멀티시그 생성·등록·서명 성공.
-
-**계획(승인, 구현 중):** [M7_PLAN.md](milestones/M7_PLAN.md) — 등록된 지갑만 서명, 저장 공간 없이 등록을 묶는 지갑 코드(시드 HMAC), 공동서명자 xpub을 직접 스캔하는 에어갭 생성, embit과 독립인 구현·3중 오라클 시험. 조사: [M7_SURVEY.md](M7_SURVEY.md).
+**결과:** 저장 공간 없이 등록을 묶는 시드 HMAC 지갑 코드, 공동서명자 xpub을 직접 스캔하는 에어갭 생성, 입력·거스름을 등록 지갑으로만 재구성(거스름 위장·M 낮추기·xpub 바꿔치기·poisoned input 등 공격 시나리오 전부 거부), 기존 공동서명자 서명 검증과 서명 현황, PSBT 전역 xpub 재구성 + 코드 입력 재등록. 주소·체크섬·디스크립터 문자열이 rust-miniscript·embit 고정 벡터와 일치, PSBT·서명은 rust-bitcoin으로 독립 검증. 상세: [M7_PLAN.md](milestones/M7_PLAN.md) 16장, 2-of-3 구성 안내 17장, 조사: [M7_SURVEY.md](M7_SURVEY.md).
 
 ## M8 — microSD
 
