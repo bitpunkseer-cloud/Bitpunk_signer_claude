@@ -12,8 +12,13 @@
 //! (no signing) and warnings (each must be confirmed; some block by
 //! default until the user explicitly overrides them).
 
+mod fees;
 mod inputs;
+pub mod memory;
+mod outputs;
 pub mod script;
+
+pub use memory::UtxoMemory;
 
 use crate::address::ScriptType;
 use crate::bip32::{DerivationPath, Xpriv, Xpub, HARDENED};
@@ -83,6 +88,15 @@ pub enum Issue {
     /// The previous transaction is not the one the outpoint names, or the
     /// witness UTXO contradicts it.
     PrevTxMismatch(u16),
+    /// An output claims this seed's key, but its script is not built from
+    /// it (SeedSigner's "output ownership contradiction").
+    ChangeContradiction(u16),
+    /// Change that breaks the path rules: wrong depth or hardening, purpose
+    /// not matching the script, branch other than 0/1, or change into an
+    /// account that is not spending.
+    ChangePathViolation(u16),
+    /// An outpoint signed since power-on comes back with another amount.
+    UtxoAmountChanged(u16),
 
     // ---- errors (no signing)
     Parse(ParseError),
@@ -113,6 +127,19 @@ pub enum Issue {
     NoInputsForSeed,
     /// Every input of this seed is already signed or finalized.
     NothingToSign,
+    /// Outputs exceed inputs.
+    NegativeFee,
+    /// The fee is at least the blocking share of the outputs (policy;
+    /// adjustable in M6).
+    FeeTooHigh,
+    /// An amount above 21 million BTC, or totals that overflow.
+    ValueOutOfRange,
+    /// A sighash type other than ALL (Taproot: DEFAULT or ALL).
+    NonStandardSighash(u16),
+    /// An OP_RETURN output with a non-zero amount (burns coins).
+    BadOpReturn(u16),
+    /// A path of this seed for another network (coin type).
+    NetworkMismatch(At),
 
     // ---- warnings
     /// Segwit v0 inputs without previous transactions in a transaction
@@ -123,6 +150,26 @@ pub enum Issue {
     ExternalInputs,
     /// Some inputs of this seed already carry signatures.
     PartlySigned,
+    /// The fee is at least the warning share of the outputs.
+    HighFee,
+    /// More than the warning fee rate (sat/vB).
+    HighFeeRate,
+    /// Some input amounts are unknown, so the fee is too.
+    FeeUnknown,
+    /// No change: everything goes to recipients and the fee.
+    NoChange,
+    /// A change index far beyond the inputs' indexes.
+    ChangeIndexFar(u16),
+    /// Inputs of different script types.
+    MixedScriptTypes,
+    /// Inputs from different accounts.
+    MultipleAccounts,
+    /// Several OP_RETURN outputs or more than 80 bytes of data.
+    OpReturnNonStandard,
+    /// An output script the device cannot show as an address.
+    UnknownScript(u16),
+    /// A zero-amount output.
+    ZeroValue(u16),
 }
 
 impl Issue {
@@ -133,9 +180,14 @@ impl Issue {
             | ScriptNotOurs(_)
             | RedeemMismatch(_)
             | WitnessScriptMismatch(_)
-            | PrevTxMismatch(_) => Class::Attack,
-            Parse(ParseError::UtxoMismatch) => Class::Attack,
-            UnverifiedAmounts | ExternalInputs | PartlySigned => Class::Warning,
+            | PrevTxMismatch(_)
+            | ChangeContradiction(_)
+            | ChangePathViolation(_)
+            | UtxoAmountChanged(_)
+            | Parse(ParseError::UtxoMismatch) => Class::Attack,
+            UnverifiedAmounts | ExternalInputs | PartlySigned | HighFee | HighFeeRate | FeeUnknown
+            | NoChange | ChangeIndexFar(_) | MixedScriptTypes | MultipleAccounts | OpReturnNonStandard
+            | UnknownScript(_) | ZeroValue(_) => Class::Warning,
             _ => Class::Error,
         }
     }
@@ -211,11 +263,97 @@ impl InputReport {
     };
 }
 
+/// An output whose key the seed derives and whose script is built from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnedOutput {
+    pub kind: SpendKind,
+    pub path: DerivationPath,
+    pub pubkey: PublicKey,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputKind {
+    /// A recipient (anything not verified as this seed's).
+    External,
+    /// Branch 1 of an account that is spending.
+    Change(Verified<OwnedOutput>),
+    /// Branch 0 of one of this seed's accounts.
+    SelfSend(Verified<OwnedOutput>),
+    OpReturn,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputReport {
+    pub kind: OutputKind,
+    pub amount: u64,
+}
+
+impl OutputReport {
+    const EMPTY: OutputReport = OutputReport {
+        kind: OutputKind::External,
+        amount: 0,
+    };
+}
+
+/// Amounts for the overview screen.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Totals {
+    /// This seed's inputs.
+    pub ours: u64,
+    /// All inputs, if every amount is known.
+    pub inputs: Option<u64>,
+    pub outputs: u64,
+    pub recipients: u64,
+    pub change: u64,
+    pub self_send: u64,
+    pub fee: Option<u64>,
+    /// Estimated size of the signed transaction.
+    pub vsize: u64,
+}
+
+impl Totals {
+    /// Fee rate in milli-satoshi per vbyte.
+    pub fn fee_rate_msat_vb(&self) -> Option<u64> {
+        Some(self.fee? * 1000 / self.vsize.max(1))
+    }
+}
+
+/// Thresholds (defaults from the M5 plan; settings arrive in M6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Policy {
+    /// Warn when the fee is at least this percentage of all outputs.
+    pub fee_warn_percent: u64,
+    /// Refuse when the fee is at least this percentage of all outputs.
+    pub fee_block_percent: u64,
+    /// Warn above this fee rate (sat/vB).
+    pub fee_rate_warn: u64,
+    /// Warn when change is this far beyond the inputs' address indexes.
+    pub change_index_gap: u32,
+}
+
+impl Default for Policy {
+    fn default() -> Self {
+        Policy {
+            fee_warn_percent: 5,
+            fee_block_percent: 10,
+            fee_rate_warn: 1000,
+            change_index_gap: 10_000,
+        }
+    }
+}
+
 /// The result of validation.
 pub struct Report {
     pub master_fingerprint: [u8; 4],
     n_inputs: usize,
     inputs: [InputReport; MAX_INPUTS],
+    n_outputs: usize,
+    outputs: [OutputReport; MAX_OUTPUTS],
+    pub totals: Totals,
+    /// Non-zero lock time (shown for information).
+    pub lock_time: u32,
+    /// Replace-by-fee signalled.
+    pub rbf: bool,
     issues: [Issue; MAX_ISSUES],
     n_issues: usize,
     /// More issues than fit (the worst ones are kept).
@@ -230,6 +368,20 @@ impl Report {
             master_fingerprint,
             n_inputs: 0,
             inputs: [InputReport::EMPTY; MAX_INPUTS],
+            n_outputs: 0,
+            outputs: [OutputReport::EMPTY; MAX_OUTPUTS],
+            totals: Totals {
+                ours: 0,
+                inputs: None,
+                outputs: 0,
+                recipients: 0,
+                change: 0,
+                self_send: 0,
+                fee: None,
+                vsize: 0,
+            },
+            lock_time: 0,
+            rbf: false,
             issues: [Issue::TooLarge; MAX_ISSUES],
             n_issues: 0,
             truncated: false,
@@ -244,6 +396,10 @@ impl Report {
 
     pub fn inputs(&self) -> &[InputReport] {
         &self.inputs[..self.n_inputs]
+    }
+
+    pub fn outputs(&self) -> &[OutputReport] {
+        &self.outputs[..self.n_outputs]
     }
 
     /// Other fingerprints the PSBT names (the "need / found" screen).
@@ -292,10 +448,24 @@ impl Report {
     }
 }
 
-/// What validation needs from the loaded seed.
+/// What validation needs: the loaded seed, the network, the thresholds
+/// and the amounts signed since power-on.
 pub struct Context<'a> {
     pub master: &'a Xpriv,
     pub network: Network,
+    pub policy: Policy,
+    pub memory: Option<&'a UtxoMemory>,
+}
+
+impl<'a> Context<'a> {
+    pub fn new(master: &'a Xpriv, network: Network) -> Self {
+        Context {
+            master,
+            network,
+            policy: Policy::default(),
+            memory: None,
+        }
+    }
 }
 
 /// Why a claimed key could not be confirmed.
@@ -370,8 +540,16 @@ pub fn validate<'a>(raw: &'a [u8], ctx: &Context) -> (Option<Psbt<'a>>, Report) 
         return (Some(psbt), report);
     }
     report.n_inputs = psbt.tx.n_inputs();
+    report.n_outputs = psbt.tx.n_outputs();
+    report.lock_time = psbt.tx.lock_time;
+    report.rbf = psbt.tx.inputs().any(|i| i.sequence < 0xFFFF_FFFE);
     check_global_xpubs(&psbt, ctx, &mut d, &mut report);
-    inputs::check(&psbt, &mut d, &mut report);
+    inputs::check(&psbt, ctx, &mut d, &mut report);
+    if report.has(Issue::NoInputsForSeed) {
+        return (Some(psbt), report); // nothing here concerns this seed
+    }
+    outputs::check(&psbt, ctx, &mut d, &mut report);
+    fees::check(&psbt, ctx, &mut report);
     (Some(psbt), report)
 }
 

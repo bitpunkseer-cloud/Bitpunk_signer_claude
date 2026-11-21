@@ -3,8 +3,10 @@
 
 use super::script::{self, classify, ScriptKind};
 use super::{
-    AmountSource, At, DeriveError, Deriver, InputReport, Issue, OwnedInput, Report, SpendKind, Verified,
+    AmountSource, At, Context, DeriveError, Deriver, InputReport, Issue, OwnedInput, Report, SpendKind,
+    Verified,
 };
+use crate::bip32::HARDENED;
 use crate::psbt::{InputMap, KeySource, Psbt};
 use crate::tx::{TxIn, TxOut};
 use bp_crypto::hashes::hash160;
@@ -28,7 +30,7 @@ struct OurKey<'a> {
     leaves_only: bool,
 }
 
-pub(super) fn check(psbt: &Psbt, d: &mut Deriver, report: &mut Report) {
+pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Report) {
     // the same outpoint twice
     for (i, a) in psbt.tx.inputs().enumerate() {
         if psbt.tx.inputs().skip(i + 1).any(|b| b.outpoint == a.outpoint) {
@@ -39,13 +41,69 @@ pub(super) fn check(psbt: &Psbt, d: &mut Deriver, report: &mut Report) {
     let mut any_taproot = false;
     let mut v0_unverified = false;
     for (i, (txin, map)) in psbt.tx.inputs().zip(psbt.inputs()).enumerate() {
+        let idx = i as u16;
         let r = check_one(i, &txin, &map, d, report);
+        // an outpoint signed since power-on must keep its amount
+        if let (Some(mem), Some(a)) = (ctx.memory, r.amount) {
+            if mem.amount(txin.outpoint).is_some_and(|m| m != a) {
+                report.push(Issue::UtxoAmountChanged(idx));
+            }
+        }
         if let Some(o) = &r.owned {
+            let o = o.get();
             any_owned = true;
-            any_taproot |= o.get().kind == SpendKind::P2trKey;
-            v0_unverified |= o.get().source == AmountSource::WitnessUtxo;
+            any_taproot |= o.kind == SpendKind::P2trKey;
+            v0_unverified |= o.source == AmountSource::WitnessUtxo;
+            // SIGHASH_ALL only (Taproot: DEFAULT or ALL)
+            let ok = matches!(
+                (o.kind, map.sighash_type()),
+                (_, None) | (_, Some(1)) | (SpendKind::P2trKey, Some(0))
+            );
+            if !ok {
+                report.push(Issue::NonStandardSighash(idx));
+            }
+            // m/purpose'/coin'/...: the coin type must be this network's
+            let s = o.path.steps();
+            if s.len() >= 2
+                && s[0] & HARDENED != 0
+                && s[1] & HARDENED != 0
+                && s[1] & !HARDENED != ctx.network.coin_type()
+            {
+                report.push(Issue::NetworkMismatch(At::Input(idx)));
+            }
         }
         report.inputs[i] = r;
+    }
+    // mixed script types or accounts
+    let (mut mixed, mut accounts) = (false, false);
+    let mut first: Option<OwnedInput> = None;
+    for o in report
+        .inputs()
+        .iter()
+        .filter_map(|r| r.owned.as_ref())
+        .map(|o| *o.get())
+    {
+        let Some(f) = &first else {
+            first = Some(o);
+            continue;
+        };
+        // coin type and account (the purpose follows the script type,
+        // which MixedScriptTypes covers)
+        let account = |p: &crate::bip32::DerivationPath| {
+            let mut a = [u32::MAX; 2];
+            for (d, s) in a.iter_mut().zip(p.steps().iter().skip(1)) {
+                *d = *s;
+            }
+            a
+        };
+        mixed |= f.kind != o.kind;
+        accounts |= account(&f.path) != account(&o.path);
+    }
+    if mixed {
+        report.push(Issue::MixedScriptTypes);
+    }
+    if accounts {
+        report.push(Issue::MultipleAccounts);
     }
     let inputs = report.inputs();
     let owned = inputs.iter().filter(|r| r.owned.is_some());

@@ -23,11 +23,7 @@ fn master() -> Xpriv {
 fn check(p: &RefPsbt) -> Report {
     let raw = p.serialize();
     let m = master();
-    let ctx = Context {
-        master: &m,
-        network: Network::Signet,
-    };
-    validate(&raw, &ctx).1
+    validate(&raw, &Context::new(&m, Network::Signet)).1
 }
 
 fn simple(kind: Kind) -> RefPsbt {
@@ -183,7 +179,7 @@ fn segwit_v0_amounts_without_previous_transactions() {
         let p = build(
             &w,
             &[In::new(kind, 1, 50_000).without_prev_tx()],
-            &[Out::pay(40_000)],
+            &[Out::pay(40_000), Out::change(&w, kind, 1, 9_000)],
         );
         let r = check(&p);
         assert_eq!(r.issues(), &[], "{kind:?}");
@@ -196,7 +192,11 @@ fn segwit_v0_amounts_without_previous_transactions() {
             In::new(kind, 1, 50_000).without_prev_tx(),
             In::new(kind, 2, 20_000),
         ];
-        let r = check(&build(&w, &ins, &[Out::pay(60_000)]));
+        let r = check(&build(
+            &w,
+            &ins,
+            &[Out::pay(60_000), Out::change(&w, kind, 1, 9_000)],
+        ));
         assert_eq!(r.issues(), &[Issue::UnverifiedAmounts], "{kind:?}");
         assert!(!r.can_sign(false));
         assert!(r.can_sign(true));
@@ -206,7 +206,11 @@ fn segwit_v0_amounts_without_previous_transactions() {
         In::new(Kind::Tr, 1, 50_000).without_prev_tx(),
         In::new(Kind::Tr, 2, 20_000).without_prev_tx(),
     ];
-    let r = check(&build(&w, &ins, &[Out::pay(60_000)]));
+    let r = check(&build(
+        &w,
+        &ins,
+        &[Out::pay(60_000), Out::change(&w, Kind::Tr, 1, 9_000)],
+    ));
     assert_eq!(r.issues(), &[]);
     assert_eq!(
         r.inputs()[0].owned.unwrap().get().source,
@@ -241,7 +245,7 @@ fn inputs_of_another_seed() {
     let mut p = build(
         &w,
         &[In::new(Kind::Wpkh, 1, 50_000), In::new(Kind::Wpkh, 2, 20_000)],
-        &[Out::pay(60_000)],
+        &[Out::pay(60_000), Out::change(&w, Kind::Wpkh, 1, 9_000)],
     );
     let theirs = build(&other, &[In::new(Kind::Wpkh, 1, 20_000)], &[]);
     p.inputs[1] = theirs.inputs[0].clone();
@@ -256,7 +260,11 @@ fn inputs_of_another_seed() {
 fn signed_and_finalized_inputs() {
     let w = Wallet::ours();
     let ins = [In::new(Kind::Wpkh, 1, 50_000), In::new(Kind::Wpkh, 2, 20_000)];
-    let mut p = build(&w, &ins, &[Out::pay(60_000)]);
+    let mut p = build(
+        &w,
+        &ins,
+        &[Out::pay(60_000), Out::change(&w, Kind::Wpkh, 1, 9_000)],
+    );
     p.inputs[0].final_script_witness = Some(bitcoin::Witness::from_slice(&[vec![1u8]]));
     let r = check(&p);
     assert_eq!(r.issues(), &[Issue::PartlySigned]);
@@ -274,7 +282,7 @@ fn duplicate_inputs() {
     let mut p = build(
         &w,
         &[In::new(Kind::Wpkh, 1, 50_000), In::new(Kind::Wpkh, 2, 20_000)],
-        &[Out::pay(60_000)],
+        &[Out::pay(60_000), Out::change(&w, Kind::Wpkh, 1, 9_000)],
     );
     p.unsigned_tx.input[1] = p.unsigned_tx.input[0].clone();
     p.inputs[1] = p.inputs[0].clone();
@@ -319,11 +327,7 @@ fn unsupported_and_inconsistent_inputs() {
         .unwrap();
     raw.splice(at - 1..at + 34, [&[0x42u8, 0x06][..], &unc[..]].concat());
     let m = master();
-    let ctx = Context {
-        master: &m,
-        network: Network::Signet,
-    };
-    let r = validate(&raw, &ctx).1;
+    let r = validate(&raw, &Context::new(&m, Network::Signet)).1;
     assert!(r.has(Issue::UncompressedKey(0)), "{:?}", r.issues());
 }
 
@@ -380,10 +384,7 @@ fn path_too_deep() {
 #[test]
 fn bip174_signer_check_vectors() {
     let (m, _, _) = Xpriv::decode(bip174::MASTER_TPRV).unwrap();
-    let ctx = Context {
-        master: &m,
-        network: Network::Testnet,
-    };
+    let ctx = Context::new(&m, Network::Testnet);
     for (case, s) in bip174::SIGNER_FAIL {
         let mut raw = vec![0u8; s.len()];
         let n = bp_bitcoin::base64::decode(s.as_bytes(), &mut raw).unwrap();
