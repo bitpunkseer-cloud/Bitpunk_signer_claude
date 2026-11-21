@@ -525,3 +525,6 @@ fn demo_psbt() {
     let w = W::from_phrase(ABANDON);
     std::println!("{}", b64(&standard(&w).serialize()));
 }
+
+#[path = "tests_layout.rs"]
+mod layout;

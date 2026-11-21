@@ -13,6 +13,8 @@ bp-crypto.workspace = true
 bp-qr.workspace = true
 
 [dev-dependencies]
+# Flow tests fail when any screen's text overflows (see bp-ui layout-check).
+bp-ui = { workspace = true, features = ["layout-check"] }
 # Test-only QR decoders for the scan bench (never linked into firmware).
 rqrr = "0.8"
 rxing = { version = "=0.9.3", default-features = false, features = ["qrcode", "decoders", "encoding_rs"] }

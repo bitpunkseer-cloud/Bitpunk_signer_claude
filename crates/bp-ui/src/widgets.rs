@@ -1,7 +1,7 @@
 //! Screen furniture and reusable widgets.
 
 use crate::draw::{outline, round_rect};
-use crate::font::{Font, BODY, SMALL, TITLE};
+use crate::font::{split_line, Font, BODY, SMALL, TITLE};
 use crate::theme::*;
 use bp_hal::{Canvas, Rgb};
 
@@ -15,7 +15,10 @@ pub struct Status<'a> {
     pub title: &'a str,
     pub network_badge: &'a str,
     pub mainnet: bool,
-    pub test_only: bool,
+    /// "AIR-GAPPED" label.
+    pub air_gapped: &'a str,
+    /// "TEST ONLY" badge, shown when set.
+    pub test_only: Option<&'a str>,
 }
 
 pub fn status_bar(c: &mut dyn Canvas, s: &Status) {
@@ -25,7 +28,7 @@ pub fn status_bar(c: &mut dyn Canvas, s: &Status) {
     BODY.draw(c, MARGIN, (STATUS_H - BODY.height as i32) / 2, s.title, TEXT);
 
     let mut x = w - MARGIN;
-    let tag = "AIR-GAPPED";
+    let tag = s.air_gapped;
     x -= SMALL.text_width(tag);
     SMALL.draw(c, x, (STATUS_H - SMALL.height as i32) / 2, tag, OK);
     round_rect(c, x - 14, STATUS_H / 2 - 4, 8, 8, 4, OK);
@@ -39,9 +42,9 @@ pub fn status_bar(c: &mut dyn Canvas, s: &Status) {
     x -= badge_width(s.network_badge);
     badge(c, x, STATUS_H / 2 - 12, s.network_badge, bg, fg);
 
-    if s.test_only {
-        x -= badge_width("TEST ONLY") + 10;
-        badge(c, x, STATUS_H / 2 - 12, "TEST ONLY", DANGER, TEXT);
+    if let Some(t) = s.test_only {
+        x -= badge_width(t) + 10;
+        badge(c, x, STATUS_H / 2 - 12, t, DANGER, TEXT);
     }
 }
 
@@ -146,14 +149,24 @@ pub fn list(
     }
 }
 
-/// Heading plus body lines, horizontally centred, starting at `top`.
+/// Heading plus body lines, horizontally centred, starting at `top`. Lines
+/// wider than the screen wrap.
 pub fn message_at(c: &mut dyn Canvas, top: i32, heading: &str, heading_color: Rgb, lines: &[&str]) -> i32 {
     let w = c.width() as i32;
     TITLE.draw_centered(c, 0, w, top, heading, heading_color);
     let mut y = top + TITLE.height as i32 + 14;
+    let max = ((w - 2 * MARGIN) / BODY.width as i32) as usize;
     for line in lines {
-        BODY.draw_centered(c, 0, w, y, line, TEXT_DIM);
-        y += BODY.height as i32 + 2;
+        let mut rest = *line;
+        loop {
+            let (part, tail) = split_line(rest, max);
+            BODY.draw_centered(c, 0, w, y, part, TEXT_DIM);
+            y += BODY.height as i32 + 2;
+            if tail.is_empty() {
+                break;
+            }
+            rest = tail;
+        }
     }
     y
 }
@@ -244,12 +257,23 @@ pub enum CheckState {
     Fail,
 }
 
-/// One row of a checklist: pill + label + detail text.
-pub fn check_row(c: &mut dyn Canvas, x: i32, y: i32, w: i32, state: CheckState, name: &str, detail: &str) {
+/// One row of a checklist: pill + label + detail text. `pills` are the
+/// wait / pass / fail labels.
+#[allow(clippy::too_many_arguments)]
+pub fn check_row(
+    c: &mut dyn Canvas,
+    x: i32,
+    y: i32,
+    w: i32,
+    state: CheckState,
+    pills: &[&str; 3],
+    name: &str,
+    detail: &str,
+) {
     let (txt, bg, fg) = match state {
-        CheckState::Wait => ("WAIT", SURFACE_HI, TEXT_DIM),
-        CheckState::Pass => ("PASS", OK, ACCENT_TEXT),
-        CheckState::Fail => ("FAIL", DANGER, TEXT),
+        CheckState::Wait => (pills[0], SURFACE_HI, TEXT_DIM),
+        CheckState::Pass => (pills[1], OK, ACCENT_TEXT),
+        CheckState::Fail => (pills[2], DANGER, TEXT),
     };
     round_rect(c, x, y, 52, 22, 5, bg);
     SMALL.draw_centered(c, x, 52, y + 11 - SMALL.height as i32 / 2, txt, fg);

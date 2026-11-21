@@ -40,33 +40,16 @@ pub fn amount(v: u64, units: Units) -> Buf<40> {
 /// Words wrapped to the screen width (inside the margins); returns the y
 /// below the last line.
 fn prose(c: &mut dyn Canvas, y: i32, text: &str, font: &Font, color: bp_hal::Rgb, max_lines: usize) -> i32 {
-    let (x, width) = (MARGIN, W - 2 * MARGIN);
-    let per = (width / font.width as i32).max(8) as usize;
-    let mut line = Buf::<128>::new();
-    let mut y = y;
-    let mut lines = 0;
-    let step = font.height as i32 + 4;
-    for word in text.split(' ') {
-        let len = line.as_str().len();
-        if len > 0 && len + 1 + word.len() > per {
-            if lines + 1 == max_lines {
-                break;
-            }
-            font.draw(c, x, y, line.as_str(), color);
-            y += step;
-            lines += 1;
-            line.clear();
-        }
-        if !line.as_str().is_empty() {
-            line.push_str(" ");
-        }
-        line.push_str(word);
-    }
-    if !line.as_str().is_empty() {
-        font.draw(c, x, y, line.as_str(), color);
-        y += step;
-    }
-    y
+    font.draw_wrapped(
+        c,
+        MARGIN,
+        y,
+        W - 2 * MARGIN,
+        font.height as i32 + 4,
+        max_lines,
+        text,
+        color,
+    )
 }
 
 /// An address in groups of four characters, eight groups per line.
@@ -130,14 +113,14 @@ impl App {
         match step {
             Step::WrongSeed => {
                 self.status(c, rv.title);
-                let need: Buf<64> = fill(rv.needs, &[&fps(&r.need[..r.n_need]).as_str()]);
+                let need: Buf<160> = fill(rv.needs, &[&fps(&r.need[..r.n_need]).as_str()]);
                 let mut loaded = [[0u8; 4]; crate::SEED_SLOTS];
                 let mut n = 0;
                 for seed in self.seeds.iter().flatten() {
                     loaded[n] = seed.fingerprint;
                     n += 1;
                 }
-                let have: Buf<64> = if n == 0 {
+                let have: Buf<160> = if n == 0 {
                     fill(rv.none_loaded, &[])
                 } else {
                     fill(rv.loaded, &[&fps(&loaded[..n]).as_str()])
@@ -173,7 +156,7 @@ impl App {
                         first.get_or_insert(*i);
                         let (title, _) = rv.issues[issue_index(i)];
                         let at = self.issue_where(i);
-                        let line: Buf<96> = if at.as_str().is_empty() {
+                        let line: Buf<256> = if at.as_str().is_empty() {
                             fill("- {}", &[&title])
                         } else {
                             fill("- {} ({})", &[&title, &at.as_str()])
@@ -204,7 +187,7 @@ impl App {
                 self.status(c, rv.title);
                 let Some(w) = r.warning(idx) else { return };
                 let n = r.warnings().count();
-                let head: Buf<24> = fill(rv.check_n, &[&(idx as usize + 1), &n]);
+                let head: Buf<64> = fill(rv.check_n, &[&(idx as usize + 1), &n]);
                 widgets::label(c, MARGIN, top, head.as_str());
                 let (title, text) = rv.issues[issue_index(&w)];
                 TITLE.draw(c, MARGIN, top + 24, title, theme::WARN);
@@ -255,7 +238,7 @@ impl App {
                     .iter()
                     .filter(|o| matches!(o.kind, OutputKind::External | OutputKind::OpReturn))
                     .count();
-                let label: Buf<40> = fill(rv.to_recipients, &[&n_rec]);
+                let label: Buf<112> = fill(rv.to_recipients, &[&n_rec]);
                 row(
                     c,
                     y,
@@ -291,7 +274,7 @@ impl App {
                 else {
                     return;
                 };
-                let head: Buf<24> = fill(rv.output_n, &[&(idx as usize + 1), &rep.outputs().len()]);
+                let head: Buf<64> = fill(rv.output_n, &[&(idx as usize + 1), &rep.outputs().len()]);
                 widgets::label(c, MARGIN, top, head.as_str());
                 let (kind, color, owned) = match &o.kind {
                     OutputKind::External => (rv.kinds[0], theme::ACCENT, None),
@@ -369,7 +352,7 @@ impl App {
                 row(c, y, rv.fee_rows[3], size.as_str(), theme::TEXT);
                 y += gap;
                 if rep.lock_time != 0 {
-                    let lt: Buf<32> = fill(rv.lock_time, &[&rep.lock_time]);
+                    let lt: Buf<96> = fill(rv.lock_time, &[&rep.lock_time]);
                     SMALL.draw(c, MARGIN, y, lt.as_str(), theme::TEXT_DIM);
                     y += SMALL.height as i32 + 8;
                 }
@@ -393,11 +376,11 @@ impl App {
                     &[&amount(t.recipients, units).as_str(), &n_rec],
                 );
                 let fee = t.fee.map(|f| amount(f, units));
-                let l2: Buf<64> = fill(
+                let l2: Buf<160> = fill(
                     rv.approve_lines[1],
                     &[&fee.as_ref().map_or(rv.unknown, |f| f.as_str())],
                 );
-                let l3: Buf<64> = fill(
+                let l3: Buf<160> = fill(
                     rv.approve_lines[2],
                     &[&amount(t.change + t.self_send, units).as_str()],
                 );

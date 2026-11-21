@@ -320,6 +320,22 @@ fn network_setting_cycles() {
 }
 
 #[test]
+fn language_setting_switches_every_string() {
+    let mut a = app();
+    press(&mut a, Key::Char('4')); // Settings
+    for _ in 0..4 {
+        press(&mut a, Key::Down);
+    }
+    assert_eq!(a.text().settings, "Settings");
+    press(&mut a, Key::Right);
+    assert_eq!(a.settings.lang, settings::Lang::Ko);
+    assert_eq!(a.text().settings, "설정");
+    assert_eq!(a.text().rv.issues.len(), text::ISSUE_KINDS);
+    press(&mut a, Key::Left);
+    assert_eq!(a.settings.lang, settings::Lang::En);
+}
+
+#[test]
 fn every_screen_renders_without_panicking() {
     struct Null;
     impl bp_hal::Canvas for Null {

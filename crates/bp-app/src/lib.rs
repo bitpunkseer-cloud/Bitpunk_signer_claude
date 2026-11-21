@@ -328,7 +328,10 @@ impl App {
     }
 
     pub fn text(&self) -> &'static Strings {
-        &text::EN
+        match self.settings.lang {
+            settings::Lang::En => &text::EN,
+            settings::Lang::Ko => &text::KO,
+        }
     }
 
     pub fn current(&self) -> Screen {
@@ -1242,7 +1245,7 @@ impl App {
             Action::Open(sub) => self.push(Screen::Menu { id: sub, sel: 0 }),
             Action::Todo(label, phase) => self.push(Screen::Placeholder {
                 title: label(self.text()),
-                phase,
+                phase: phase(self.text()),
             }),
             Action::Start(kind) => {
                 if self.free_slot().is_none() {

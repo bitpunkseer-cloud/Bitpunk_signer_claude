@@ -36,9 +36,9 @@ FONTS = {
 # columns wide and one line high, on the ASCII baseline (metrics read from
 # data.rs, JetBrains Mono)
 SPECS = [
-    ("SMALL", "Regular", 15),
-    ("BODY", "Medium", 20),
-    ("TITLE", "Bold", 28),
+    ("SMALL", "Regular", 16),
+    ("BODY", "Medium", 22),
+    ("TITLE", "Bold", 30),
 ]
 
 
@@ -120,9 +120,14 @@ def main():
         k_ascent, _ = f.getmetrics()
         bits = []
         for ch in chars:
-            img = Image.new("L", (cell, h), 0)
+            # render with a margin first to catch ink that the cell would clip
+            big = Image.new("L", (cell + 16, h + 16), 0)
             w = f.getlength(ch)
-            ImageDraw.Draw(img).text(((cell - w) / 2, ascent - k_ascent), ch, font=f, fill=255)
+            ImageDraw.Draw(big).text(((cell - w) / 2 + 8, ascent - k_ascent + 8), ch, font=f, fill=255)
+            box = big.getbbox()
+            if box and (box[0] < 8 or box[1] < 8 or box[2] > cell + 8 or box[3] > h + 8):
+                sys.exit(f"{name}: glyph {ch!r} does not fit its {cell}x{h} cell")
+            img = big.crop((8, 8, cell + 8, h + 8))
             bits.extend(min(3, (v + 42) // 85) for v in img.tobytes())
         stride_px = cell * h
         stride = (stride_px * 2 + 7) // 8

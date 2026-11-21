@@ -38,7 +38,7 @@ pub enum Start {
 pub enum Action {
     Open(MenuId),
     /// Not built yet: label + milestone description.
-    Todo(Label, &'static str),
+    Todo(Label, Label),
     /// Tools > Address explorer (picks a seed first if several are loaded).
     Explorer,
     Start(Start),
@@ -50,7 +50,7 @@ pub enum Action {
 }
 
 macro_rules! todo_entry {
-    ($f:expr, $tag:literal, $desc:literal) => {
+    ($f:expr, $tag:literal, $desc:expr) => {
         Entry {
             label: $f,
             detail: $tag,
@@ -98,14 +98,14 @@ static MAIN: [Entry; 5] = [
 static SEEDS: [Entry; 4] = [
     open(|s| s.create_seed, MenuId::NewSeed),
     open(|s| s.load_seed, MenuId::LoadSeed),
-    todo_entry!(|s| s.import_key, "M8", "Milestone M8 (microSD, keys)"),
-    todo_entry!(|s| s.seed_vault, "M9", "Milestone M9 (secure storage)"),
+    todo_entry!(|s| s.import_key, "M8", |s| s.ms_keys),
+    todo_entry!(|s| s.seed_vault, "M9", |s| s.ms_storage),
 ];
 
 static NEW_SEED: [Entry; 3] = [
     start(|s| s.dice_rolls, Start::Dice),
     start(|s| s.coin_flips, Start::Coin),
-    todo_entry!(|s| s.slip39, "M10", "Milestone M10 (advanced backup)"),
+    todo_entry!(|s| s.slip39, "M10", |s| s.ms_backup),
 ];
 
 static LOAD_SEED: [Entry; 6] = [
@@ -116,9 +116,9 @@ static LOAD_SEED: [Entry; 6] = [
         detail: ">",
         action: Action::Scan(crate::scan::Purpose::Seed),
     },
-    todo_entry!(|s| s.tinyseed, "M10", "Milestone M10 (advanced backup)"),
-    todo_entry!(|s| s.seed_xor, "M10", "Milestone M10 (advanced backup)"),
-    todo_entry!(|s| s.encrypted_backup, "M10", "Milestone M10 (advanced backup)"),
+    todo_entry!(|s| s.tinyseed, "M10", |s| s.ms_backup),
+    todo_entry!(|s| s.seed_xor, "M10", |s| s.ms_backup),
+    todo_entry!(|s| s.encrypted_backup, "M10", |s| s.ms_backup),
 ];
 
 static TOOLS: [Entry; 7] = [
@@ -128,18 +128,19 @@ static TOOLS: [Entry; 7] = [
         detail: ">",
         action: Action::Explorer,
     },
-    todo_entry!(|s| s.verify_address, "M6", "Milestone M6 (signing extras)"),
-    todo_entry!(|s| s.sign_message, "M6", "Milestone M6 (signing extras)"),
-    todo_entry!(|s| s.bip85, "M8", "Milestone M8 (microSD, keys)"),
-    todo_entry!(|s| s.secure_notes, "M10", "Milestone M10 (advanced tools)"),
-    todo_entry!(|s| s.totp, "M10", "Milestone M10 (advanced tools)"),
+    todo_entry!(|s| s.verify_address, "M6", |s| s.ms_signing),
+    todo_entry!(|s| s.sign_message, "M6", |s| s.ms_signing),
+    todo_entry!(|s| s.bip85, "M8", |s| s.ms_keys),
+    todo_entry!(|s| s.secure_notes, "M10", |s| s.ms_tools),
+    todo_entry!(|s| s.totp, "M10", |s| s.ms_tools),
 ];
 
-static SETTINGS: [Entry; 5] = [
+static SETTINGS: [Entry; 6] = [
     setting(|s| s.network),
     setting(|s| s.units),
     setting(|s| s.qr_density),
     setting(|s| s.advanced),
+    setting(|s| s.language),
     Entry {
         label: |s| s.about,
         detail: ">",

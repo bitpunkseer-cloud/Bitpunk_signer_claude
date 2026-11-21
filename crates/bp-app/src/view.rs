@@ -59,7 +59,8 @@ impl App {
                 title,
                 network_badge: net.badge(),
                 mainnet: net == bp_bitcoin::Network::Mainnet,
-                test_only: self.test_only,
+                air_gapped: self.text().air_gapped,
+                test_only: self.test_only.then_some(self.text().test_only),
             },
         );
     }
@@ -69,7 +70,7 @@ impl App {
         c.fill_rect(0, 0, w, h, theme::BG);
         let s = self.text();
         match self.current() {
-            Screen::Splash => render_splash(c),
+            Screen::Splash => render_splash(c, s.tagline),
             Screen::PoweredOff => {
                 widgets::message_panel(c, s.powered_off, &[s.powered_off_1, "", s.powered_off_2]);
             }
@@ -137,7 +138,7 @@ impl App {
                 if let Some(f) = self.flow.as_ref() {
                     let src = if dice { Source::Dice } else { Source::Coin };
                     let unit = if dice { s.rolls } else { s.flips };
-                    let line: Buf<48> = fill(s.intro_min, &[&f.words, &src.min_count(f.words), &unit]);
+                    let line: Buf<128> = fill(s.intro_min, &[&f.words, &src.min_count(f.words), &unit]);
                     BODY.draw_centered(c, 0, w, 360, line.as_str(), theme::ACCENT);
                 }
                 widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
@@ -331,7 +332,7 @@ impl App {
             Screen::XpubFormat { slot, st, sel } => {
                 let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
                 self.status(c, label.as_str());
-                let head: Buf<48> = fill(s.words_count, &[&s.xpub_as, &st.name()]);
+                let head: Buf<128> = fill(s.words_count, &[&s.xpub_as, &st.name()]);
                 TITLE.draw(c, MARGIN, STATUS_H + 16, head.as_str(), theme::TEXT);
                 let items: [MenuItem; 4] = core::array::from_fn(|i| MenuItem {
                     label: s.xpub_formats[i].0,
@@ -441,7 +442,7 @@ impl App {
             }
         }
         for (i, e) in menus::table(id).iter().enumerate() {
-            let detail = self.settings.value_label(id, i as u8).unwrap_or(e.detail);
+            let detail = self.settings.value_label(id, i as u8, s).unwrap_or(e.detail);
             items[n] = MenuItem {
                 label: (e.label)(s),
                 detail,
@@ -476,14 +477,14 @@ impl App {
         // Left: count and recent values
         let lx = MARGIN;
         let unit = if dice { s.rolls } else { s.flips };
-        let head: Buf<40> = fill(
+        let head: Buf<112> = fill(
             s.entry_head,
             &[&if dice { s.dice_head } else { s.coin_head }, &f.words],
         );
         widgets::label(c, lx, STATUS_H + 14, head.as_str());
         let count = bformat!(8, "{}", a.count);
         let x = HUGE.draw(c, lx - 4, STATUS_H + 30, count.as_str(), theme::TEXT);
-        let min = bformat!(24, "/ {} {}", a.min_count, unit);
+        let min: Buf<96> = fill(s.count_of, &[&a.min_count, &unit]);
         BODY.draw(
             c,
             x + 10,
@@ -554,7 +555,7 @@ impl App {
         }
         widgets::label(c, rx, 196, s.entropy_label);
         let est = bformat!(16, "{:.0}", a.est_bits);
-        let eb: Buf<32> = fill(s.bits_of, &[&est, &a.target_bits]);
+        let eb: Buf<96> = fill(s.bits_of, &[&est, &a.target_bits]);
         let ok = a.entropy_status == Status::Pass;
         SMALL.draw(
             c,
@@ -574,7 +575,16 @@ impl App {
         );
         widgets::label(c, rx, 244, s.checks);
         for (i, (name, st, detail)) in check_rows(s, &a, src).iter().enumerate() {
-            widgets::check_row(c, rx, 266 + i as i32 * 27, rw, *st, name, detail.as_str());
+            widgets::check_row(
+                c,
+                rx,
+                264 + i as i32 * 26,
+                rw,
+                *st,
+                &s.pills,
+                name,
+                detail.as_str(),
+            );
         }
 
         // Status line across the bottom
@@ -587,9 +597,9 @@ impl App {
         } else {
             (s.st_keep_going, theme::TEXT_DIM)
         };
-        BODY.draw(c, lx, 392, msg, color);
+        BODY.draw(c, lx, 398, msg, color);
         if a.any_fail() && self.notice.is_none() {
-            SMALL.draw(c, lx, 421, s.st_failed_2, theme::TEXT_DIM);
+            SMALL.draw(c, lx, 424, s.st_failed_2, theme::TEXT_DIM);
         }
         let hints: &[(&str, &str)] = if dice {
             &[
@@ -616,8 +626,8 @@ impl App {
         let free = f.free_bits();
         let cs = 11 - free;
         widgets::label(c, MARGIN, STATUS_H + 14, s.final_coins_label);
-        let l1: Buf<64> = fill(s.final_coins_1, &[&free]);
-        let l2: Buf<64> = fill(s.final_coins_2, &[&cs]);
+        let l1: Buf<160> = fill(s.final_coins_1, &[&free]);
+        let l2: Buf<160> = fill(s.final_coins_2, &[&cs]);
         BODY.draw(c, MARGIN, STATUS_H + 40, l1.as_str(), theme::TEXT_DIM);
         BODY.draw(c, MARGIN, STATUS_H + 68, l2.as_str(), theme::TEXT_DIM);
 
@@ -649,7 +659,7 @@ impl App {
                 SMALL.draw_centered(c, x, bw, y + 62, bit, theme::ACCENT);
             }
         }
-        let prog: Buf<16> = fill(s.progress, &[&f.coin_len, &free]);
+        let prog: Buf<48> = fill(s.progress, &[&f.coin_len, &free]);
         BODY.draw_centered(c, 0, 800, 300, prog.as_str(), theme::TEXT);
         if let Some(n) = self.notice {
             BODY.draw(c, MARGIN, 404, n, theme::WARN);
@@ -674,7 +684,7 @@ impl App {
         let last = m.indices()[n - 1];
         let free = f.free_bits();
         let cs = 11 - free;
-        let head: Buf<32> = fill(s.words_count, &[&s.final_result_title, &n]);
+        let head: Buf<96> = fill(s.words_count, &[&s.final_result_title, &n]);
         widgets::label(c, MARGIN, STATUS_H + 14, head.as_str());
         HUGE.draw_centered(c, 0, 800, STATUS_H + 50, m.word(n - 1), theme::ACCENT);
         let mut bits = Buf::<16>::new();
@@ -682,11 +692,11 @@ impl App {
             bits.push_str(if (last >> i) & 1 == 1 { "1" } else { "0" });
         }
         let b = bits.as_str();
-        let l1 = bformat!(48, "{}: {}", s.final_bits, &b[..free]);
-        let l2 = bformat!(48, "{}: {}", s.final_checksum, &b[free..free + cs]);
+        let l1 = bformat!(128, "{}: {}", s.final_bits, &b[..free]);
+        let l2 = bformat!(128, "{}: {}", s.final_checksum, &b[free..free + cs]);
         BODY.draw_centered(c, 0, 800, 230, l1.as_str(), theme::TEXT);
         BODY.draw_centered(c, 0, 800, 262, l2.as_str(), theme::TEXT_DIM);
-        let num: Buf<24> = fill(s.word_number, &[&(last + 1)]);
+        let num: Buf<64> = fill(s.word_number, &[&(last + 1)]);
         SMALL.draw_centered(c, 0, 800, 300, num.as_str(), theme::TEXT_FAINT);
         BODY.draw_centered(c, 0, 800, 360, s.final_next, theme::TEXT_DIM);
         widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
@@ -716,7 +726,7 @@ impl App {
             "",
             &BODY,
         );
-        let count: Buf<16> = fill(s.progress, &[&text.len(), &crate::seeds::MAX_PASSPHRASE]);
+        let count: Buf<48> = fill(s.progress, &[&text.len(), &crate::seeds::MAX_PASSPHRASE]);
         SMALL.draw(
             c,
             800 - MARGIN - SMALL.text_width(count.as_str()),
@@ -724,8 +734,10 @@ impl App {
             count.as_str(),
             theme::TEXT_DIM,
         );
-        BODY.draw(c, MARGIN, STATUS_H + 120, s.pp_info[0], theme::TEXT_DIM);
-        BODY.draw(c, MARGIN, STATUS_H + 148, s.pp_info[1], theme::TEXT_DIM);
+        let mut y = STATUS_H + 120;
+        for line in s.pp_info {
+            y = BODY.draw_wrapped(c, MARGIN, y, 800 - 2 * MARGIN, 28, 2, line, theme::TEXT_DIM);
+        }
         widgets::hint_bar(
             c,
             &[
@@ -753,7 +765,7 @@ impl App {
                 y += 30;
             }
             let spaces = text.iter().filter(|&&b| b == b' ').count();
-            let info: Buf<48> = fill(s.pp_len, &[&text.len(), &spaces]);
+            let info: Buf<128> = fill(s.pp_len, &[&text.len(), &spaces]);
             SMALL.draw(c, MARGIN, y, info.as_str(), theme::TEXT_DIM);
             y += 26;
         }
@@ -791,9 +803,9 @@ impl App {
             return;
         };
         let net = self.settings.network;
-        let head: Buf<48> = fill(
+        let head: Buf<128> = fill(
             s.words_count,
-            &[&st.name(), &fill::<16>(s.account_n, &[&account])],
+            &[&st.name(), &fill::<48>(s.account_n, &[&account])],
         );
         self.status(c, head.as_str());
         let Some(x) = seed.account_xpub(st, net, account) else {
@@ -819,7 +831,7 @@ impl App {
         } else {
             s.slip132_label
         };
-        let lab: Buf<32> = fill(tmpl, &[&prefix, &st.purpose()]);
+        let lab: Buf<96> = fill(tmpl, &[&prefix, &st.purpose()]);
         widgets::label(c, MARGIN, STATUS_H + 50, lab.as_str());
         for (row, chunk) in key.as_bytes().chunks(40).enumerate() {
             let mut line = Buf::<64>::new();
@@ -882,7 +894,7 @@ impl App {
         let kind = if change { s.change } else { s.receive };
         let head = bformat!(64, "{}  {}/{}/*", kind, path, change as u8);
         widgets::label(c, MARGIN, STATUS_H + 12, head.as_str());
-        let pg: Buf<16> = fill(s.page_n, &[&(page + 1)]);
+        let pg: Buf<48> = fill(s.page_n, &[&(page + 1)]);
         SMALL.draw(
             c,
             800 - MARGIN - SMALL.text_width(pg.as_str()),
@@ -947,7 +959,7 @@ impl App {
         let net = self.settings.network;
         self.status(c, st.name());
         let kind = if change { s.change } else { s.receive };
-        let head: Buf<32> = fill(s.addr_head, &[&kind, &index]);
+        let head: Buf<96> = fill(s.addr_head, &[&kind, &index]);
         widgets::label(c, MARGIN, STATUS_H + 12, head.as_str());
         let path = bformat!(48, "{}/{}/{}", st.account_path(net, 0), change as u8, index);
         SMALL.draw(
@@ -996,7 +1008,7 @@ impl App {
         match kind {
             QrKind::Xpub { st, account, .. } => fill(
                 s.words_count,
-                &[&st.name(), &fill::<16>(s.account_n, &[&account])],
+                &[&st.name(), &fill::<48>(s.account_n, &[&account])],
             ),
             QrKind::SeedQr { slot, compact } => {
                 let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
@@ -1041,19 +1053,19 @@ impl App {
             *y += ROW;
         };
         let fmt_name = match q.format {
-            Format::Ur(t) => bformat!(40, "UR {}", t),
-            Format::Specter => bformat!(40, "{}", s.fmt_specter),
+            Format::Ur(t) => bformat!(112, "UR {}", t),
+            Format::Specter => bformat!(112, "{}", s.fmt_specter),
             Format::SeedStandard | Format::SeedCompact => {
                 let i = matches!(q.format, Format::SeedCompact) as usize;
-                bformat!(40, "{}", s.seedqr_kinds[i].0)
+                bformat!(112, "{}", s.seedqr_kinds[i].0)
             }
-            Format::Static => bformat!(40, "{}", s.fmt_text),
-            Format::Bbqr { encoding, .. } => bformat!(40, "BBQr ({})", encoding as char),
+            Format::Static => bformat!(112, "{}", s.fmt_text),
+            Format::Bbqr { encoding, .. } => bformat!(112, "BBQr ({})", encoding as char),
         };
         row(c, &mut y, s.qr_format, fmt_name.as_str(), theme::TEXT);
 
         let frames = q.frames();
-        let frame_s: Buf<40> = match q.format {
+        let frame_s: Buf<112> = match q.format {
             _ if frames <= 1 => fill(s.single_qr, &[]),
             Format::Specter | Format::Bbqr { .. } => fill(s.part_n, &[&(q.frame + 1), &frames]),
             _ if q.frame as usize <= frames => fill(s.part_n, &[&q.frame, &frames]),
@@ -1093,7 +1105,7 @@ impl App {
             };
             bp_ui::draw::round_rect(c, x + i as i32 * 18, y + 24, 12, 12, 6, col);
         }
-        let dname: Buf<24> = if q.density == crate::qrview::Density::Auto && animatable {
+        let dname: Buf<64> = if q.density == crate::qrview::Density::Auto && animatable {
             let eff = s.densities[q.effective_density().index()];
             fill(s.words_count, &[&s.densities[di], &eff])
         } else {
@@ -1127,7 +1139,7 @@ impl App {
         }
         y += ROW;
 
-        let info: Buf<48> = fill(s.qr_info, &[&sym.version(), &sym.size(), &sym.size(), &px]);
+        let info: Buf<128> = fill(s.qr_info, &[&sym.version(), &sym.size(), &sym.size(), &px]);
         row(c, &mut y, s.qr_symbol, info.as_str(), theme::TEXT_DIM);
 
         let extra = match kind {
@@ -1179,7 +1191,7 @@ impl App {
 
         let tx = ox + (n + 4) * mpx + 24;
         if line {
-            let head: Buf<32> = fill(s.row_n, &[&(by + 1), &n]);
+            let head: Buf<96> = fill(s.row_n, &[&(by + 1), &n]);
             TITLE.draw(c, tx, STATUS_H + 30, head.as_str(), theme::TEXT);
             // the row, big, with column numbers every 5 cells
             let cell = ((w - 2 * MARGIN) / n).min(30);
@@ -1203,9 +1215,9 @@ impl App {
             }
         } else {
             let col = (b'A' + bx) as char;
-            let head: Buf<32> = fill(s.block_n, &[&col, &(by + 1)]);
+            let head: Buf<96> = fill(s.block_n, &[&col, &(by + 1)]);
             TITLE.draw(c, tx, STATUS_H + 30, head.as_str(), theme::TEXT);
-            let cr: Buf<40> = fill(s.block_cols_rows, &[&(sx + 1), &(sx + sw), &(sy + 1), &(sy + sh)]);
+            let cr: Buf<112> = fill(s.block_cols_rows, &[&(sx + 1), &(sx + sw), &(sy + 1), &(sy + sh)]);
             SMALL.draw(c, tx, STATUS_H + 76, cr.as_str(), theme::TEXT_DIM);
             // 5x5 zoom with a grid; cells outside the symbol stay empty
             let cell = 48;
@@ -1297,24 +1309,15 @@ impl App {
         let right = 800 - MARGIN;
         let p = sc.progress();
         widgets::label(c, x, by, s.scan_status);
-        let name: Buf<40> = match (p.source, sc.ur_type()) {
+        let name: Buf<112> = match (p.source, sc.ur_type()) {
             (None, _) => fill(s.scan_point, &[]),
-            (Some(bp_bitcoin::qrinput::Source::Ur), Some(t)) => bformat!(40, "UR {}", t),
+            (Some(bp_bitcoin::qrinput::Source::Ur), Some(t)) => bformat!(112, "UR {}", t),
             (Some(src), _) => fill(s.res_via[src as usize], &[]),
         };
         // long status text wraps onto two lines
-        let ns = name.as_str();
-        let max = ((right - x) / BODY.width as i32) as usize;
-        let (l1, l2) = if ns.len() > max {
-            let cut = ns[..max].rfind(' ').unwrap_or(max);
-            (&ns[..cut], ns[cut..].trim_start())
-        } else {
-            (ns, "")
-        };
-        BODY.draw(c, x, by + 20, l1, theme::TEXT);
-        BODY.draw(c, x, by + 48, l2, theme::TEXT);
+        BODY.draw_wrapped(c, x, by + 20, right - x, 28, 2, name.as_str(), theme::TEXT);
         if p.total > 1 {
-            let parts: Buf<32> = fill(s.scan_parts, &[&p.received, &p.total]);
+            let parts: Buf<96> = fill(s.scan_parts, &[&p.received, &p.total]);
             BODY.draw(c, x, by + 92, parts.as_str(), theme::ACCENT);
             let w = right - x;
             let done = (w as usize * p.received / p.total) as i32;
@@ -1352,9 +1355,9 @@ impl App {
             Some(bp_bitcoin::qrinput::SeedSource::Words) => s.scan_seed_sources[2],
             _ => s.scan_seed_sources[3],
         };
-        let info: Buf<48> = fill(
+        let info: Buf<128> = fill(
             s.words_count,
-            &[&src, &fill::<16>(s.n_words, &[&seed.mnemonic.len()])],
+            &[&src, &fill::<48>(s.n_words, &[&seed.mnemonic.len()])],
         );
         BODY.draw(c, MARGIN, STATUS_H + 130, info.as_str(), theme::TEXT);
         SMALL.draw(c, MARGIN, STATUS_H + 166, s.scan_seed_check, theme::WARN);
@@ -1402,7 +1405,7 @@ impl App {
                     list.push_str(bformat!(4, "{}", i + 1).as_str());
                 }
             }
-            let line: Buf<96> = fill(s.verify_words, &[&list.as_str()]);
+            let line: Buf<192> = fill(s.verify_words, &[&list.as_str()]);
             widgets::message_at(c, STATUS_H + 90, s.verify_bad, theme::DANGER, &[line.as_str()]);
         }
         widgets::hint_bar(c, &[("Enter", s.h_done)]);
@@ -1419,9 +1422,9 @@ impl App {
             Outcome::Psbt { len, summary, source } => {
                 self.status(c, s.res_psbt);
                 TITLE.draw(c, MARGIN, y0, s.res_psbt, theme::ACCENT);
-                let l1: Buf<32> = fill(s.res_psbt_lines[0], &[&summary.version]);
-                let l2: Buf<48> = fill(s.res_psbt_lines[1], &[&summary.inputs, &summary.outputs]);
-                let l3: Buf<48> = fill(s.res_psbt_lines[2], &[&len, &s.res_via[source as usize]]);
+                let l1: Buf<96> = fill(s.res_psbt_lines[0], &[&summary.version]);
+                let l2: Buf<128> = fill(s.res_psbt_lines[1], &[&summary.inputs, &summary.outputs]);
+                let l3: Buf<128> = fill(s.res_psbt_lines[2], &[&len, &s.res_via[source as usize]]);
                 for (i, l) in [l1.as_str(), l2.as_str(), l3.as_str()].iter().enumerate() {
                     BODY.draw(c, MARGIN, y0 + 60 + i as i32 * 36, l, theme::TEXT);
                 }
@@ -1430,7 +1433,7 @@ impl App {
             Outcome::Xpub { len, network, depth } => {
                 self.status(c, s.res_xpub);
                 TITLE.draw(c, MARGIN, y0, s.res_xpub, theme::ACCENT);
-                let l: Buf<48> = fill(s.res_xpub_line, &[&network.name(), &depth]);
+                let l: Buf<128> = fill(s.res_xpub_line, &[&network.name(), &depth]);
                 BODY.draw(c, MARGIN, y0 + 56, l.as_str(), theme::TEXT);
                 wrap(c, MARGIN, y0 + 96, text(len), 8);
             }
@@ -1438,7 +1441,7 @@ impl App {
                 self.status(c, s.res_address);
                 TITLE.draw(c, MARGIN, y0, s.res_address, theme::ACCENT);
                 let k = s.addr_kinds[kind as usize];
-                let l: Buf<48> = fill(s.words_count, &[&k, &network.name()]);
+                let l: Buf<128> = fill(s.words_count, &[&k, &network.name()]);
                 BODY.draw(c, MARGIN, y0 + 56, l.as_str(), theme::TEXT);
                 for (row, chunk) in text(len).as_bytes().chunks(32).enumerate() {
                     let mut line = Buf::<48>::new();
@@ -1469,7 +1472,7 @@ impl App {
             }
             Outcome::Binary { len } => {
                 self.status(c, s.res_binary);
-                let l: Buf<32> = fill(s.res_bytes, &[&len]);
+                let l: Buf<96> = fill(s.res_bytes, &[&len]);
                 widgets::message_at(c, STATUS_H + 90, s.res_binary, theme::TEXT, &[l.as_str()]);
             }
             Outcome::NotASeed => {
@@ -1501,7 +1504,7 @@ impl App {
         let w = 800;
         TITLE.draw_centered(c, 0, w, STATUS_H + 14, s.summary_title, theme::OK);
         let est = bformat!(16, "{:.0}", a.est_bits);
-        let info: Buf<64> = fill(
+        let info: Buf<160> = fill(
             s.summary_info,
             &[&a.count, &if dice { s.rolls } else { s.flips }, &est, &f.words],
         );
@@ -1535,7 +1538,7 @@ impl App {
             None => self.flow.as_ref().and_then(|f| f.mnemonic.as_ref()),
         };
         let Some(m) = m else { return };
-        let title: Buf<32> = fill(s.words_count, &[&s.words_title, &m.len()]);
+        let title: Buf<96> = fill(s.words_count, &[&s.words_title, &m.len()]);
         self.status(c, title.as_str());
         let words: [&str; 24] = core::array::from_fn(|i| if i < m.len() { m.word(i) } else { "" });
         if m.len() <= 12 {
@@ -1578,7 +1581,7 @@ impl App {
             return;
         }
         self.status(c, s.quiz_title);
-        let prog: Buf<32> = fill(s.progress, &[&(q.q + 1), &q.n]);
+        let prog: Buf<96> = fill(s.progress, &[&(q.q + 1), &q.n]);
         widgets::label(c, MARGIN, STATUS_H + 14, prog.as_str());
         widgets::progress_bar(
             c,
@@ -1589,7 +1592,7 @@ impl App {
             q.q as f64 / q.n as f64,
             theme::ACCENT,
         );
-        let ask = bformat!(24, "{}{}", s.quiz_question, q.word_pos() + 1);
+        let ask = bformat!(64, "{}{}", s.quiz_question, q.word_pos() + 1);
         TITLE.draw_centered(c, 0, 800, STATUS_H + 50, ask.as_str(), theme::TEXT);
         let opts = q.options[q.q];
         let items: [MenuItem; 4] = core::array::from_fn(|i| MenuItem {
@@ -1623,8 +1626,8 @@ impl App {
         );
 
         let head = match e.fixing {
-            Some(i) => fill::<32>(s.fixing_word, &[&(i + 1)]),
-            None => fill::<32>(s.word_of, &[&(e.pos + 1), &e.n]),
+            Some(i) => fill::<96>(s.fixing_word, &[&(i + 1)]),
+            None => fill::<96>(s.word_of, &[&(e.pos + 1), &e.n]),
         };
         widgets::label(c, MARGIN, STATUS_H + 12, head.as_str());
 
@@ -1822,9 +1825,9 @@ fn state(st: Status) -> CheckState {
     }
 }
 
-fn check_rows(s: &crate::Strings, a: &Analysis, src: Source) -> [(&'static str, CheckState, Buf<32>); 5] {
+fn check_rows(s: &crate::Strings, a: &Analysis, src: Source) -> [(&'static str, CheckState, Buf<96>); 5] {
     let tested = a.count >= a.min_count;
-    let after = || -> Buf<32> { fill(s.after_n, &[&a.min_count]) };
+    let after = || -> Buf<96> { fill(s.after_n, &[&a.min_count]) };
     let est = bformat!(16, "{:.0}", a.est_bits);
     let chi2 = bformat!(16, "{:.1}", a.chi2);
     let chi2_max = bformat!(16, "{:.1}", src.chi2_limit());
@@ -1862,7 +1865,7 @@ fn check_rows(s: &crate::Strings, a: &Analysis, src: Source) -> [(&'static str, 
     ]
 }
 
-fn render_splash(c: &mut dyn Canvas) {
+fn render_splash(c: &mut dyn Canvas, tagline: &str) {
     let (w, h) = (c.width() as i32, c.height() as i32);
     let y = h / 2 - HUGE.height as i32 + 10;
     let bw = HUGE.text_width("BITPUNK");
@@ -1872,7 +1875,7 @@ fn render_splash(c: &mut dyn Canvas) {
     let sy = y + HUGE.height as i32;
     BODY.draw_centered(c, 0, w, sy, "S I G N E R", theme::TEXT_DIM);
     c.fill_rect(w / 2 - 40, sy + BODY.height as i32 + 18, 80, 2, theme::ACCENT);
-    SMALL.draw_centered(c, 0, w, h - 60, crate::text::EN.tagline, theme::TEXT_FAINT);
+    SMALL.draw_centered(c, 0, w, h - 60, tagline, theme::TEXT_FAINT);
     let ver = bformat!(48, "v{} / {}", VERSION, GIT_HASH);
     SMALL.draw_centered(c, 0, w, h - 36, ver.as_str(), theme::TEXT_FAINT);
 }

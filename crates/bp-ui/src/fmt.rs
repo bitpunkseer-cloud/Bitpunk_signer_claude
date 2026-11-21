@@ -72,20 +72,39 @@ impl<const N: usize> fmt::Display for Buf<N> {
     }
 }
 
-/// Substitute each `{}` in a translatable `template` with the next argument.
-/// Keeps word order in the string table, so translations can reorder text.
+/// Substitute each `{}` in a translatable `template` with the next argument,
+/// and each `{0}`..`{9}` with that argument. Keeps word order in the string
+/// table, so translations can reorder text.
 pub fn fill<const N: usize>(template: &str, args: &[&dyn fmt::Display]) -> Buf<N> {
     let mut out = Buf::<N>::new();
+    let mut ok = true;
     let mut rest = template;
-    let mut it = args.iter();
-    while let Some(pos) = rest.find("{}") {
-        out.push_str(&rest[..pos]);
-        if let Some(a) = it.next() {
-            let _ = fmt::Write::write_fmt(&mut out, format_args!("{a}"));
+    let mut next = 0;
+    while let Some(pos) = rest.find('{') {
+        let tail = &rest.as_bytes()[pos + 1..];
+        let (index, skip) = match tail {
+            [b'}', ..] => (Some(next), 2),
+            [d @ b'0'..=b'9', b'}', ..] => (Some((d - b'0') as usize), 3),
+            _ => (None, 1),
+        };
+        ok &= fmt::Write::write_str(&mut out, &rest[..pos]).is_ok();
+        match index {
+            Some(i) => {
+                if let Some(a) = args.get(i) {
+                    ok &= fmt::Write::write_fmt(&mut out, format_args!("{a}")).is_ok();
+                }
+                if skip == 2 {
+                    next += 1;
+                }
+            }
+            None => ok &= fmt::Write::write_str(&mut out, "{").is_ok(),
         }
-        rest = &rest[pos + 2..];
+        rest = &rest[pos + skip..];
     }
-    out.push_str(rest);
+    ok &= fmt::Write::write_str(&mut out, rest).is_ok();
+    #[cfg(feature = "layout-check")]
+    assert!(ok, "fill: Buf<{N}> too small for {template:?}");
+    let _ = ok;
     out
 }
 
@@ -106,6 +125,8 @@ mod tests {
     fn fill_substitutes_in_order() {
         let b: super::Buf<32> = super::fill("{} of {} words", &[&3, &"12"]);
         assert_eq!(b.as_str(), "3 of 12 words");
+        let k: super::Buf<32> = super::fill("{1}개 중 {0}번째 {x}", &[&3, &12]);
+        assert_eq!(k.as_str(), "12개 중 3번째 {x}");
     }
 
     #[test]

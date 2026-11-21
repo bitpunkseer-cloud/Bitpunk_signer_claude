@@ -51,6 +51,32 @@ pub fn text_cells(text: &str) -> usize {
     text.chars().map(cells).sum()
 }
 
+/// Split off the first line of `text` that fits in `max` columns, breaking
+/// at a space when possible (a longer word is cut). Returns the line and the
+/// rest with its leading spaces removed. A `\n` always ends the line.
+pub fn split_line(text: &str, max: usize) -> (&str, &str) {
+    let mut used = 0;
+    let mut last_space = None;
+    for (i, ch) in text.char_indices() {
+        if ch == '\n' {
+            return (&text[..i], &text[i + 1..]);
+        }
+        if ch == ' ' {
+            last_space = Some(i);
+        }
+        used += cells(ch);
+        if used > max {
+            let cut = match last_space {
+                Some(sp) if sp > 0 => sp,
+                _ if i == 0 => ch.len_utf8(),
+                _ => i,
+            };
+            return (text[..cut].trim_end(), text[cut..].trim_start_matches(' '));
+        }
+    }
+    (text, "")
+}
+
 impl Font {
     /// Width in pixels of `text` (non-ASCII characters are two columns).
     pub fn text_width(&self, text: &str) -> i32 {
@@ -129,12 +155,70 @@ impl Font {
             self.draw_char(c, cx, y, ch, color);
             cx += cells(ch) as i32 * self.width as i32;
         }
+        #[cfg(feature = "layout-check")]
+        assert!(
+            text.is_empty()
+                || (x >= 0 && cx <= c.width() as i32 && y + self.height as i32 <= c.height() as i32),
+            "text off screen: {text:?} at ({x}, {y}) to x={cx}"
+        );
         cx
+    }
+
+    /// Draw `text` wrapped to `max_w` pixels, at most `max_lines` lines
+    /// (`line_h` apart); the last line ends in "..." if text remains.
+    /// Returns the y below the last line drawn.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_wrapped(
+        &self,
+        c: &mut dyn Canvas,
+        x: i32,
+        y: i32,
+        max_w: i32,
+        line_h: i32,
+        max_lines: usize,
+        text: &str,
+        color: Rgb,
+    ) -> i32 {
+        let max = (max_w / self.width as i32).max(4) as usize;
+        let (mut rest, mut y) = (text, y);
+        for n in 0..max_lines {
+            if rest.is_empty() {
+                break;
+            }
+            let (line, tail) = split_line(rest, max);
+            if n + 1 == max_lines && !tail.is_empty() {
+                let (short, _) = split_line(line, max - 3);
+                let end = self.draw(c, x, y, short, color);
+                self.draw(c, end, y, "...", color);
+            } else {
+                self.draw(c, x, y, line, color);
+            }
+            rest = tail;
+            y += line_h;
+        }
+        y
     }
 
     /// Draw text horizontally centred in [x, x+w).
     pub fn draw_centered(&self, c: &mut dyn Canvas, x: i32, w: i32, y: i32, text: &str, color: Rgb) {
         let tw = self.text_width(text);
         self.draw(c, x + (w - tw) / 2, y, text, color);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_line_counts_wide_characters_as_two_columns() {
+        assert_eq!(split_line("one two three", 7), ("one two", "three"));
+        assert_eq!(split_line("one two", 7), ("one two", ""));
+        assert_eq!(split_line("abcdefghij", 4), ("abcd", "efghij"));
+        assert_eq!(split_line("a\nb", 9), ("a", "b"));
+        assert_eq!(split_line("가나 다라마", 6), ("가나", "다라마"));
+        assert_eq!(split_line("가나다라", 5), ("가나", "다라"));
+        assert_eq!(split_line("가", 1), ("가", ""));
+        assert_eq!(text_cells("a가b"), 4);
     }
 }

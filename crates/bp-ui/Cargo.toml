@@ -8,3 +8,8 @@ repository.workspace = true
 [dependencies]
 bp-hal.workspace = true
 bp-qr.workspace = true
+
+[features]
+# Test builds only: panic when text runs off the screen or a translated
+# template overflows its buffer (enabled by bp-app's dev-dependency).
+layout-check = []
