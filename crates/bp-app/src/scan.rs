@@ -33,6 +33,9 @@ pub enum Purpose {
     /// Tools > Multisig wallets > Import: a wallet (descriptor, Coldcard
     /// file, JSON, UR crypto-output).
     Wallet,
+    /// Multisig > Create: a cosigner's key (text, Coldcard JSON, UR
+    /// crypto-account / crypto-hdkey). Never a seed.
+    Cosigner,
 }
 
 /// What the scan produced (data in `ScanState::out`).
@@ -87,6 +90,8 @@ pub enum Outcome {
     NotSigned,
     /// Not a wallet, for Multisig > Import.
     NotAWallet,
+    /// Not a cosigner key, for Multisig > Create.
+    NotAKey,
     Failed,
 }
 
@@ -271,6 +276,15 @@ impl ScanState {
                     kind: UrKey::Output,
                 },
                 _ => Outcome::NotAWallet,
+            }),
+            Ok((c, _)) if purpose == Purpose::Cosigner => Some(match c {
+                Content::Xpub { len, network, depth } => Outcome::Xpub { len, network, depth },
+                Content::Text { len } => Outcome::Text { len },
+                Content::KeyUr {
+                    len,
+                    kind: kind @ (UrKey::Account | UrKey::HdKey),
+                } => Outcome::KeyUr { len, kind },
+                _ => Outcome::NotAKey,
             }),
             Ok((Content::Seed { mnemonic, source }, _)) => {
                 self.seed = Some(mnemonic);

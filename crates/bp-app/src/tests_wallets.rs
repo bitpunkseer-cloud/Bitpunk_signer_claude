@@ -397,3 +397,278 @@ fn registry_full() {
     assert_eq!(a.notice, Some(a.text().wl.full));
     render(&a);
 }
+
+// ---------- M7-5: air-gapped creation, key export ----------
+
+fn cosigner_key(i: u8, script: MsScript, net: bp_bitcoin::Network) -> Cosigner {
+    let mk = BpXpriv::master(&[i; 32]).unwrap();
+    let path = script.account_path(net, 0);
+    Cosigner {
+        fingerprint: mk.fingerprint(),
+        origin: path,
+        xpub: mk.derive_path(&path).unwrap().to_xpub(),
+        version: KeyVersion::X,
+    }
+}
+
+fn key_text(c: &Cosigner, test: bool) -> String {
+    let mut b = [0u8; 256];
+    let n = formats::write_key_text(c, test, &mut b).unwrap();
+    String::from_utf8(b[..n].to_vec()).unwrap()
+}
+
+/// A single-part UR crypto-account QR for `c`, as SeedSigner shows it.
+fn account_ur(c: &Cosigner, net: bp_bitcoin::Network) -> String {
+    use bp_bitcoin::urtypes::{crypto_account_tags, AccountKey, TAG_WSH};
+    let k = AccountKey {
+        xpub: &c.xpub,
+        master_fingerprint: c.fingerprint,
+        path: &c.origin,
+        script: bp_bitcoin::address::ScriptType::NativeSegwit,
+        network: net,
+    };
+    let mut p = [0u8; 512];
+    let n = crypto_account_tags(&k, &[TAG_WSH], &mut p).unwrap();
+    let enc = bp_qr::ur::UrEncoder::new("crypto-account", &p[..n], 1000).unwrap();
+    let mut out = [0u8; 2048];
+    let k = enc.part(1, &mut out).unwrap();
+    String::from_utf8(out[..k].to_vec()).unwrap()
+}
+
+/// Main > Tools > Multisig > Create (one seed loaded): defaults 2-of-3.
+fn open_create(a: &mut App) {
+    to_main(a);
+    open_wallets(a);
+    let n = a.wallets.len();
+    press(a, Key::Char((b'2' + n as u8) as char));
+    assert_eq!(step(a), WlStep::CreateSize { field: 0 });
+}
+
+fn scan_cosigner(a: &mut App, text: &str) {
+    assert_eq!(step(a), WlStep::CreateKeys);
+    press(a, Key::Enter);
+    assert!(matches!(
+        a.current(),
+        Screen::Scan {
+            purpose: scan::Purpose::Cosigner
+        }
+    ));
+    a.on_qr_text(text.as_bytes());
+}
+
+#[test]
+fn create_wallet_air_gapped() {
+    let mut a = app();
+    load_abandon(&mut a);
+    let net = a.settings.network;
+    open_create(&mut a);
+    render(&a);
+    // 2-of-3 P2WSH, account 0 (the defaults)
+    press(&mut a, Key::Enter);
+    assert_eq!(step(&a), WlStep::CreateKeys);
+    render(&a);
+    let c1 = cosigner_key(41, MsScript::Wsh, net);
+    let c2 = cosigner_key(42, MsScript::Wsh, net);
+    // cosigner 2 as text (Specter DIY, Krux), shown in full first
+    scan_cosigner(&mut a, &key_text(&c1, false));
+    assert_eq!(step(&a), WlStep::CreateConfirm { sel: 0 });
+    render(&a);
+    press(&mut a, Key::Char('1'));
+    assert_eq!(a.wl.creating.as_ref().unwrap().count, 2);
+    // cosigner 3 as UR crypto-account (SeedSigner)
+    scan_cosigner(&mut a, &account_ur(&c2, net));
+    assert_eq!(step(&a), WlStep::CreateConfirm { sel: 0 });
+    press(&mut a, Key::Char('1'));
+    // all keys in: first addresses, then the code
+    assert_eq!(step(&a), WlStep::Addresses);
+    assert!(a.wl.creating.is_none());
+    let p = a.wl.pending.as_ref().unwrap();
+    assert_eq!(p.format, None);
+    assert_eq!(p.checked.ours, Some(0));
+    let seed = a.slot(0).unwrap();
+    let path = MsScript::Wsh.account_path(net, 0);
+    let ours = Cosigner {
+        fingerprint: seed.fingerprint,
+        origin: path,
+        xpub: seed.master().derive_path(&path).unwrap().to_xpub(),
+        version: KeyVersion::X,
+    };
+    let want = Wallet::new(false, MsScript::Wsh, 2, &[ours, c1, c2]).unwrap();
+    assert_eq!(p.wallet.id(), want.id());
+    render(&a);
+    press(&mut a, Key::Enter);
+    let code = code_of(&a);
+    press(&mut a, Key::Enter);
+    type_str(&mut a, std::str::from_utf8(&code.0).unwrap());
+    press(&mut a, Key::Enter);
+    assert!(matches!(step(&a), WlStep::Registered { .. }));
+    assert_eq!(a.wallets.get(0).unwrap().wallet.id(), want.id());
+    // export it for Sparrow and the other cosigners
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Char('1'));
+    let text = qr_text_of(&a);
+    assert_eq!(
+        formats::parse_wallet(text.as_bytes()).unwrap().wallet.id(),
+        want.id()
+    );
+}
+
+#[test]
+fn create_size_choices() {
+    let mut a = app();
+    load_abandon(&mut a);
+    open_create(&mut a);
+    // script type -> P2SH-P2WSH; M up to N; N down clamps M; account 2
+    press(&mut a, Key::Right);
+    press(&mut a, Key::Down);
+    for _ in 0..5 {
+        press(&mut a, Key::Right);
+    }
+    let cr = a.wl.creating.as_ref().unwrap();
+    assert_eq!((cr.script, cr.m, cr.n), (MsScript::ShWsh, 3, 3));
+    press(&mut a, Key::Down);
+    for _ in 0..20 {
+        press(&mut a, Key::Right);
+    }
+    assert_eq!(a.wl.creating.as_ref().unwrap().n, 15);
+    for _ in 0..20 {
+        press(&mut a, Key::Left);
+    }
+    let cr = a.wl.creating.as_ref().unwrap();
+    assert_eq!((cr.m, cr.n), (2, 2));
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Right);
+    press(&mut a, Key::Right);
+    assert_eq!(a.wl.creating.as_ref().unwrap().account, 2);
+    render(&a);
+    press(&mut a, Key::Enter);
+    let cr = a.wl.creating.as_ref().unwrap();
+    let ours = cr.keys().next().unwrap();
+    assert_eq!(
+        ours.origin,
+        MsScript::ShWsh.account_path(a.settings.network, 2),
+        "our key at BIP-48 account 2, script type 1'"
+    );
+}
+
+#[test]
+fn create_refuses_bad_cosigners() {
+    let mut a = app();
+    load_abandon(&mut a);
+    let net = a.settings.network;
+    open_create(&mut a);
+    press(&mut a, Key::Enter);
+    let c1 = cosigner_key(41, MsScript::Wsh, net);
+    let refused = |a: &App| match a.wl.problem {
+        Some(Problem::Reject(r)) => Some(r.kind),
+        _ => None,
+    };
+    // this device's own key, scanned back
+    let ours = a.wl.creating.as_ref().unwrap().keys().next().copied().unwrap();
+    scan_cosigner(&mut a, &key_text(&ours, false));
+    assert_eq!(step(&a), WlStep::CreateRefused);
+    assert_eq!(refused(&a), Some(RejectKind::OurKeyTwice));
+    render(&a);
+    press(&mut a, Key::Enter);
+    // a cosigner twice
+    scan_cosigner(&mut a, &key_text(&c1, false));
+    press(&mut a, Key::Char('1'));
+    scan_cosigner(&mut a, &key_text(&c1, false));
+    assert_eq!(refused(&a), Some(RejectKind::DuplicateKey));
+    press(&mut a, Key::Enter);
+    // the same cosigner seed on another account
+    let mk = BpXpriv::master(&[41; 32]).unwrap();
+    let p1 = MsScript::Wsh.account_path(net, 1);
+    let other = Cosigner {
+        fingerprint: mk.fingerprint(),
+        origin: p1,
+        xpub: mk.derive_path(&p1).unwrap().to_xpub(),
+        version: KeyVersion::X,
+    };
+    scan_cosigner(&mut a, &key_text(&other, false));
+    assert_eq!(refused(&a), Some(RejectKind::DuplicateFingerprint));
+    press(&mut a, Key::Enter);
+    // a test-network key on mainnet
+    let t = cosigner_key(43, MsScript::Wsh, bp_bitcoin::Network::Testnet);
+    scan_cosigner(&mut a, &key_text(&t, true));
+    assert_eq!(refused(&a), Some(RejectKind::Network));
+    press(&mut a, Key::Enter);
+    // a Ypub (P2SH-P2WSH) for a P2WSH wallet
+    let c3 = cosigner_key(44, MsScript::Wsh, net);
+    let mut x = [0u8; bp_bitcoin::bip32::XKEY_LEN];
+    let n = c3.xpub.encode(KeyVersion::MultiY.public(net), &mut x);
+    let ypub = format!(
+        "[{}/48h/0h/0h/2h]{}",
+        crate::seeds::fingerprint_hex(&c3.fingerprint),
+        std::str::from_utf8(&x[..n]).unwrap()
+    );
+    scan_cosigner(&mut a, &ypub);
+    assert_eq!(refused(&a), Some(RejectKind::VersionScript));
+    press(&mut a, Key::Enter);
+    // a key without origin
+    let n = c3.xpub.encode(KeyVersion::X.public(net), &mut x);
+    scan_cosigner(&mut a, std::str::from_utf8(&x[..n]).unwrap());
+    assert!(matches!(
+        a.wl.problem,
+        Some(Problem::Format(formats::Error::MissingOrigin))
+    ));
+    press(&mut a, Key::Enter);
+    // a seed is never taken while scanning a cosigner
+    scan_cosigner(
+        &mut a,
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    );
+    assert!(matches!(a.current(), Screen::ScanResult));
+    assert_eq!(a.scan.outcome, Some(scan::Outcome::NotAKey));
+    assert!(a.scanned.is_none());
+    render(&a);
+    // only cosigner 2 was added
+    press(&mut a, Key::Enter);
+    assert_eq!(step(&a), WlStep::CreateKeys);
+    assert_eq!(a.wl.creating.as_ref().unwrap().count, 2);
+}
+
+#[test]
+fn export_my_multisig_key() {
+    let mut a = app();
+    load_abandon(&mut a);
+    let net = a.settings.network;
+    to_main(&mut a);
+    open_wallets(&mut a);
+    press(&mut a, Key::Char('3'));
+    assert!(matches!(step(&a), WlStep::KeyScript { .. }));
+    press(&mut a, Key::Right);
+    press(&mut a, Key::Right);
+    assert_eq!(a.wl.key_account, 2);
+    render(&a);
+    press(&mut a, Key::Enter); // P2WSH
+    assert!(matches!(step(&a), WlStep::KeyFormat { .. }));
+    render(&a);
+    let path = MsScript::Wsh.account_path(net, 2);
+    let sh_path = MsScript::ShWsh.account_path(net, 2);
+    let (want, want_sh, fp) = {
+        let seed = a.slot(0).unwrap();
+        (
+            seed.master().derive_path(&path).unwrap().to_xpub(),
+            seed.master().derive_path(&sh_path).unwrap().to_xpub(),
+            seed.fingerprint,
+        )
+    };
+    // key text
+    press(&mut a, Key::Char('1'));
+    render(&a);
+    let (k, _) = formats::parse_cosigner(qr_text_of(&a).as_bytes(), MsScript::Wsh).unwrap();
+    assert_eq!((k.fingerprint, k.origin, k.xpub), (fp, path, want));
+    press(&mut a, Key::Esc);
+    // UR crypto-account
+    press(&mut a, Key::Char('2'));
+    let payload = a.qr.as_ref().unwrap().payload().to_vec();
+    let (k, _) = formats::parse_cosigner_ur("crypto-account", &payload, MsScript::Wsh).unwrap();
+    assert_eq!((k.origin, k.xpub), (path, want));
+    press(&mut a, Key::Esc);
+    // Coldcard JSON: both script types at account 2
+    press(&mut a, Key::Char('3'));
+    let json = qr_text_of(&a);
+    let (k, _) = formats::parse_cosigner(json.as_bytes(), MsScript::ShWsh).unwrap();
+    assert_eq!((k.origin, k.xpub), (sh_path, want_sh));
+}

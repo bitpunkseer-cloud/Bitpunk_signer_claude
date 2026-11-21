@@ -12,6 +12,7 @@ pub const TAG_HDKEY: u64 = 303;
 pub const TAG_KEYPATH: u64 = 304;
 pub const TAG_COININFO: u64 = 305;
 pub const TAG_SH: u64 = 400;
+pub const TAG_WSH: u64 = 401;
 pub const TAG_PKH: u64 = 403;
 pub const TAG_WPKH: u64 = 404;
 pub const TAG_TR: u64 = 409;
@@ -105,5 +106,23 @@ pub fn crypto_account(k: &AccountKey, out: &mut [u8]) -> Result<usize, Error> {
     w.uint(2)?;
     w.array(1)?;
     write_output(&mut w, k)?;
+    Ok(w.len())
+}
+
+/// `crypto-account` with one output: `tags` (outermost first) around the
+/// hdkey, e.g. `[TAG_WSH]` for a P2WSH multisig cosigner key, or
+/// `[TAG_SH, TAG_WSH]` for P2SH-P2WSH (what SeedSigner exports for BIP-48).
+/// `k.script` is not used. Returns the payload length.
+pub fn crypto_account_tags(k: &AccountKey, tags: &[u64], out: &mut [u8]) -> Result<usize, Error> {
+    let mut w = Writer::new(out);
+    w.map(2)?;
+    w.uint(1)?;
+    w.uint(fp_u32(k.master_fingerprint))?;
+    w.uint(2)?;
+    w.array(1)?;
+    for &t in tags {
+        w.tag(t)?;
+    }
+    write_hdkey(&mut w, k)?;
     Ok(w.len())
 }

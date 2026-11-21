@@ -14,7 +14,8 @@ use bp_bitcoin::bip32::XKEY_LEN;
 use bp_bitcoin::multisig::descriptor::Error as DError;
 use bp_bitcoin::multisig::formats::{self, Format};
 use bp_bitcoin::multisig::register::{self, Checked, Code, CodeKey, Entry, Reject, RejectKind};
-use bp_bitcoin::multisig::{version_name, Cosigner, Wallet};
+use bp_bitcoin::multisig::{version_name, Cosigner, MsScript, Wallet, MAX_KEYS};
+use bp_bitcoin::qrinput::UrKey;
 use bp_hal::input::{Key, KeyEvent};
 use bp_hal::Canvas;
 use bp_ui::fmt::{fill, Buf};
@@ -66,6 +67,79 @@ pub enum WlStep {
         idx: u8,
         sel: u8,
     },
+    /// Which loaded seed creates the wallet (`export`: exports its key).
+    PickSeed {
+        sel: u8,
+        export: bool,
+    },
+    /// New wallet: script type, M, N, account.
+    CreateSize {
+        field: u8,
+    },
+    /// Keys collected so far; Enter scans the next cosigner.
+    CreateKeys,
+    /// A scanned cosigner, shown in full before it is added.
+    CreateConfirm {
+        sel: u8,
+    },
+    CreateRefused,
+    /// Export this device's BIP-48 key: script type (and account).
+    KeyScript {
+        slot: u8,
+        sel: u8,
+    },
+    KeyFormat {
+        slot: u8,
+        script: u8,
+        sel: u8,
+    },
+}
+
+/// Formats for exporting this device's multisig key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyFormat {
+    Text,
+    UrAccount,
+    ColdcardJson,
+}
+
+impl KeyFormat {
+    pub const ALL: [KeyFormat; 3] = [KeyFormat::Text, KeyFormat::UrAccount, KeyFormat::ColdcardJson];
+}
+
+/// A wallet being created on the device (M7 plan 6.1).
+pub struct Creating {
+    pub slot: u8,
+    pub script: MsScript,
+    pub m: u8,
+    pub n: u8,
+    pub account: u32,
+    pub test: bool,
+    keys: [Option<Cosigner>; MAX_KEYS],
+    pub count: u8,
+    pub candidate: Option<Cosigner>,
+}
+
+impl Creating {
+    pub fn keys(&self) -> impl Iterator<Item = &Cosigner> {
+        self.keys[..self.count as usize].iter().flatten()
+    }
+
+    /// The keys so far plus the candidate, as a wallet (threshold 1), for
+    /// the registration rules and the cosigner page.
+    fn with_candidate(&self) -> Option<Wallet> {
+        let mut list = [self.keys[0]?; MAX_KEYS];
+        let mut n = 0;
+        for k in self.keys() {
+            list[n] = *k;
+            n += 1;
+        }
+        if let Some(c) = self.candidate {
+            list[n] = c;
+            n += 1;
+        }
+        Wallet::new(self.test, self.script, 1, &list[..n])
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,7 +168,8 @@ pub enum Problem {
 /// A scanned wallet waiting for the user.
 pub struct Pending {
     pub wallet: Wallet,
-    pub format: Format,
+    /// `None` for a wallet created on the device.
+    pub format: Option<Format>,
     pub slot: u8,
     pub checked: Checked,
     pub code: Code,
@@ -114,6 +189,9 @@ impl Pending {
 pub struct WlState {
     pub pending: Option<Pending>,
     pub problem: Option<Problem>,
+    pub creating: Option<Creating>,
+    /// Account for "Export my multisig key".
+    pub key_account: u32,
     input: [u8; CODE_INPUT],
     len: usize,
     /// 0 none, 1 mismatch, 2 not a code.
@@ -251,7 +329,17 @@ impl App {
             }
         }
         let slot = slot.unwrap_or_else(|| self.seeds.iter().position(|s| s.is_some()).unwrap_or(0));
-        let Some(seed) = self.slot(slot) else { return };
+        if self.make_pending(w, Some(imported.format), slot, two) {
+            self.set_current(Screen::Wallets {
+                step: WlStep::Summary { sel: 0 },
+            });
+        }
+    }
+
+    /// Check `w` with the seed in `slot` and hold it for registration
+    /// (false: refused, the Refused screen is up).
+    fn make_pending(&mut self, w: Wallet, format: Option<Format>, slot: usize, two: bool) -> bool {
+        let Some(seed) = self.slot(slot) else { return false };
         let net = self.settings.network;
         let checked = match register::check(&w, net, seed.master(), &self.wallets) {
             Ok(c) => c,
@@ -260,7 +348,7 @@ impl App {
                 self.set_current(Screen::Wallets {
                     step: WlStep::Refused,
                 });
-                return;
+                return false;
             }
         };
         let ck = CodeKey::new(seed.master());
@@ -273,7 +361,7 @@ impl App {
         }
         self.wl.pending = Some(Pending {
             wallet: w,
-            format: imported.format,
+            format,
             slot: slot as u8,
             checked,
             code: ck.code(&w),
@@ -282,9 +370,175 @@ impl App {
             addr,
             addr_len,
         });
-        self.set_current(Screen::Wallets {
-            step: WlStep::Summary { sel: 0 },
+        true
+    }
+
+    /// Tools > Multisig wallets > Create: with `slot`'s seed.
+    fn create_start(&mut self, slot: u8) {
+        self.wl.creating = Some(Creating {
+            slot,
+            script: MsScript::Wsh,
+            m: 2,
+            n: 3,
+            account: 0,
+            test: self.settings.network != bp_bitcoin::Network::Mainnet,
+            keys: [None; MAX_KEYS],
+            count: 0,
+            candidate: None,
         });
+        self.push(Screen::Wallets {
+            step: WlStep::CreateSize { field: 0 },
+        });
+    }
+
+    /// Size chosen: this device's key goes first.
+    fn create_begin(&mut self) {
+        let net = self.settings.network;
+        let Some(cr) = self.wl.creating.as_ref() else {
+            return;
+        };
+        let Some(seed) = self.slot(cr.slot as usize) else {
+            return;
+        };
+        let path = cr.script.account_path(net, cr.account);
+        let Ok(k) = seed.master().derive_path(&path) else {
+            return;
+        };
+        let ours = Cosigner {
+            fingerprint: seed.fingerprint,
+            origin: path,
+            xpub: k.to_xpub(),
+            version: bp_bitcoin::bip32::KeyVersion::X,
+        };
+        let cr = self.wl.creating.as_mut().expect("checked");
+        cr.keys = [None; MAX_KEYS];
+        cr.keys[0] = Some(ours);
+        cr.count = 1;
+        cr.candidate = None;
+        self.set_current(Screen::Wallets {
+            step: WlStep::CreateKeys,
+        });
+    }
+
+    /// A cosigner key arrived from the scanner (text, or a UR key). Replaces
+    /// the scanner with the cosigner page or the refusal.
+    pub(crate) fn wallet_cosigner_scanned(&mut self, data: &[u8], ur: Option<UrKey>) {
+        let net = self.settings.network;
+        let Some(cr) = self.wl.creating.as_mut() else {
+            return;
+        };
+        let parsed = match ur {
+            None => formats::parse_cosigner(data, cr.script),
+            Some(UrKey::Account) => formats::parse_cosigner_ur("crypto-account", data, cr.script),
+            Some(UrKey::HdKey) => formats::parse_cosigner_ur("crypto-hdkey", data, cr.script),
+            Some(UrKey::Output) => Err(formats::Error::Unknown),
+        };
+        let fail = |app: &mut App, p: Problem| {
+            app.wl.problem = Some(p);
+            if let Some(cr) = app.wl.creating.as_mut() {
+                cr.candidate = None;
+            }
+            app.set_current(Screen::Wallets {
+                step: WlStep::CreateRefused,
+            });
+        };
+        let (key, test) = match parsed {
+            Ok(v) => v,
+            Err(e) => return fail(self, Problem::Format(e)),
+        };
+        if test != cr.test {
+            return fail(
+                self,
+                Problem::Reject(Reject {
+                    kind: RejectKind::Network,
+                    key: None,
+                }),
+            );
+        }
+        cr.candidate = Some(key);
+        let slot = cr.slot as usize;
+        let Some(w) = cr.with_candidate() else { return };
+        let Some(seed) = self.slot(slot) else { return };
+        if let Err(r) = register::check(&w, net, seed.master(), &register::Registry::new()) {
+            return fail(self, Problem::Reject(r));
+        }
+        self.set_current(Screen::Wallets {
+            step: WlStep::CreateConfirm { sel: 0 },
+        });
+    }
+
+    /// All keys in: the wallet goes on to the first addresses and the code.
+    fn create_finish(&mut self) {
+        let Some(cr) = self.wl.creating.take() else { return };
+        let mut list = [cr.keys[0].expect("our key"); MAX_KEYS];
+        for (l, k) in list.iter_mut().zip(cr.keys()) {
+            *l = *k;
+        }
+        let Some(w) = Wallet::new(cr.test, cr.script, cr.m, &list[..cr.count as usize]) else {
+            return;
+        };
+        if self.make_pending(w, None, cr.slot as usize, false) {
+            self.wl.clear_input();
+            self.set_current(Screen::Wallets {
+                step: WlStep::Addresses,
+            });
+        }
+    }
+
+    /// The QR for this device's BIP-48 key.
+    pub(crate) fn key_qr(
+        &self,
+        slot: u8,
+        script: MsScript,
+        account: u32,
+        format: KeyFormat,
+    ) -> Option<crate::qrview::QrSession> {
+        use crate::qrview::{Density, Format as QF, QrSession, Speed, PAYLOAD_MAX};
+        let net = self.settings.network;
+        let test = net != bp_bitcoin::Network::Mainnet;
+        let seed = self.slot(slot as usize)?;
+        let key = |sc: MsScript| -> Option<Cosigner> {
+            let path = sc.account_path(net, account);
+            Some(Cosigner {
+                fingerprint: seed.fingerprint,
+                origin: path,
+                xpub: seed.master().derive_path(&path).ok()?.to_xpub(),
+                version: bp_bitcoin::bip32::KeyVersion::X,
+            })
+        };
+        let c = key(script)?;
+        let mut buf = [0u8; PAYLOAD_MAX];
+        let (fmt, n) = match format {
+            KeyFormat::Text => (QF::Static, formats::write_key_text(&c, test, &mut buf)?),
+            KeyFormat::ColdcardJson => {
+                let wsh = key(MsScript::Wsh)?;
+                let sh = key(MsScript::ShWsh)?;
+                (
+                    QF::Static,
+                    formats::write_coldcard_xpub_json(&wsh, &sh, account, test, &mut buf)?,
+                )
+            }
+            KeyFormat::UrAccount => {
+                use bp_bitcoin::urtypes::{crypto_account_tags, AccountKey, TAG_SH, TAG_WSH};
+                let ak = AccountKey {
+                    xpub: &c.xpub,
+                    master_fingerprint: c.fingerprint,
+                    path: &c.origin,
+                    script: bp_bitcoin::address::ScriptType::NativeSegwit,
+                    network: net,
+                };
+                let tags: &[u64] = match script {
+                    MsScript::Wsh => &[TAG_WSH],
+                    MsScript::ShWsh => &[TAG_SH, TAG_WSH],
+                };
+                (
+                    QF::Ur(bp_bitcoin::urtypes::UR_ACCOUNT),
+                    crypto_account_tags(&ak, tags, &mut buf).ok()?,
+                )
+            }
+        };
+        // xpub exports start at low density and slow speed (as for single-sig)
+        QrSession::new(fmt, &buf[..n], Density::Low, Speed::Slow)
     }
 
     /// Add the pending wallet to the session registry.
@@ -324,6 +578,41 @@ impl App {
         (v, n)
     }
 
+    fn loaded_slots(&self) -> ([u8; 3], usize) {
+        let mut v = [0u8; 3];
+        let mut n = 0;
+        for (i, s) in self.seeds.iter().enumerate() {
+            if s.is_some() && n < 3 {
+                v[n] = i as u8;
+                n += 1;
+            }
+        }
+        (v, n)
+    }
+
+    /// Create (or export a key) with the only seed, or ask which one.
+    fn pick_seed_then(&mut self, export: bool) {
+        let (v, n) = self.loaded_slots();
+        if n == 1 {
+            self.seed_chosen(v[0], export);
+        } else {
+            self.push(Screen::Wallets {
+                step: WlStep::PickSeed { sel: 0, export },
+            });
+        }
+    }
+
+    fn seed_chosen(&mut self, slot: u8, export: bool) {
+        if export {
+            self.wl.key_account = 0;
+            self.push(Screen::Wallets {
+                step: WlStep::KeyScript { slot, sel: 0 },
+            });
+        } else {
+            self.create_start(slot);
+        }
+    }
+
     pub(crate) fn wallets_key(&mut self, step: WlStep, ev: KeyEvent) {
         let set = |app: &mut App, step: WlStep| app.set_current(Screen::Wallets { step });
         match step {
@@ -334,7 +623,7 @@ impl App {
             }
             WlStep::List { sel } => {
                 let (idx, n) = self.wallet_indices();
-                match crate::pick(ev.key, sel, n as u8 + 1) {
+                match crate::pick(ev.key, sel, n as u8 + 3) {
                     Pick::Move(s) => set(self, WlStep::List { sel: s }),
                     Pick::Choose(s) if (s as usize) < n => self.push(Screen::Wallets {
                         step: WlStep::Wallet {
@@ -342,13 +631,10 @@ impl App {
                             sel: 0,
                         },
                     }),
-                    Pick::Choose(_) => {
-                        if self.wallets.is_full() {
-                            self.notice = Some(self.text().wl.full);
-                        } else {
-                            self.start_scan(scan::Purpose::Wallet);
-                        }
-                    }
+                    Pick::Choose(s) if s as usize == n + 2 => self.pick_seed_then(true),
+                    Pick::Choose(_) if self.wallets.is_full() => self.notice = Some(self.text().wl.full),
+                    Pick::Choose(s) if s as usize == n + 1 => self.pick_seed_then(false),
+                    Pick::Choose(_) => self.start_scan(scan::Purpose::Wallet),
                     Pick::Back => self.pop(),
                     Pick::None => {}
                 }
@@ -453,7 +739,7 @@ impl App {
                 }),
                 Pick::Choose(_) | Pick::Back => {
                     self.wl.pending = None;
-                    set(self, WlStep::List { sel: 0 });
+                    self.pop();
                 }
                 Pick::None => {}
             },
@@ -496,12 +782,142 @@ impl App {
                 Pick::Move(s) => set(self, WlStep::Remove { idx, sel: s }),
                 Pick::Choose(1) => {
                     self.wallets.remove(idx);
-                    self.pop(); // the wallet menu
+                    self.pop(); // this question
+                    self.pop(); // the wallet's menu: back to the list
                     self.set_current(Screen::Wallets {
                         step: WlStep::List { sel: 0 },
                     });
                 }
                 Pick::Choose(_) | Pick::Back => self.pop(),
+                Pick::None => {}
+            },
+            WlStep::PickSeed { sel, export } => {
+                let slots = self.loaded_slots();
+                match crate::pick(ev.key, sel, slots.1 as u8) {
+                    Pick::Move(s) => set(self, WlStep::PickSeed { sel: s, export }),
+                    Pick::Choose(s) => {
+                        let slot = slots.0[s as usize];
+                        self.pop();
+                        self.seed_chosen(slot, export);
+                    }
+                    Pick::Back => self.pop(),
+                    Pick::None => {}
+                }
+            }
+            WlStep::CreateSize { field } => {
+                let Some(cr) = self.wl.creating.as_mut() else {
+                    return self.pop();
+                };
+                let d: i32 = match ev.key {
+                    Key::Right => 1,
+                    Key::Left => -1,
+                    _ => 0,
+                };
+                match ev.key {
+                    Key::Up => set(
+                        self,
+                        WlStep::CreateSize {
+                            field: (field + 3) % 4,
+                        },
+                    ),
+                    Key::Down | Key::Tab => set(
+                        self,
+                        WlStep::CreateSize {
+                            field: (field + 1) % 4,
+                        },
+                    ),
+                    Key::Left | Key::Right => {
+                        match field {
+                            0 => {
+                                cr.script = match cr.script {
+                                    MsScript::Wsh => MsScript::ShWsh,
+                                    MsScript::ShWsh => MsScript::Wsh,
+                                }
+                            }
+                            1 => cr.m = (cr.m as i32 + d).clamp(1, cr.n as i32) as u8,
+                            2 => {
+                                cr.n = (cr.n as i32 + d).clamp(2, MAX_KEYS as i32) as u8;
+                                cr.m = cr.m.min(cr.n);
+                            }
+                            _ => cr.account = (cr.account as i32 + d).clamp(0, 999) as u32,
+                        }
+                        self.dirty = true;
+                    }
+                    Key::Enter => self.create_begin(),
+                    Key::Esc | Key::Backspace => {
+                        self.wl.creating = None;
+                        self.pop();
+                    }
+                    _ => {}
+                }
+            }
+            WlStep::CreateKeys => match ev.key {
+                Key::Enter | Key::Right => self.start_scan(scan::Purpose::Cosigner),
+                Key::Esc | Key::Backspace => set(self, WlStep::CreateSize { field: 0 }),
+                _ => {}
+            },
+            WlStep::CreateConfirm { sel } => match crate::pick(ev.key, sel, 2) {
+                Pick::Move(s) => set(self, WlStep::CreateConfirm { sel: s }),
+                Pick::Choose(0) => {
+                    let Some(cr) = self.wl.creating.as_mut() else {
+                        return;
+                    };
+                    if let Some(c) = cr.candidate.take() {
+                        cr.keys[cr.count as usize] = Some(c);
+                        cr.count += 1;
+                    }
+                    if cr.count == cr.n {
+                        self.create_finish();
+                    } else {
+                        set(self, WlStep::CreateKeys);
+                    }
+                }
+                Pick::Choose(_) | Pick::Back => {
+                    if let Some(cr) = self.wl.creating.as_mut() {
+                        cr.candidate = None;
+                    }
+                    set(self, WlStep::CreateKeys);
+                }
+                Pick::None => {}
+            },
+            WlStep::CreateRefused => {
+                if matches!(ev.key, Key::Enter | Key::Esc | Key::Backspace | Key::Left) {
+                    self.wl.problem = None;
+                    set(self, WlStep::CreateKeys);
+                }
+            }
+            WlStep::KeyScript { slot, sel } => match ev.key {
+                Key::Left | Key::Right => {
+                    let d: i32 = if ev.key == Key::Right { 1 } else { -1 };
+                    self.wl.key_account = (self.wl.key_account as i32 + d).clamp(0, 999) as u32;
+                    self.dirty = true;
+                }
+                k => match crate::pick(k, sel, 2) {
+                    Pick::Move(s) => set(self, WlStep::KeyScript { slot, sel: s }),
+                    Pick::Choose(s) => self.push(Screen::Wallets {
+                        step: WlStep::KeyFormat {
+                            slot,
+                            script: s,
+                            sel: 0,
+                        },
+                    }),
+                    Pick::Back => self.pop(),
+                    Pick::None => {}
+                },
+            },
+            WlStep::KeyFormat { slot, script, sel } => match crate::pick(ev.key, sel, 3) {
+                Pick::Move(s) => set(self, WlStep::KeyFormat { slot, script, sel: s }),
+                Pick::Choose(s) => self.open_qr(QrKind::MsKey {
+                    slot,
+                    script: if script == 0 {
+                        MsScript::Wsh
+                    } else {
+                        MsScript::ShWsh
+                    },
+                    account: self.wl.key_account,
+                    format: KeyFormat::ALL[s as usize],
+                }),
+                Pick::Back => self.pop(),
                 Pick::None => {}
             },
         }
@@ -578,6 +994,22 @@ impl App {
         }
     }
 
+    /// Why the last wallet or key was refused.
+    fn problem_line(&self) -> Buf<256> {
+        let t = self.text().wl;
+        match self.wl.problem {
+            Some(Problem::Format(e)) => fill(t.format_errors[format_error_index(e)], &[]),
+            Some(Problem::Reject(r)) => {
+                let arg: Buf<16> = match r.kind {
+                    RejectKind::Network => fill("{}", &[&self.settings.network.name()]),
+                    _ => fill("{}", &[&(r.key.unwrap_or(0) as usize + 1)]),
+                };
+                fill(t.rejects[reject_index(r.kind)], &[&arg.as_str()])
+            }
+            None => Buf::new(),
+        }
+    }
+
     pub(crate) fn render_wallets(&self, c: &mut dyn Canvas, step: WlStep) {
         let s = self.text();
         let t = s.wl;
@@ -589,18 +1021,7 @@ impl App {
                 widgets::hint_bar(c, &[("Esc", s.h_back)]);
             }
             WlStep::Refused => {
-                let mut line: Buf<256> = Buf::new();
-                match self.wl.problem {
-                    Some(Problem::Format(e)) => line = fill(t.format_errors[format_error_index(e)], &[]),
-                    Some(Problem::Reject(r)) => {
-                        let arg: Buf<16> = match r.kind {
-                            RejectKind::Network => fill("{}", &[&self.settings.network.name()]),
-                            _ => fill("{}", &[&(r.key.unwrap_or(0) as usize + 1)]),
-                        };
-                        line = fill(t.rejects[reject_index(r.kind)], &[&arg.as_str()]);
-                    }
-                    None => {}
-                }
+                let line = self.problem_line();
                 widgets::message_at(c, STATUS_H + 90, t.refused, theme::DANGER, &[line.as_str()]);
                 widgets::hint_bar(c, &[("Esc", s.h_back)]);
             }
@@ -613,35 +1034,37 @@ impl App {
                     labels[k] = fill("{}", &[&self.wallet_name(e).as_str()]);
                     details[k] = fill(t.policy, &[&e.wallet.m, &e.wallet.n(), &e.wallet.script.name()]);
                 }
-                let items: [MenuItem; register::MAX_WALLETS + 1] = core::array::from_fn(|k| {
+                let items: [MenuItem; register::MAX_WALLETS + 3] = core::array::from_fn(|k| {
                     if k < n {
                         MenuItem {
                             label: labels[k].as_str(),
                             detail: details[k].as_str(),
                         }
                     } else {
-                        MenuItem {
-                            label: t.import,
-                            detail: t.import_detail,
-                        }
+                        let (label, detail) = match k - n {
+                            0 => (t.import, t.import_detail),
+                            1 => (t.create, t.create_detail),
+                            _ => (t.export_key, t.export_key_detail),
+                        };
+                        MenuItem { label, detail }
                     }
                 });
-                widgets::list(c, MARGIN, top, W, 300, &items[..n + 1], sel as usize, false);
+                widgets::list(c, MARGIN, top, W, 364, &items[..n + 3], sel as usize, true);
                 if n == 0 {
-                    BODY.draw(c, MARGIN, top + 80, t.empty, theme::TEXT_DIM);
+                    BODY.draw(c, MARGIN, top + 176, t.empty, theme::TEXT_DIM);
                 }
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
             WlStep::Summary { sel } => self.render_wallet_summary(c, sel),
             WlStep::Cosigner { i } => {
                 if let Some(p) = self.wl.pending.as_ref() {
-                    render_cosigner(s, c, &p.wallet, i, p.checked.ours);
+                    render_cosigner(s, c, &p.wallet, i, p.checked.ours, p.wallet.n());
                 }
                 widgets::hint_bar(c, &[("<>", s.h_prev_next), ("Esc", s.h_back)]);
             }
             WlStep::Keys { idx, i } => {
                 if let Some(e) = self.wallets.get(idx) {
-                    render_cosigner(s, c, &e.wallet, i, e.ours);
+                    render_cosigner(s, c, &e.wallet, i, e.ours, e.wallet.n());
                 }
                 widgets::hint_bar(c, &[("<>", s.h_prev_next), ("Esc", s.h_back)]);
             }
@@ -735,6 +1158,156 @@ impl App {
                 }
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
+            WlStep::PickSeed { sel, .. } => {
+                TITLE.draw(c, MARGIN, top, t.pick_seed, theme::TEXT);
+                let (v, n) = self.loaded_slots();
+                let labels: [Buf<40>; 3] = core::array::from_fn(|k| {
+                    self.slot(v[k] as usize)
+                        .map(crate::view::seed_label)
+                        .unwrap_or_default()
+                });
+                let items: [MenuItem; 3] = core::array::from_fn(|k| MenuItem {
+                    label: labels[k].as_str(),
+                    detail: "",
+                });
+                widgets::list(c, MARGIN, top + 44, W, 170, &items[..n], sel as usize, false);
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+            }
+            WlStep::CreateSize { field } => {
+                let Some(cr) = self.wl.creating.as_ref() else {
+                    return;
+                };
+                TITLE.draw(c, MARGIN, top, t.create_title, theme::TEXT);
+                let values: [Buf<24>; 4] = [
+                    fill("{}", &[&cr.script.name()]),
+                    fill("{}", &[&cr.m]),
+                    fill("{}", &[&cr.n]),
+                    fill("{}", &[&cr.account]),
+                ];
+                for (i, (label, value)) in t.create_fields.iter().zip(values.iter()).enumerate() {
+                    let y = top + 50 + i as i32 * 44;
+                    let on = i == field as usize;
+                    if on {
+                        bp_ui::draw::round_rect(c, MARGIN, y - 6, W, 38, 8, theme::SURFACE_HI);
+                    }
+                    BODY.draw(
+                        c,
+                        MARGIN + 14,
+                        y,
+                        label,
+                        if on { theme::TEXT } else { theme::TEXT_DIM },
+                    );
+                    let v: Buf<32> = fill("< {} >", &[&value.as_str()]);
+                    let vw = BODY.text_width(v.as_str());
+                    BODY.draw(
+                        c,
+                        800 - MARGIN - 14 - vw,
+                        y,
+                        v.as_str(),
+                        if on { theme::ACCENT } else { theme::TEXT },
+                    );
+                }
+                let pol: Buf<64> = fill(t.policy, &[&cr.m, &cr.n, &cr.script.name()]);
+                BODY.draw(c, MARGIN, top + 234, pol.as_str(), theme::ACCENT);
+                SMALL.draw_wrapped(c, MARGIN, top + 270, W, 22, 3, t.create_note, theme::TEXT_DIM);
+                widgets::hint_bar(
+                    c,
+                    &[
+                        ("^v", s.h_move),
+                        ("<>", t.h_change),
+                        ("Enter", t.h_next),
+                        ("Esc", s.h_back),
+                    ],
+                );
+            }
+            WlStep::CreateKeys => {
+                let Some(cr) = self.wl.creating.as_ref() else {
+                    return;
+                };
+                let title: Buf<48> = fill(t.keys_title, &[&cr.count, &cr.n]);
+                TITLE.draw(c, MARGIN, top, title.as_str(), theme::TEXT);
+                // two columns of up to 8 rows (N ≤ 15)
+                for (i, k) in cr.keys().enumerate() {
+                    let (col, row) = (i / 8, i % 8);
+                    let x = MARGIN + col as i32 * 410;
+                    let y = top + 44 + row as i32 * 20;
+                    let fp = fingerprint_hex(&k.fingerprint);
+                    let num: Buf<4> = fill(if i < 9 { " {}" } else { "{}" }, &[&(i + 1)]);
+                    let l: Buf<96> = fill("{}  {}  {}", &[&num.as_str(), &fp.as_str(), &k.origin]);
+                    let end = SMALL.draw(c, x, y, l.as_str(), theme::TEXT);
+                    if i == 0 {
+                        widgets::badge(
+                            c,
+                            end + 10,
+                            y - 2,
+                            t.this_badge,
+                            theme::ACCENT,
+                            theme::ACCENT_TEXT,
+                        );
+                    }
+                }
+                let next: Buf<48> = fill(t.scan_next, &[&(cr.count + 1)]);
+                options(c, 446 - 6 - OPTION_H, &[next.as_str()], 0);
+                SMALL.draw_wrapped(
+                    c,
+                    MARGIN,
+                    446 - 6 - OPTION_H - 50,
+                    W,
+                    22,
+                    2,
+                    t.keys_note,
+                    theme::TEXT_DIM,
+                );
+                widgets::hint_bar(c, &[("Enter", s.h_select), ("Esc", s.h_back)]);
+            }
+            WlStep::CreateConfirm { sel } => {
+                let Some(cr) = self.wl.creating.as_ref() else {
+                    return;
+                };
+                if let Some(w) = cr.with_candidate() {
+                    render_cosigner(s, c, &w, cr.count, Some(0), cr.n);
+                }
+                options(c, 446 - 6 - 2 * OPTION_H, &t.confirm_options, sel);
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select)]);
+            }
+            WlStep::CreateRefused => {
+                let line = self.problem_line();
+                widgets::message_at(c, STATUS_H + 90, t.key_refused, theme::DANGER, &[line.as_str()]);
+                widgets::hint_bar(c, &[("Esc", s.h_back)]);
+            }
+            WlStep::KeyScript { slot, sel } => {
+                TITLE.draw(c, MARGIN, top, t.key_title, theme::TEXT);
+                let label = self
+                    .slot(slot as usize)
+                    .map(crate::view::seed_label)
+                    .unwrap_or_default();
+                BODY.draw(c, MARGIN, top + 44, label.as_str(), theme::TEXT_DIM);
+                let items = [MsScript::Wsh, MsScript::ShWsh].map(|sc| MenuItem {
+                    label: sc.name(),
+                    detail: "",
+                });
+                widgets::list(c, MARGIN, top + 84, W, 110, &items, sel as usize, false);
+                let acct: Buf<48> = fill(t.account_line, &[&self.wl.key_account]);
+                let path = [MsScript::Wsh, MsScript::ShWsh][sel as usize & 1]
+                    .account_path(self.settings.network, self.wl.key_account);
+                let l: Buf<96> = fill("< {} >   {}", &[&acct.as_str(), &path]);
+                BODY.draw(c, MARGIN, top + 206, l.as_str(), theme::ACCENT);
+                widgets::hint_bar(
+                    c,
+                    &[
+                        ("^v", s.h_move),
+                        ("<>", t.h_change),
+                        ("Enter", s.h_select),
+                        ("Esc", s.h_back),
+                    ],
+                );
+            }
+            WlStep::KeyFormat { sel, .. } => {
+                TITLE.draw(c, MARGIN, top, t.key_title, theme::TEXT);
+                let items = t.key_formats.map(|(l, d)| MenuItem { label: l, detail: d });
+                widgets::list(c, MARGIN, top + 44, W, 170, &items, sel as usize, false);
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+            }
             WlStep::Remove { idx, sel } => {
                 let Some(e) = self.wallets.get(idx) else { return };
                 let name = self.wallet_name(e);
@@ -756,9 +1329,11 @@ impl App {
         TITLE.draw(c, MARGIN, top, t.summary_title, theme::TEXT);
         let name = if w.name().is_empty() { t.unnamed } else { w.name() };
         BODY.draw(c, MARGIN, top + 42, name, theme::ACCENT);
-        let from: Buf<64> = fill(t.read_from, &[&t.formats[format_index(p.format)]]);
-        let fw = SMALL.text_width(from.as_str());
-        SMALL.draw(c, 800 - MARGIN - fw, top + 46, from.as_str(), theme::TEXT_DIM);
+        if let Some(f) = p.format {
+            let from: Buf<64> = fill(t.read_from, &[&t.formats[format_index(f)]]);
+            let fw = SMALL.text_width(from.as_str());
+            SMALL.draw(c, 800 - MARGIN - fw, top + 46, from.as_str(), theme::TEXT_DIM);
+        }
         let pol: Buf<96> = fill(
             t.policy_line,
             &[&w.m, &w.n(), &w.script.name(), &self.settings.network.name()],
@@ -867,11 +1442,11 @@ fn options(c: &mut dyn Canvas, top: i32, items: &[&str], sel: u8) {
 }
 
 /// One cosigner page: number, fingerprint, path, xpub in groups.
-fn render_cosigner(s: &crate::Strings, c: &mut dyn Canvas, w: &Wallet, i: u8, ours: Option<u8>) {
+fn render_cosigner(s: &crate::Strings, c: &mut dyn Canvas, w: &Wallet, i: u8, ours: Option<u8>, total: u8) {
     let t = s.wl;
     let Some(k) = w.keys().get(i as usize) else { return };
     let top = STATUS_H + 14;
-    let title: Buf<48> = fill(t.cosigner_title, &[&(i as usize + 1), &w.n()]);
+    let title: Buf<48> = fill(t.cosigner_title, &[&(i as usize + 1), &total]);
     TITLE.draw(c, MARGIN, top, title.as_str(), theme::TEXT);
     if ours == Some(i) {
         let bw = widgets::badge_width(t.this_badge);

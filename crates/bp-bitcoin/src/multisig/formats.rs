@@ -796,3 +796,66 @@ pub fn write_coldcard(w: &Wallet, name: &str, out: &mut [u8]) -> Option<usize> {
     r.ok()?;
     Some(o.len())
 }
+
+/// `[fingerprint/path]xpub` (plain xpub/tpub version): the text cosigner
+/// format of SeedSigner, Krux and Specter DIY.
+pub fn write_key_text(c: &Cosigner, test: bool, out: &mut [u8]) -> Option<usize> {
+    use core::fmt::Write;
+    let mut o = descriptor::Out::new(out);
+    descriptor::write_origin(&mut o, &c.fingerprint, &c.origin).ok()?;
+    let net = if test {
+        crate::Network::Testnet
+    } else {
+        crate::Network::Mainnet
+    };
+    let mut x = [0u8; crate::bip32::XKEY_LEN];
+    let n = c.xpub.encode(KeyVersion::X.public(net), &mut x);
+    o.write_str(core::str::from_utf8(&x[..n]).ok()?).ok()?;
+    Some(o.len())
+}
+
+/// The Coldcard "Export XPUB" multisig JSON, both script types, keys in
+/// SLIP-132 versions as Coldcard writes them (`Zpub`, `Ypub`).
+pub fn write_coldcard_xpub_json(
+    wsh: &Cosigner,
+    shwsh: &Cosigner,
+    account: u32,
+    test: bool,
+    out: &mut [u8],
+) -> Option<usize> {
+    use core::fmt::Write;
+    let mut o = descriptor::Out::new(out);
+    let net = if test {
+        crate::Network::Testnet
+    } else {
+        crate::Network::Mainnet
+    };
+    let key = |c: &Cosigner, v: KeyVersion, buf: &mut [u8; crate::bip32::XKEY_LEN]| -> usize {
+        c.xpub.encode(v.public(net), buf)
+    };
+    let mut a = [0u8; crate::bip32::XKEY_LEN];
+    let mut b = [0u8; crate::bip32::XKEY_LEN];
+    let na = key(shwsh, KeyVersion::MultiY, &mut a);
+    let nb = key(wsh, KeyVersion::MultiZ, &mut b);
+    let r: core::fmt::Result = (|| {
+        write!(o, "{{\"p2sh_p2wsh_deriv\": \"{}\", ", shwsh.origin)?;
+        write!(
+            o,
+            "\"p2sh_p2wsh\": \"{}\", ",
+            core::str::from_utf8(&a[..na]).map_err(|_| core::fmt::Error)?
+        )?;
+        write!(o, "\"p2wsh_deriv\": \"{}\", ", wsh.origin)?;
+        write!(
+            o,
+            "\"p2wsh\": \"{}\", ",
+            core::str::from_utf8(&b[..nb]).map_err(|_| core::fmt::Error)?
+        )?;
+        o.write_str("\"xfp\": \"")?;
+        for x in wsh.fingerprint {
+            write!(o, "{:02X}", x)?;
+        }
+        write!(o, "\", \"account\": {}}}", account)
+    })();
+    r.ok()?;
+    Some(o.len())
+}

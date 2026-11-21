@@ -433,3 +433,65 @@ fn private_key_in_ur_is_refused() {
     );
     let _ = c;
 }
+
+/// What Bitpunk exports for a coordinator reads back through every cosigner
+/// parser to the same key.
+#[test]
+fn cosigner_exports_round_trip() {
+    use bp_bitcoin::multisig::formats::{write_coldcard_xpub_json, write_key_text};
+    use bp_bitcoin::urtypes::{crypto_account_tags, AccountKey, TAG_SH, TAG_WSH};
+    for net in [Network::Mainnet, Network::Testnet] {
+        let test = net != Network::Mainnet;
+        let wsh = cosigner(3, MsScript::Wsh, net);
+        let sh = cosigner(3, MsScript::ShWsh, net);
+        let mut buf = [0u8; 1024];
+        // key text
+        let n = write_key_text(&wsh, test, &mut buf).unwrap();
+        let (k, t) = parse_cosigner(&buf[..n], MsScript::Wsh).unwrap();
+        assert_eq!(
+            (k.fingerprint, k.origin, k.xpub, t),
+            (wsh.fingerprint, wsh.origin, wsh.xpub, test)
+        );
+        // Coldcard JSON (both scripts)
+        let n = write_coldcard_xpub_json(&wsh, &sh, 0, test, &mut buf).unwrap();
+        let (a, _) = parse_cosigner(&buf[..n], MsScript::Wsh).unwrap();
+        let (b, _) = parse_cosigner(&buf[..n], MsScript::ShWsh).unwrap();
+        assert_eq!(
+            (a.xpub, a.origin, a.version),
+            (wsh.xpub, wsh.origin, KeyVersion::MultiZ)
+        );
+        assert_eq!(
+            (b.xpub, b.origin, b.version),
+            (sh.xpub, sh.origin, KeyVersion::MultiY)
+        );
+        // UR crypto-account
+        for (c, script, tags) in [
+            (&wsh, MsScript::Wsh, &[TAG_WSH][..]),
+            (&sh, MsScript::ShWsh, &[TAG_SH, TAG_WSH][..]),
+        ] {
+            let key = AccountKey {
+                xpub: &c.xpub,
+                master_fingerprint: c.fingerprint,
+                path: &c.origin,
+                script: bp_bitcoin::address::ScriptType::NativeSegwit,
+                network: net,
+            };
+            let n = crypto_account_tags(&key, tags, &mut buf).unwrap();
+            let (k, t) = parse_cosigner_ur("crypto-account", &buf[..n], script).unwrap();
+            assert_eq!(
+                (k.fingerprint, k.origin, k.xpub, t),
+                (c.fingerprint, c.origin, c.xpub, test)
+            );
+            // the other script type is not in this account
+            let other = if script == MsScript::Wsh {
+                MsScript::ShWsh
+            } else {
+                MsScript::Wsh
+            };
+            assert_eq!(
+                parse_cosigner_ur("crypto-account", &buf[..n], other).unwrap_err(),
+                Error::ScriptFormat
+            );
+        }
+    }
+}

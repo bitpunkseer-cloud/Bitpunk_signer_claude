@@ -1089,6 +1089,74 @@ fn wallet_tour(t: &mut Tour) {
     press(&mut c, Key::Char('1'));
     c.on_qr_text(b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
     t.snap(&c, "wallets-not-a-wallet");
+
+    // air-gapped creation with two seeds loaded: pick a seed, size, keys
+    to_main(&mut b);
+    open_wallets(&mut b);
+    let n = b.wallets.len() as u8;
+    press(&mut b, Key::Char((b'2' + n) as char));
+    t.snap(&b, "wallets-pick-seed");
+    press(&mut b, Key::Enter);
+    t.snap(&b, "wallets-create-size");
+    for _ in 0..3 {
+        press(&mut b, Key::Down);
+    }
+    press(&mut b, Key::Right);
+    t.snap(&b, "wallets-create-size-account");
+    // account -> N: three steps down (the rows wrap)
+    for _ in 0..3 {
+        press(&mut b, Key::Down);
+    }
+    for _ in 0..12 {
+        press(&mut b, Key::Right);
+    }
+    assert_eq!(b.wl.creating.as_ref().unwrap().n, 15);
+    press(&mut b, Key::Enter);
+    t.snap(&b, "wallets-create-keys-1");
+    let net = b.settings.network;
+    let acct = MsScript::Wsh.account_path(net, 0);
+    for i in 0..13u8 {
+        let mk = BpXpriv::master(&[i + 100; 32]).unwrap();
+        let c = Cosigner {
+            fingerprint: mk.fingerprint(),
+            origin: acct,
+            xpub: mk.derive_path(&acct).unwrap().to_xpub(),
+            version: KeyVersion::X,
+        };
+        let mut buf = [0u8; 256];
+        let len = formats::write_key_text(&c, false, &mut buf).unwrap();
+        press(&mut b, Key::Enter);
+        b.on_qr_text(&buf[..len]);
+        if i == 0 {
+            t.snap(&b, "wallets-create-confirm");
+        }
+        press(&mut b, Key::Char('1'));
+    }
+    t.snap(&b, "wallets-create-keys-14");
+    press(&mut b, Key::Enter);
+    b.on_qr_text(b"[deadbeef]xpub");
+    t.snap(&b, "wallets-create-refused");
+    press(&mut b, Key::Enter);
+    press(&mut b, Key::Enter);
+    b.on_qr_text(b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
+    t.snap(&b, "wallets-not-a-key");
+
+    // export this device's key
+    to_main(&mut c);
+    open_wallets(&mut c);
+    press(&mut c, Key::Char('3'));
+    t.snap(&c, "wallets-key-script");
+    press(&mut c, Key::Enter);
+    t.snap(&c, "wallets-key-format");
+    for (k, name) in [
+        ('1', "wallets-key-qr-text"),
+        ('2', "wallets-key-qr-ur"),
+        ('3', "wallets-key-qr-coldcard"),
+    ] {
+        press(&mut c, Key::Char(k));
+        t.snap(&c, name);
+        press(&mut c, Key::Esc);
+    }
 }
 
 #[test]

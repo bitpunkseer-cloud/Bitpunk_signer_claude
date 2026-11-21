@@ -1070,6 +1070,7 @@ impl App {
                     .unwrap_or_default();
                 fill(s.wl.qr_title, &[&name.as_str()])
             }
+            QrKind::MsKey { script, account, .. } => fill(s.wl.key_qr_title, &[&script.name(), &account]),
         }
     }
 
@@ -1199,7 +1200,7 @@ impl App {
             QrKind::SeedQr { .. } => s.qr_keys_seed,
             QrKind::SignedPsbt { .. } | QrKind::MessageSig => s.rv.qr_keys,
             QrKind::Settings => s.si_note_short,
-            QrKind::Wallet { .. } => s.wl.qr_keys,
+            QrKind::Wallet { .. } | QrKind::MsKey { .. } => s.wl.qr_keys,
         };
         let y0 = h - 4 * 21 - 6;
         for (i, k) in s.qr_keys.iter().chain(core::iter::once(&extra)).enumerate() {
@@ -1314,6 +1315,7 @@ impl App {
             Purpose::Signed => s.verify_sig,
             Purpose::SigText => s.sv_scan_sig,
             Purpose::Wallet => s.wl.scan_title,
+            Purpose::Cosigner => s.wl.key_scan_title,
         };
         self.status(c, title);
         let (bx, by) = (MARGIN, STATUS_H + 20);
@@ -1524,6 +1526,10 @@ impl App {
                     bp_bitcoin::qrinput::UrKey::HdKey => "UR crypto-hdkey",
                 };
                 widgets::message_at(c, STATUS_H + 90, s.res_xpub, theme::ACCENT, &[name]);
+            }
+            Outcome::NotAKey => {
+                self.status(c, s.wl.key_scan_title);
+                widgets::message_at(c, STATUS_H + 90, s.wl.not_key, theme::WARN, &[s.wl.not_key_1]);
             }
             Outcome::NotAWallet => {
                 self.status(c, s.wl.scan_title);

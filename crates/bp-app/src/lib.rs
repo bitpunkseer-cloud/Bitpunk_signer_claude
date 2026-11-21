@@ -72,6 +72,13 @@ pub enum QrKind {
         idx: u8,
         format: wallets::WalletFormat,
     },
+    /// This device's BIP-48 multisig key, for a coordinator.
+    MsKey {
+        slot: u8,
+        script: bp_bitcoin::multisig::MsScript,
+        account: u32,
+        format: wallets::KeyFormat,
+    },
 }
 
 /// QR formats for the signed PSBT (decision 5: UR by default).
@@ -593,6 +600,24 @@ impl App {
                     self.scanned = seeds::SeedSlot::new(m, b"");
                     self.set_current(Screen::ScanSeed { sel: 0 });
                 }
+            }
+        } else if purpose == scan::Purpose::Cosigner {
+            let kind = match self.scan.outcome {
+                Some(scan::Outcome::Xpub { len, .. }) | Some(scan::Outcome::Text { len }) => {
+                    Some((len, None))
+                }
+                Some(scan::Outcome::KeyUr { len, kind }) => Some((len, Some(kind))),
+                _ => None,
+            };
+            match kind {
+                Some((len, ur)) => {
+                    let mut data = [0u8; 2048];
+                    let n = len.min(data.len());
+                    data[..n].copy_from_slice(&self.scan.out[..n]);
+                    self.wallet_cosigner_scanned(&data[..n], ur);
+                    self.end_scan_if_left();
+                }
+                None => self.set_current(Screen::ScanResult),
             }
         } else if let Some(scan::Outcome::Psbt { len, .. }) = self.scan.outcome {
             self.start_review(len);
@@ -1243,6 +1268,12 @@ impl App {
                     qrview::Speed::Normal,
                 )
             }
+            QrKind::MsKey {
+                slot,
+                script,
+                account,
+                format,
+            } => self.key_qr(slot, script, account, format),
             QrKind::Wallet { idx, format } => {
                 let s = self.wallet_qr(idx, format);
                 if s.is_none() {

@@ -1723,6 +1723,32 @@ pub struct WalletStrings {
     pub qr_keys: &'static str,
     pub h_next: &'static str,
     pub h_type: &'static str,
+    // air-gapped creation and key export (M7-5)
+    pub create: &'static str,
+    pub create_detail: &'static str,
+    pub export_key: &'static str,
+    pub export_key_detail: &'static str,
+    pub pick_seed: &'static str,
+    pub create_title: &'static str,
+    pub create_fields: [&'static str; 4],
+    pub create_note: &'static str,
+    /// "Cosigners: {} of {}"
+    pub keys_title: &'static str,
+    /// "Scan cosigner {}"
+    pub scan_next: &'static str,
+    pub keys_note: &'static str,
+    pub confirm_options: [&'static str; 2],
+    pub key_refused: &'static str,
+    pub not_key: &'static str,
+    pub not_key_1: &'static str,
+    pub key_scan_title: &'static str,
+    pub key_title: &'static str,
+    /// "Account {}"
+    pub account_line: &'static str,
+    pub key_formats: [(&'static str, &'static str); 3],
+    /// "Multisig key: {}, account {}"
+    pub key_qr_title: &'static str,
+    pub h_change: &'static str,
 }
 
 pub static EN_WALLET: WalletStrings = WalletStrings {
@@ -1829,6 +1855,31 @@ pub static EN_WALLET: WalletStrings = WalletStrings {
     qr_keys: "Scan into coordinator or cosigner",
     h_next: "Next",
     h_type: "Type",
+    create: "Create wallet (air-gapped)",
+    create_detail: "scan cosigners",
+    export_key: "Export my multisig key",
+    export_key_detail: "for a coordinator",
+    pick_seed: "Which seed?",
+    create_title: "New multisig wallet",
+    create_fields: ["Script type", "Signatures needed (M)", "Keys in total (N)", "Account"],
+    create_note: "This device's key is added first. Then scan each cosigner's multisig xpub from its own screen: no computer is involved.",
+    keys_title: "Cosigners: {} of {}",
+    scan_next: "Scan cosigner {}",
+    keys_note: "On each cosigner, export its multisig (BIP-48) xpub as a QR, for the same script type and network.",
+    confirm_options: ["Add this cosigner", "Discard"],
+    key_refused: "Key refused",
+    not_key: "Not a cosigner key",
+    not_key_1: "Scan a cosigner's xpub: [fingerprint/path]xpub text, UR crypto-account, or Coldcard JSON.",
+    key_scan_title: "Scan cosigner",
+    key_title: "Export my multisig key",
+    account_line: "Account {}",
+    key_formats: [
+        ("Key text (one QR)", "Sparrow, Specter, Krux"),
+        ("UR crypto-account", "Sparrow, Nunchuk, Keeper"),
+        ("Coldcard JSON", "Sparrow, Nunchuk, Specter"),
+    ],
+    key_qr_title: "Multisig key: {}, account {}",
+    h_change: "Change",
 };
 
 pub static KO_WALLET: WalletStrings = WalletStrings {
@@ -1935,6 +1986,31 @@ pub static KO_WALLET: WalletStrings = WalletStrings {
     qr_keys: "코디네이터나 공동서명자로 스캔",
     h_next: "다음",
     h_type: "입력",
+    create: "지갑 만들기 (에어갭)",
+    create_detail: "공동서명자 스캔",
+    export_key: "내 멀티시그 키 내보내기",
+    export_key_detail: "코디네이터용",
+    pick_seed: "어느 시드로 할까요?",
+    create_title: "새 멀티시그 지갑",
+    create_fields: ["스크립트 종류", "필요한 서명 수 (M)", "전체 키 수 (N)", "계정"],
+    create_note: "이 기기 키가 먼저 들어갑니다. 그다음 각 공동서명자 화면의 멀티시그 xpub을 스캔합니다: 컴퓨터를 거치지 않습니다.",
+    keys_title: "공동서명자: {} / {}",
+    scan_next: "공동서명자 {} 스캔",
+    keys_note: "각 공동서명자에서 같은 스크립트 종류와 네트워크의 멀티시그(BIP-48) xpub을 QR로 내보내세요.",
+    confirm_options: ["이 공동서명자 추가", "버리기"],
+    key_refused: "키 거부",
+    not_key: "공동서명자 키가 아닙니다",
+    not_key_1: "공동서명자 xpub을 스캔하세요: [지문/경로]xpub 텍스트, UR crypto-account, Coldcard JSON.",
+    key_scan_title: "공동서명자 스캔",
+    key_title: "내 멀티시그 키 내보내기",
+    account_line: "계정 {}",
+    key_formats: [
+        ("키 텍스트 (QR 한 장)", "Sparrow, Specter, Krux"),
+        ("UR crypto-account", "Sparrow, Nunchuk, Keeper"),
+        ("Coldcard JSON", "Sparrow, Nunchuk, Specter"),
+    ],
+    key_qr_title: "멀티시그 키: {}, 계정 {}",
+    h_change: "바꾸기",
 };
 
 #[cfg(test)]
