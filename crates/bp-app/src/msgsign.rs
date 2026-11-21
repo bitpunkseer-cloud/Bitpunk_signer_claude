@@ -680,42 +680,51 @@ impl App {
     }
 
     fn render_msg_page(&self, c: &mut dyn Canvas, m: &MsgState, page: u8) {
-        let s = self.text();
-        let pages = page_count(m.message());
-        let head: Buf<96> = fill(s.ms_page, &[&(page + 1), &pages]);
-        widgets::label(c, MARGIN, STATUS_H + 12, head.as_str());
-        let msg = m.message();
-        let text = core::str::from_utf8(msg).unwrap_or("");
-        let first = page as usize * PAGE_LINES;
-        let mut n = 0;
-        let mut y = STATUS_H + 40;
-        lines(msg, cols(), |a, b, brk| {
-            if (first..first + PAGE_LINES).contains(&n) {
-                let end = BODY.draw(c, MARGIN, y, &text[a..b], theme::TEXT);
-                if brk {
-                    BODY.draw(c, end, y, s.newline_mark, theme::ACCENT);
-                }
-                y += LINE_H;
+        let bip322 = m.target.map(|t| t.st) == Some(ScriptType::Taproot);
+        draw_message_page(self.text(), c, m.message(), page, bip322);
+    }
+}
+
+/// Pages of `msg` on the message screens.
+pub(crate) fn message_pages(msg: &[u8]) -> u8 {
+    page_count(msg)
+}
+
+/// One page of a message being signed: the lines (breaks marked), and on
+/// the last page the message hash (BIP-322 tagged hash or SHA-256d).
+pub(crate) fn draw_message_page(s: &crate::Strings, c: &mut dyn Canvas, msg: &[u8], page: u8, bip322: bool) {
+    let pages = page_count(msg);
+    let head: Buf<96> = fill(s.ms_page, &[&(page + 1), &pages]);
+    widgets::label(c, MARGIN, STATUS_H + 12, head.as_str());
+    let text = core::str::from_utf8(msg).unwrap_or("");
+    let first = page as usize * PAGE_LINES;
+    let mut n = 0;
+    let mut y = STATUS_H + 40;
+    lines(msg, cols(), |a, b, brk| {
+        if (first..first + PAGE_LINES).contains(&n) {
+            let end = BODY.draw(c, MARGIN, y, &text[a..b], theme::TEXT);
+            if brk {
+                BODY.draw(c, end, y, s.newline_mark, theme::ACCENT);
             }
-            n += 1;
-        });
-        if page + 1 == pages {
-            let t = m.target.map(|t| t.st);
-            let (label, hash) = if t == Some(ScriptType::Taproot) {
-                (s.ms_hash_bip322, bip322::message_hash(msg))
-            } else {
-                (s.ms_hash, message::message_hash(msg))
-            };
-            widgets::label(c, MARGIN, 360, label);
-            let mut hex = Buf::<64>::new();
-            for b in hash {
-                let _ = core::fmt::Write::write_fmt(&mut hex, format_args!("{b:02x}"));
-            }
-            SMALL.draw(c, MARGIN, 382, hex.as_str(), theme::TEXT_DIM);
-            widgets::hint_bar(c, &[("<>", s.h_page), ("Enter", s.rv.h_next), ("Esc", s.h_back)]);
-        } else {
-            SMALL.draw(c, MARGIN, 382, s.ms_read_all, theme::WARN);
-            widgets::hint_bar(c, &[("<>", s.h_page), ("Enter", s.h_page), ("Esc", s.h_back)]);
+            y += LINE_H;
         }
+        n += 1;
+    });
+    if page + 1 == pages {
+        let (label, hash) = if bip322 {
+            (s.ms_hash_bip322, bip322::message_hash(msg))
+        } else {
+            (s.ms_hash, message::message_hash(msg))
+        };
+        widgets::label(c, MARGIN, 360, label);
+        let mut hex = Buf::<64>::new();
+        for b in hash {
+            let _ = core::fmt::Write::write_fmt(&mut hex, format_args!("{b:02x}"));
+        }
+        SMALL.draw(c, MARGIN, 382, hex.as_str(), theme::TEXT_DIM);
+        widgets::hint_bar(c, &[("<>", s.h_page), ("Enter", s.rv.h_next), ("Esc", s.h_back)]);
+    } else {
+        SMALL.draw(c, MARGIN, 382, s.ms_read_all, theme::WARN);
+        widgets::hint_bar(c, &[("<>", s.h_page), ("Enter", s.h_page), ("Esc", s.h_back)]);
     }
 }

@@ -5,6 +5,7 @@ use crate::seeds::fingerprint_hex;
 use crate::settings::Units;
 use crate::App;
 use bp_bitcoin::address;
+use bp_bitcoin::bip322::Forgery;
 use bp_bitcoin::psbt::Psbt;
 use bp_bitcoin::sign;
 use bp_bitcoin::validate::{At, Class, Issue, OutputKind};
@@ -102,6 +103,91 @@ impl App {
     fn psbt(&self) -> Option<Psbt<'_>> {
         let r = self.review.as_ref()?;
         Psbt::parse(&self.scan.out[..r.psbt_len.min(self.scan.out.len())]).ok()
+    }
+
+    /// Input 0 of a BIP-322 PSBT: the address, its verified path, and for
+    /// Proof of Reserves the coins and their total.
+    fn message_input(&self) -> Option<(Buf<96>, Buf<64>)> {
+        let r = self.review.as_ref()?;
+        let rep = r.report.as_ref()?;
+        let first = rep.inputs().first()?;
+        let owned = first.owned.as_ref()?.get();
+        let psbt = self.psbt()?;
+        let map = psbt.input(0)?;
+        let spk = match (map.witness_utxo(), map.non_witness_utxo()) {
+            (Some(w), _) => w.script_pubkey,
+            (None, Some(t)) => t.output(0)?.script_pubkey,
+            _ => return None,
+        };
+        let mut a = [0u8; address::MAX_ADDRESS_LEN];
+        let n = address::from_script(spk, self.settings.network, &mut a)?;
+        let mut addr = Buf::<96>::new();
+        addr.push_str(core::str::from_utf8(&a[..n]).ok()?);
+        Some((addr, bformat!(64, "{}", owned.path)))
+    }
+
+    fn render_message_address(&self, c: &mut dyn Canvas) {
+        let s = self.text();
+        let rv = s.rv;
+        let Some(r) = self.review.as_ref() else { return };
+        let por = r.message.is_some_and(|m| m.proof_of_reserves);
+        self.status(c, if por { rv.por_title } else { rv.msg_title });
+        let Some((addr, path)) = self.message_input() else {
+            return;
+        };
+        widgets::label(c, MARGIN, STATUS_H + 12, s.ms_sign_with);
+        let y = address_lines(c, MARGIN, STATUS_H + 36, addr.as_str()) + 8;
+        BODY.draw(c, MARGIN, y, path.as_str(), theme::ACCENT);
+        let fp = r
+            .report
+            .as_ref()
+            .map(|x| fingerprint_hex(&x.master_fingerprint))
+            .unwrap_or_default();
+        let l: Buf<128> = fill(s.ms_verified, &[&fp.as_str()]);
+        BODY.draw(c, MARGIN, y + 36, l.as_str(), theme::OK);
+        if por {
+            if let Some(rep) = r.report.as_ref() {
+                let coins = rep.inputs().len().saturating_sub(1);
+                let total = amount(rep.totals.ours, self.settings.units);
+                let l: Buf<160> = fill(rv.por_line, &[&coins, &total.as_str()]);
+                BODY.draw(c, MARGIN, y + 80, l.as_str(), theme::TEXT);
+                SMALL.draw(c, MARGIN, y + 114, rv.por_all_ours, theme::TEXT_DIM);
+            }
+        }
+        widgets::hint_bar(c, &[("Enter", rv.h_next), ("Esc", s.h_back)]);
+    }
+
+    fn render_message_approve(&self, c: &mut dyn Canvas, sel: u8) {
+        let s = self.text();
+        let rv = s.rv;
+        let Some(r) = self.review.as_ref() else { return };
+        let por = r.message.is_some_and(|m| m.proof_of_reserves);
+        self.status(c, if por { rv.por_title } else { rv.msg_title });
+        TITLE.draw(
+            c,
+            MARGIN,
+            STATUS_H + 20,
+            if por { rv.por_confirm } else { s.ms_confirm },
+            theme::ACCENT,
+        );
+        let msg = core::str::from_utf8(self.review_message().unwrap_or(&[])).unwrap_or("");
+        let cols = ((W - 2 * MARGIN) / BODY.width as i32) as usize;
+        let (first, rest) = bp_ui::font::split_line(msg, cols - 4);
+        let shown: Buf<80> = if rest.is_empty() {
+            bformat!(80, "\"{}\"", first)
+        } else {
+            bformat!(80, "\"{}...\"", bp_ui::font::split_line(first, cols - 7).0)
+        };
+        let mut y = STATUS_H + 70;
+        BODY.draw(c, MARGIN, y, shown.as_str(), theme::TEXT);
+        y += 36;
+        if let Some((addr, _)) = self.message_input() {
+            SMALL.draw(c, MARGIN, y, addr.as_str(), theme::TEXT_DIM);
+        }
+        y += 40;
+        let items = rv.options.map(|label| MenuItem { label, detail: "" });
+        widgets::list(c, MARGIN, y, 400, 110, &items, sel as usize, false);
+        widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
     }
 
     pub(crate) fn render_review(&self, c: &mut dyn Canvas, step: Step) {
@@ -361,6 +447,61 @@ impl App {
                 }
                 widgets::hint_bar(c, &[("Enter", rv.h_next), ("Esc", s.h_back)]);
             }
+            Step::Approve { sel } if r.message.is_some() => self.render_message_approve(c, sel),
+            Step::Forged => {
+                self.status(c, rv.title);
+                let i = match r.forgery {
+                    Some(Forgery::NoChallenge) => 0,
+                    Some(Forgery::PrevoutIndex) => 1,
+                    Some(Forgery::ToSpendMismatch) | None => 2,
+                    Some(Forgery::NonZeroAmount) => 3,
+                    Some(Forgery::NonWitnessUtxo) => 4,
+                    Some(Forgery::Version) => 5,
+                };
+                let y = widgets::message_at(c, STATUS_H + 50, rv.attack, theme::DANGER, &[rv.forged_1]);
+                BODY.draw_wrapped(
+                    c,
+                    MARGIN,
+                    y + 16,
+                    W - 2 * MARGIN,
+                    30,
+                    3,
+                    rv.forgeries[i],
+                    theme::TEXT,
+                );
+                widgets::hint_bar(c, &[("Enter", rv.h_discard)]);
+            }
+            Step::MsgOff => {
+                self.status(c, rv.msg_title);
+                widgets::message_at(
+                    c,
+                    STATUS_H + 70,
+                    s.ms_off_title,
+                    theme::WARN,
+                    &[s.ms_off_1, "", s.ms_off_2],
+                );
+                widgets::hint_bar(c, &[("Enter", s.h_done)]);
+            }
+            Step::MsgRule => {
+                self.status(c, rv.msg_title);
+                let i = match r.rule {
+                    Some(bp_bitcoin::message::MessageError::TooShort) => 0,
+                    Some(bp_bitcoin::message::MessageError::TooLong) => 1,
+                    Some(bp_bitcoin::message::MessageError::NotPrintable) | None => 2,
+                    Some(bp_bitcoin::message::MessageError::LeadingOrTrailingSpace) => 3,
+                    Some(bp_bitcoin::message::MessageError::TooManySpaces) => 4,
+                };
+                let l: Buf<256> = fill(s.ms_problems[3], &[&s.ms_rules[i]]);
+                widgets::message_at(c, STATUS_H + 70, rv.cannot_sign, theme::DANGER, &[l.as_str()]);
+                widgets::hint_bar(c, &[("Enter", s.h_done)]);
+            }
+            Step::MsgPage { page } => {
+                let por = r.message.is_some_and(|m| m.proof_of_reserves);
+                self.status(c, if por { rv.por_title } else { rv.msg_title });
+                let msg = self.review_message().unwrap_or(&[]);
+                crate::msgsign::draw_message_page(s, c, msg, page, true);
+            }
+            Step::MsgAddress => self.render_message_address(c),
             Step::Approve { sel } => {
                 self.status(c, rv.title);
                 let Some(rep) = r.report.as_ref() else { return };

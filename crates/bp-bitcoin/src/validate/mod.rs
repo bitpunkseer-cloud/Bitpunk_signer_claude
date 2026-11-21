@@ -158,6 +158,9 @@ pub enum Issue {
     UnverifiedAmounts,
     /// Inputs that do not belong to this seed (e.g. PayJoin).
     ExternalInputs,
+    /// A BIP-322 message or Proof of Reserves with an input that is not
+    /// this seed's: it would prove coins the seed does not control.
+    ExternalMessageInput,
     /// Some inputs of this seed already carry signatures.
     PartlySigned,
     /// The fee is at least the warning share of the outputs.
@@ -339,6 +342,10 @@ pub struct Policy {
     pub fee_rate_warn: u64,
     /// Warn when change is this far beyond the inputs' address indexes.
     pub change_index_gap: u32,
+    /// A BIP-322 message or Proof of Reserves (never broadcast): no fee,
+    /// change or amount checks and nothing remembered; every input must
+    /// be this seed's.
+    pub message: bool,
 }
 
 impl Default for Policy {
@@ -348,6 +355,7 @@ impl Default for Policy {
             fee_block_percent: 10,
             fee_rate_warn: 1000,
             change_index_gap: 10_000,
+            message: false,
         }
     }
 }

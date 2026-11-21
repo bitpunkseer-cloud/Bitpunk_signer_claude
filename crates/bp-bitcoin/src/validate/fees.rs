@@ -112,6 +112,12 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, report: &mut Report) {
         report.totals = t;
         return;
     }
+    if ctx.policy.message {
+        // never broadcast: no fee or change to judge
+        t.inputs = all_known.then_some(inputs_sum);
+        report.totals = t;
+        return;
+    }
     if all_known {
         t.inputs = Some(inputs_sum);
         match inputs_sum.checked_sub(t.outputs) {

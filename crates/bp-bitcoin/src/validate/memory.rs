@@ -41,6 +41,11 @@ impl UtxoMemory {
         self.len = (self.len + 1).min(CAPACITY);
     }
 
+    /// Nothing remembered.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     pub fn clear(&mut self) {
         *self = Self::new();
     }

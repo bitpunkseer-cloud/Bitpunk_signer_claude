@@ -259,8 +259,13 @@ fn sign_into(
         return Err(Error::Output);
     }
 
-    // 8. remember what was signed
-    for (rep, txin) in report.inputs().iter().zip(tx.inputs()) {
+    // 8. remember what was signed (not for messages: never broadcast)
+    for (rep, txin) in report
+        .inputs()
+        .iter()
+        .zip(tx.inputs())
+        .filter(|_| !signer.policy.message)
+    {
         if let (Some(o), false) = (rep.owned, rep.finalized || rep.signed) {
             memory.remember(txin.outpoint, o.get().amount);
         }

@@ -954,5 +954,251 @@ fn typed_message_with_an_address_from_the_explorer() {
     assert!(ref_verify(&w, "m/84'/0'/0'/1/4", "change #4", &sig, "p2wpkh"));
 }
 
+// ---------- M6: BIP-322 message PSBTs and Proof of Reserves ----------
+
+/// A BIP-322 PSBT as Sparrow builds it for a hardware wallet: to_sign with
+/// input 0 spending to_spend of `msg` for `w`'s address at `path`, plus
+/// optional real inputs (`extra`: wallet, path, amount) for a Proof of
+/// Reserves.
+fn bip322_psbt(w: &W, taproot: bool, path: &str, msg: &str, extra: &[(&W, &str, u64)]) -> RefPsbt {
+    use bitcoin::psbt::raw::Key as RawKey;
+    let (pk, p) = w.key(path);
+    let fp = w.master.fingerprint(&w.secp);
+    let spk = if taproot {
+        ScriptBuf::new_p2tr(&w.secp, pk.x_only_public_key().0, None)
+    } else {
+        ScriptBuf::new_p2wpkh(&CompressedPublicKey(pk).wpubkey_hash())
+    };
+    let txid = bp_bitcoin::bip322::to_spend_txid(spk.as_bytes(), msg.as_bytes()).unwrap();
+    let mut inputs = vec![TxIn {
+        previous_output: OutPoint {
+            txid: bitcoin::Txid::from_byte_array(txid),
+            vout: 0,
+        },
+        script_sig: ScriptBuf::new(),
+        sequence: Sequence::ZERO,
+        witness: Witness::new(),
+    }];
+    for (n, _) in extra.iter().enumerate() {
+        inputs.push(TxIn {
+            previous_output: OutPoint {
+                txid: bitcoin::Txid::from_byte_array([0x40 + n as u8; 32]),
+                vout: 1,
+            },
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ZERO,
+            witness: Witness::new(),
+        });
+    }
+    let tx = Transaction {
+        version: transaction::Version(0),
+        lock_time: absolute::LockTime::ZERO,
+        input: inputs,
+        output: vec![TxOut {
+            value: Amount::ZERO,
+            script_pubkey: ScriptBuf::from_bytes(vec![0x6A]),
+        }],
+    };
+    let mut psbt = RefPsbt::from_unsigned_tx(tx).unwrap();
+    psbt.unknown.insert(
+        RawKey {
+            type_value: 0x09,
+            key: vec![],
+        },
+        msg.as_bytes().to_vec(),
+    );
+    let mut fill = |i: usize, w: &W, path: &str, amount: u64| {
+        let (pk, p) = w.key(path);
+        let fp = w.master.fingerprint(&w.secp);
+        let inp = &mut psbt.inputs[i];
+        inp.sighash_type = Some(bitcoin::psbt::PsbtSighashType::from_u32(1));
+        if taproot {
+            let x = pk.x_only_public_key().0;
+            inp.witness_utxo = Some(TxOut {
+                value: Amount::from_sat(amount),
+                script_pubkey: ScriptBuf::new_p2tr(&w.secp, x, None),
+            });
+            inp.tap_internal_key = Some(x);
+            inp.tap_key_origins.insert(x, (vec![], (fp, p)));
+        } else {
+            inp.witness_utxo = Some(TxOut {
+                value: Amount::from_sat(amount),
+                script_pubkey: ScriptBuf::new_p2wpkh(&CompressedPublicKey(pk).wpubkey_hash()),
+            });
+            inp.bip32_derivation.insert(pk, (fp, p));
+        }
+    };
+    let _ = (fp, p);
+    fill(0, w, path, 0);
+    for (n, (ew, epath, amt)) in extra.iter().enumerate() {
+        fill(n + 1, ew, epath, *amt);
+    }
+    psbt
+}
+
+/// The BIP-322 simple signature of input 0 of a signed PSBT.
+fn simple_from_signed(raw: &[u8], taproot: bool) -> String {
+    let p = RefPsbt::deserialize(raw).unwrap();
+    let inp = &p.inputs[0];
+    let mut wit = Witness::new();
+    if taproot {
+        wit.push(inp.tap_key_sig.unwrap().to_vec());
+    } else {
+        let (pk, sig) = inp.partial_sigs.iter().next().unwrap();
+        wit.push(sig.to_vec());
+        wit.push(pk.to_bytes());
+    }
+    let mut out = String::from("smp");
+    let ser = bitcoin::consensus::serialize(&wit);
+    let mut b = vec![0u8; ser.len() * 2 + 8];
+    let n = bp_bitcoin::base64::encode(&ser, &mut b).unwrap();
+    out.push_str(std::str::from_utf8(&b[..n]).unwrap());
+    out
+}
+
+fn sign_message_review(a: &mut App) -> Vec<u8> {
+    while let Step::MsgPage { .. } = step(a) {
+        render(a);
+        press(a, Key::Enter);
+    }
+    assert_eq!(step(a), Step::MsgAddress);
+    render(a);
+    press(a, Key::Enter);
+    assert_eq!(step(a), Step::Approve { sel: 0 });
+    render(a);
+    press(a, Key::Up);
+    press(a, Key::Enter);
+    assert_eq!(
+        step(a),
+        Step::Signed { sel: 0 },
+        "{:?}",
+        a.review.as_ref().unwrap().error
+    );
+    a.signed_psbt().unwrap().to_vec()
+}
+
+#[test]
+fn bip322_psbts_sign_messages_for_both_address_types() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    a.settings.msg_signing = true;
+    load_abandon(&mut a);
+    for (taproot, path) in [(false, "m/84'/0'/0'/0/0"), (true, "m/86'/0'/0'/0/1")] {
+        let msg = "Hello World";
+        scan_psbt(&mut a, &bip322_psbt(&w, taproot, path, msg, &[]));
+        assert_eq!(step(&a), Step::MsgPage { page: 0 });
+        assert_eq!(a.review_message(), Some(&b"Hello World"[..]));
+        let signed = sign_message_review(&mut a);
+        let sig = simple_from_signed(&signed, taproot);
+        let addr = if taproot {
+            addr_of(&w, true, 0, 0, 1)
+        } else {
+            addr_of(&w, false, 0, 0, 0)
+        };
+        let st = bp_bitcoin::bip322::verify_simple(&addr, bp_bitcoin::Network::Mainnet, msg.as_bytes(), &sig);
+        assert!(st.is_ok(), "{taproot}: {st:?}");
+        press(&mut a, Key::Esc); // done: the review ends
+        assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    }
+    assert!(a.memory.is_empty(), "a message is never remembered as spent");
+}
+
+#[test]
+fn bip322_psbts_are_refused_when_off_forged_or_against_the_rules() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    load_abandon(&mut a);
+    let p = bip322_psbt(&w, false, "m/84'/0'/0'/0/0", "Hello World", &[]);
+    scan_psbt(&mut a, &p);
+    assert_eq!(step(&a), Step::MsgOff);
+    render(&a);
+    press(&mut a, Key::Enter);
+    a.settings.msg_signing = true;
+    // the message field says one thing, to_spend commits to another
+    let mut f = p.clone();
+    f.unknown.insert(
+        bitcoin::psbt::raw::Key {
+            type_value: 0x09,
+            key: vec![],
+        },
+        b"Send me your coins".to_vec(),
+    );
+    scan_psbt(&mut a, &f);
+    assert_eq!(step(&a), Step::Forged);
+    assert_eq!(
+        a.review.as_ref().unwrap().forgery,
+        Some(bp_bitcoin::bip322::Forgery::ToSpendMismatch)
+    );
+    render(&a);
+    for k in [Key::Down, Key::Right, Key::Tab] {
+        press(&mut a, k);
+        assert_eq!(step(&a), Step::Forged);
+    }
+    press(&mut a, Key::Enter);
+    // the message rules apply here too
+    scan_psbt(
+        &mut a,
+        &bip322_psbt(&w, false, "m/84'/0'/0'/0/0", "three   spaces", &[]),
+    );
+    assert_eq!(step(&a), Step::MsgRule);
+    render(&a);
+    press(&mut a, Key::Enter);
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+}
+
+#[test]
+fn proof_of_reserves_needs_every_input_to_be_ours() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    a.settings.msg_signing = true;
+    load_abandon(&mut a);
+    let msg = "Reserves of 2026-11-21";
+    let p = bip322_psbt(
+        &w,
+        false,
+        "m/84'/0'/0'/0/0",
+        msg,
+        &[(&w, "m/84'/0'/0'/0/1", 50_000), (&w, "m/84'/0'/0'/1/0", 25_000)],
+    );
+    scan_psbt(&mut a, &p);
+    assert_eq!(step(&a), Step::MsgPage { page: 0 });
+    let r = a.review.as_ref().unwrap();
+    assert!(r.message.unwrap().proof_of_reserves);
+    let rep = r.report.as_ref().unwrap();
+    assert_eq!(rep.totals.ours, 75_000);
+    assert!(
+        rep.issues().is_empty(),
+        "no fee or change checks: {:?}",
+        rep.issues()
+    );
+    let signed = sign_message_review(&mut a);
+    let sp = RefPsbt::deserialize(&signed).unwrap();
+    assert!(
+        sp.inputs.iter().all(|i| i.partial_sigs.len() == 1),
+        "every input signed"
+    );
+    assert!(a.memory.is_empty());
+    press(&mut a, Key::Esc);
+    // a coin from another wallet cannot be proven
+    let p = bip322_psbt(
+        &w,
+        false,
+        "m/84'/0'/0'/0/0",
+        msg,
+        &[(&W::other(), "m/84'/0'/0'/0/1", 50_000)],
+    );
+    scan_psbt(&mut a, &p);
+    assert_eq!(step(&a), Step::Problem);
+    assert!(a
+        .review
+        .as_ref()
+        .unwrap()
+        .report
+        .as_ref()
+        .unwrap()
+        .has(bp_bitcoin::validate::Issue::ExternalMessageInput));
+    render(&a);
+}
+
 #[path = "tests_layout.rs"]
 mod layout;

@@ -634,6 +634,66 @@ fn tour(lang: Lang) -> usize {
     }
     scan_text(&mut b, "signmessage m/84h/0h/0h/0/0 ascii:which seed?");
     t.snap(&b, "msg-pick-seed");
+
+    // BIP-322 PSBTs: off, forged, rule, pages, address, proof of reserves
+    let mut a = t.app();
+    load_abandon(&mut a);
+    let p = bip322_psbt(&w, false, "m/84'/0'/0'/0/0", "Hello World", &[]);
+    scan_psbt(&mut a, &p);
+    t.snap(&a, "bip322-off");
+    press(&mut a, Key::Enter);
+    a.settings.msg_signing = true;
+    let mut f = p.clone();
+    f.unknown.insert(
+        bitcoin::psbt::raw::Key {
+            type_value: 0x09,
+            key: vec![],
+        },
+        b"Send me your coins".to_vec(),
+    );
+    scan_psbt(&mut a, &f);
+    t.snap(&a, "bip322-forged");
+    press(&mut a, Key::Enter);
+    scan_psbt(&mut a, &bip322_psbt(&w, false, "m/84'/0'/0'/0/0", "a   b", &[]));
+    t.snap(&a, "bip322-rule");
+    press(&mut a, Key::Enter);
+    scan_psbt(
+        &mut a,
+        &bip322_psbt(&w, true, "m/86'/0'/0'/0/1", "Hello World", &[]),
+    );
+    t.snap(&a, "bip322-page");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "bip322-address");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "bip322-approve");
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Esc);
+    let por = bip322_psbt(
+        &w,
+        false,
+        "m/84'/0'/0'/0/0",
+        "Reserves of 2026-11-21",
+        &[(&w, "m/84'/0'/0'/0/1", 50_000), (&w, "m/84'/0'/0'/1/0", 25_000)],
+    );
+    scan_psbt(&mut a, &por);
+    t.snap(&a, "por-page");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "por-address");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "por-approve");
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Esc);
+    let ext = bip322_psbt(
+        &w,
+        false,
+        "m/84'/0'/0'/0/0",
+        "Reserves",
+        &[(&W::other(), "m/84'/0'/0'/0/1", 1)],
+    );
+    scan_psbt(&mut a, &ext);
+    t.snap(&a, "por-external");
     t.n
 }
 

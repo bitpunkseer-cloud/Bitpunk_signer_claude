@@ -373,7 +373,7 @@ pub struct Strings {
 }
 
 /// Number of issue kinds (see `review::issue_index`).
-pub const ISSUE_KINDS: usize = 46;
+pub const ISSUE_KINDS: usize = 47;
 
 /// Strings of the PSBT review and signing screens.
 pub struct ReviewStrings {
@@ -425,6 +425,17 @@ pub struct ReviewStrings {
     pub h_next: &'static str,
     /// (title, explanation) per issue kind.
     pub issues: [(&'static str, &'static str); ISSUE_KINDS],
+    // BIP-322 message PSBTs
+    pub msg_title: &'static str,
+    pub por_title: &'static str,
+    /// "Proves {coins} coins worth {amount}"
+    pub por_line: &'static str,
+    pub por_all_ours: &'static str,
+    pub por_confirm: &'static str,
+    pub forged_1: &'static str,
+    /// No challenge, prevout index, to_spend mismatch, non-zero amount,
+    /// previous transaction, version.
+    pub forgeries: [&'static str; 6],
 }
 
 pub static EN_REVIEW: ReviewStrings = ReviewStrings {
@@ -534,6 +545,21 @@ pub static EN_REVIEW: ReviewStrings = ReviewStrings {
         ("Path too short", "A key is claimed at the master key or a one-level path, which no wallet uses."),
         ("Extra key claims", "A single-key output lists more than one key, or keys of both kinds."),
         ("Unverifiable mixed accounts", "SegWit inputs from different accounts came without previous transactions, so their amounts cannot be checked."),
+        ("Input from another wallet", "A message or proof of reserves may only include this seed's coins. One input is not from this seed."),
+    ],
+    msg_title: "Sign message (BIP-322)",
+    por_title: "Proof of Reserves",
+    por_line: "Proves {} coin(s) worth {}",
+    por_all_ours: "Every input belongs to this seed. Nothing can be spent with this proof.",
+    por_confirm: "Sign this proof of reserves?",
+    forged_1: "This PSBT claims to sign a message, but its transaction signs something else.",
+    forgeries: [
+        "The first input does not say which address signs.",
+        "The first input does not spend the message's virtual output.",
+        "The first input does not commit to this message and address.",
+        "The first input carries an amount: a message never moves coins.",
+        "The previous transaction given is not the message's.",
+        "The transaction version is not one BIP-322 allows.",
     ],
 };
 
@@ -1051,6 +1077,21 @@ pub static KO_REVIEW: ReviewStrings = ReviewStrings {
         ("경로가 너무 짧음", "마스터 키나 한 단계 경로의 키라고 합니다. 이런 경로를 쓰는 지갑은 없습니다."),
         ("남는 키 정보", "단일 키 출력에 키가 둘 이상이거나 두 종류의 키가 적혀 있습니다."),
         ("확인할 수 없는 여러 계정", "서로 다른 계정의 SegWit 입력에 이전 거래가 없어 금액을 확인할 수 없습니다."),
+        ("다른 지갑의 입력", "메시지나 보유 증명에는 이 시드의 코인만 넣을 수 있습니다. 입력 하나가 이 시드의 것이 아닙니다."),
+    ],
+    msg_title: "메시지 서명 (BIP-322)",
+    por_title: "보유 증명 (Proof of Reserves)",
+    por_line: "코인 {}개, {} 보유를 증명",
+    por_all_ours: "모든 입력이 이 시드의 것입니다. 이 증명으로는 아무것도 보낼 수 없습니다.",
+    por_confirm: "이 보유 증명에 서명할까요?",
+    forged_1: "메시지에 서명한다고 하지만, 실제 거래는 다른 것에 서명합니다.",
+    forgeries: [
+        "첫 입력에 서명할 주소 정보가 없습니다.",
+        "첫 입력이 메시지의 가상 출력을 쓰지 않습니다.",
+        "첫 입력이 이 메시지와 주소를 담고 있지 않습니다.",
+        "첫 입력에 금액이 있습니다. 메시지는 코인을 옮기지 않습니다.",
+        "주어진 이전 거래가 이 메시지의 것이 아닙니다.",
+        "BIP-322가 허용하지 않는 거래 버전입니다.",
     ],
 };
 

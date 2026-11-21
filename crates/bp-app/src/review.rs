@@ -11,6 +11,8 @@
 //! work buffer; both are wiped when the review ends.
 
 use crate::{App, Screen, SEED_SLOTS};
+use bp_bitcoin::bip322::{classify_psbt, Forgery, PsbtKind};
+use bp_bitcoin::message::{check_message, MessageError};
 use bp_bitcoin::psbt::Psbt;
 use bp_bitcoin::sign::{self, Signed, Signer};
 use bp_bitcoin::validate::{self, validate, Class, Context, Issue, Policy, Report};
@@ -41,6 +43,24 @@ pub enum Step {
         sel: u8,
     },
     Failed,
+    /// It claims to be a BIP-322 message but signs something else.
+    Forged,
+    /// A BIP-322 message while message signing is off.
+    MsgOff,
+    /// The BIP-322 message breaks the message rules.
+    MsgRule,
+    /// A page of the BIP-322 message (every page must be shown).
+    MsgPage {
+        page: u8,
+    },
+    /// The address (input 0) and, for Proof of Reserves, the total.
+    MsgAddress,
+}
+
+/// A BIP-322 message (or Proof of Reserves) PSBT.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MessageMode {
+    pub proof_of_reserves: bool,
 }
 
 pub const MAX_NEED: usize = 4;
@@ -57,9 +77,30 @@ pub struct Review {
     /// Fingerprints the PSBT names, for the wrong-seed screen.
     pub need: [[u8; 4]; MAX_NEED],
     pub n_need: usize,
+    /// Set for BIP-322 message PSBTs.
+    pub message: Option<MessageMode>,
+    pub forgery: Option<Forgery>,
+    pub rule: Option<MessageError>,
 }
 
 impl Review {
+    fn empty(psbt_len: usize, need: [[u8; 4]; MAX_NEED], n_need: usize) -> Review {
+        Review {
+            slot: None,
+            report: None,
+            digest: [0; 32],
+            overridden: false,
+            psbt_len,
+            signed: None,
+            error: None,
+            need,
+            n_need,
+            message: None,
+            forgery: None,
+            rule: None,
+        }
+    }
+
     pub fn warnings(&self) -> impl Iterator<Item = &Issue> {
         self.report
             .iter()
@@ -81,9 +122,12 @@ impl Review {
 
     pub fn first_step(&self) -> Step {
         match &self.report {
+            _ if self.forgery.is_some() => Step::Forged,
+            _ if self.rule.is_some() => Step::MsgRule,
             _ if self.slot.is_none() => Step::WrongSeed,
             Some(r) if r.worst() >= Some(Class::Error) => Step::Problem,
             _ if self.n_warnings() > 0 => Step::Warning { idx: 0, sel: 0 },
+            _ if self.message.is_some() => Step::MsgPage { page: 0 },
             _ => Step::Overview,
         }
     }
@@ -93,7 +137,9 @@ impl Review {
             Step::Warning { idx, .. } if idx + 1 < self.n_warnings() => {
                 Step::Warning { idx: idx + 1, sel: 0 }
             }
+            Step::Warning { .. } if self.message.is_some() => Step::MsgPage { page: 0 },
             Step::Warning { .. } => Step::Overview,
+            Step::MsgAddress => Step::Approve { sel: 0 },
             Step::Overview if self.n_outputs() > 0 => Step::Output { idx: 0 },
             Step::Output { idx } if idx + 1 < self.n_outputs() => Step::Output { idx: idx + 1 },
             Step::Overview | Step::Output { .. } => Step::Fee,
@@ -118,7 +164,10 @@ impl Review {
                 0 => Step::Overview,
                 n => Step::Output { idx: n - 1 },
             }),
+            Step::Approve { .. } if self.message.is_some() => Some(Step::MsgAddress),
             Step::Approve { .. } => Some(Step::Fee),
+            Step::MsgPage { page: 0 } => last_warning(),
+            Step::MsgPage { page } => Some(Step::MsgPage { page: page - 1 }),
             _ => None,
         }
     }
@@ -151,15 +200,43 @@ impl App {
     pub(crate) fn start_review(&mut self, len: usize) {
         let raw = &self.scan.out[..len.min(self.scan.out.len())];
         let (need, n_need) = claimed_fingerprints(raw);
+        // a BIP-322 message (or a forgery of one)?
+        let (mut message, mut forgery, mut rule) = (None, None, None);
+        if let Ok(p) = Psbt::parse(raw) {
+            match classify_psbt(&p) {
+                PsbtKind::Forged(f) => forgery = Some(f),
+                PsbtKind::Message {
+                    message: m,
+                    proof_of_reserves,
+                    ..
+                } => {
+                    rule = check_message(m).err();
+                    message = Some(MessageMode { proof_of_reserves });
+                }
+                PsbtKind::Transaction => {}
+            }
+        }
+        if message.is_some() && !self.settings.msg_signing {
+            self.review = Some(Review::empty(len, need, n_need));
+            self.set_current(Screen::Review { step: Step::MsgOff });
+            return;
+        }
+        let policy = Policy {
+            message: message.is_some(),
+            ..Policy::default()
+        };
         let mut chosen: Option<(u8, Report)> = None;
         for slot in 0..SEED_SLOTS {
+            if forgery.is_some() || rule.is_some() {
+                break;
+            }
             let Some(seed) = self.seeds[slot].as_ref() else {
                 continue;
             };
             let ctx = Context {
                 master: seed.master(),
                 network: self.settings.network,
-                policy: Policy::default(),
+                policy,
                 memory: Some(&self.memory),
             };
             let (_, report) = validate(raw, &ctx);
@@ -177,16 +254,25 @@ impl App {
             slot,
             report,
             digest,
-            overridden: false,
-            psbt_len: len,
-            signed: None,
-            error: None,
-            need,
-            n_need,
+            message,
+            forgery: forgery.take(),
+            rule: rule.take(),
+            ..Review::empty(len, need, n_need)
         };
         let step = review.first_step();
         self.review = Some(review);
         self.set_current(Screen::Review { step });
+    }
+
+    /// The message of a BIP-322 review (read again from the PSBT).
+    pub(crate) fn review_message(&self) -> Option<&[u8]> {
+        let r = self.review.as_ref()?;
+        r.message?;
+        let p = Psbt::parse(&self.scan.out[..r.psbt_len.min(self.scan.out.len())]).ok()?;
+        match classify_psbt(&p) {
+            PsbtKind::Message { message, .. } => Some(message),
+            _ => None,
+        }
     }
 
     fn end_review(&mut self) {
@@ -201,11 +287,39 @@ impl App {
         };
         let back = matches!(ev.key, Key::Esc | Key::Backspace);
         match step {
-            Step::WrongSeed | Step::Problem | Step::Failed => {
+            Step::WrongSeed | Step::Problem | Step::Failed | Step::Forged | Step::MsgOff | Step::MsgRule => {
                 if back || ev.key == Key::Enter {
                     self.end_review();
                 }
             }
+            Step::MsgPage { page } => {
+                let pages = self.review_message().map_or(1, crate::msgsign::message_pages);
+                let to = |a: &mut App, s: Step| a.set_current(Screen::Review { step: s });
+                match ev.key {
+                    Key::Right | Key::Down | Key::Enter if page + 1 < pages => {
+                        to(self, Step::MsgPage { page: page + 1 })
+                    }
+                    Key::Enter => to(self, Step::MsgAddress),
+                    Key::Left | Key::Up if page > 0 => to(self, Step::MsgPage { page: page - 1 }),
+                    _ if back => match r.prev(step) {
+                        Some(s) => to(self, s),
+                        None => self.end_review(),
+                    },
+                    _ => {}
+                }
+            }
+            Step::MsgAddress => match ev.key {
+                Key::Enter => self.set_current(Screen::Review {
+                    step: Step::Approve { sel: 0 },
+                }),
+                _ if back => {
+                    let pages = self.review_message().map_or(1, crate::msgsign::message_pages);
+                    self.set_current(Screen::Review {
+                        step: Step::MsgPage { page: pages - 1 },
+                    });
+                }
+                _ => {}
+            },
             Step::Signed { sel } => match ev.key {
                 Key::Up => self.set_current(Screen::Review {
                     step: Step::Signed {
@@ -277,7 +391,11 @@ impl App {
                 }),
                 Key::Enter if sel == 1 => self.review_sign(),
                 Key::Enter => self.end_review(),
-                _ if back => self.set_current(Screen::Review { step: Step::Fee }),
+                _ if back => {
+                    if let Some(s) = r.prev(step) {
+                        self.set_current(Screen::Review { step: s });
+                    }
+                }
                 _ => {}
             },
         }
@@ -291,7 +409,10 @@ impl App {
         let signer = Signer {
             master: seed.master(),
             network: self.settings.network,
-            policy: Policy::default(),
+            policy: Policy {
+                message: r.message.is_some(),
+                ..Policy::default()
+            },
         };
         let (psbt, out) = self.scan.buffers();
         let result = sign::sign_psbt(
@@ -367,6 +488,7 @@ pub fn issue_index(i: &Issue) -> usize {
         PathTooShort(_) => 43,
         SurplusClaims(_) => 44,
         UnverifiedMixedBasePaths => 45,
+        ExternalMessageInput => 46,
     }
 }
 

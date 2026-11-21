@@ -47,7 +47,9 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Re
         let idx = i as u16;
         let r = check_one(i, &txin, &map, d, report);
         // an outpoint signed since power-on must keep its amount
-        if let (Some(mem), Some(a)) = (ctx.memory, r.amount) {
+        // (a message is never broadcast: amounts do not matter there)
+        let mem = ctx.memory.filter(|_| !ctx.policy.message);
+        if let (Some(mem), Some(a)) = (mem, r.amount) {
             if mem.amount(txin.outpoint).is_some_and(|m| m != a) {
                 report.push(Issue::UtxoAmountChanged(idx));
             }
@@ -126,7 +128,11 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Re
         report.push(Issue::PartlySigned);
     }
     if external {
-        report.push(Issue::ExternalInputs);
+        report.push(if ctx.policy.message {
+            Issue::ExternalMessageInput
+        } else {
+            Issue::ExternalInputs
+        });
     }
     // BIP-341 signatures commit to every input's amount and script
     if any_taproot {
@@ -134,7 +140,7 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Re
             report.push(Issue::MissingUtxo(j as u16));
         }
     }
-    if v0_unverified && psbt.tx.n_inputs() > 1 {
+    if v0_unverified && psbt.tx.n_inputs() > 1 && !ctx.policy.message {
         report.push(Issue::UnverifiedAmounts);
         // segwit v0 inputs from different wallets (base paths) must each
         // come with the previous transaction (SeedSigner)
