@@ -14,6 +14,8 @@ pub mod entropy;
 pub mod psbt;
 pub mod qrinput;
 pub mod seedqr;
+pub mod sighash;
+pub mod tx;
 pub mod urtypes;
 
 /// Bitcoin networks supported by the signer.
