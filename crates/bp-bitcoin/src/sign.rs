@@ -49,6 +49,8 @@ pub struct Signer<'a> {
     pub master: &'a Xpriv,
     pub network: Network,
     pub policy: Policy,
+    /// Registered multisig wallets, by registry slot.
+    pub multisig: &'a [Option<&'a crate::multisig::Wallet>],
 }
 
 /// Summary of a successful signing.
@@ -119,6 +121,7 @@ fn sign_into(
         network: signer.network,
         policy: signer.policy,
         memory: Some(&*memory),
+        multisig: signer.multisig,
     };
     let (psbt, report) = validate(raw, &ctx);
     if report.digest() != *approved {
@@ -164,6 +167,40 @@ fn sign_into(
         }
         // 3-5. hash, sign, verify
         let sig = match o.kind {
+            SpendKind::P2wshMulti | SpendKind::P2shP2wshMulti => {
+                // the script rebuilt from the registered wallet, never the PSBT's
+                let ms = o.ms.ok_or(Error::Derive)?;
+                let w = signer
+                    .multisig
+                    .get(ms.wallet as usize)
+                    .copied()
+                    .flatten()
+                    .ok_or(Error::Derive)?;
+                let sc = w.derive(ms.branch as u32, ms.index).map_err(|_| Error::Derive)?;
+                if sc.script_pubkey() != prev.script_pubkey
+                    || map.witness_script() != Some(sc.witness_script())
+                    || !sc.pubkeys().contains(&o.pubkey.serialize())
+                {
+                    return Err(Error::Derive);
+                }
+                let digest =
+                    sighash::segwit_v0(tx, &v0, i, sc.witness_script(), prev.value, sighash::ALL as u32)
+                        .ok_or(Error::Sighash)?;
+                let s = ecdsa::sign(sk, &digest);
+                if !ecdsa::verify(&o.pubkey, &digest, &s) {
+                    return Err(Error::Verify);
+                }
+                let mut der = [0u8; ecdsa::MAX_DER_LEN + 1];
+                let mut d = [0u8; ecdsa::MAX_DER_LEN];
+                let n = s.to_der(&mut d);
+                der[..n].copy_from_slice(&d[..n]);
+                der[n] = sighash::ALL;
+                Sig::Ecdsa {
+                    pubkey: o.pubkey.serialize(),
+                    der,
+                    len: n + 1,
+                }
+            }
             SpendKind::P2wpkh | SpendKind::P2shP2wpkh | SpendKind::P2pkh => {
                 let digest = if o.kind == SpendKind::P2pkh {
                     sighash::legacy(tx, i, prev.script_pubkey, sighash::ALL as u32)

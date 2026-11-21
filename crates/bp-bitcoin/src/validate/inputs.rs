@@ -1,14 +1,17 @@
 //! Inputs: previous-output integrity, ownership by re-derivation, the
 //! script each owned input commits to, and how its amount is known.
 
+use super::multisig::{self, Cache, InputMatch};
 use super::script::{self, classify, ScriptKind};
 use super::{
     AmountSource, At, Context, DeriveError, Deriver, InputReport, Issue, OwnedInput, Report, SpendKind,
     Verified,
 };
 use crate::bip32::HARDENED;
+use crate::multisig::MsScript;
 use crate::psbt::{InputMap, KeySource, Psbt};
-use crate::tx::{TxIn, TxOut};
+use crate::sighash::SegwitV0Hashes;
+use crate::tx::{Tx, TxIn, TxOut};
 use bp_crypto::hashes::hash160;
 use bp_crypto::secp256k1::PublicKey;
 use bp_crypto::sha256::Sha256;
@@ -33,7 +36,14 @@ struct OurKey<'a> {
     ecdsa_map: bool,
 }
 
-pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Report) {
+pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, cache: &mut Cache, report: &mut Report) {
+    let v0 = SegwitV0Hashes::new(&psbt.tx);
+    let mut ms = Ms {
+        ctx,
+        cache,
+        tx: &psbt.tx,
+        v0: &v0,
+    };
     // the same outpoint twice
     for (i, a) in psbt.tx.inputs().enumerate() {
         if psbt.tx.inputs().skip(i + 1).any(|b| b.outpoint == a.outpoint) {
@@ -45,7 +55,7 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Re
     let mut v0_unverified = false;
     for (i, (txin, map)) in psbt.tx.inputs().zip(psbt.inputs()).enumerate() {
         let idx = i as u16;
-        let r = check_one(i, &txin, &map, d, report);
+        let r = check_one(i, &txin, &map, d, &mut ms, report);
         // an outpoint signed since power-on must keep its amount
         // (a message is never broadcast: amounts do not matter there)
         let mem = ctx.memory.filter(|_| !ctx.policy.message);
@@ -191,7 +201,23 @@ fn script_commitments(idx: u16, spk: &[u8], map: &InputMap) -> Option<Issue> {
     }
 }
 
-fn check_one(i: usize, txin: &TxIn, map: &InputMap, d: &mut Deriver, report: &mut Report) -> InputReport {
+/// What multisig inputs need: the registered wallets, the branch cache and
+/// the transaction (to check cosigner signatures).
+struct Ms<'c, 'a, 'x> {
+    ctx: &'c Context<'a>,
+    cache: &'c mut Cache,
+    tx: &'c Tx<'x>,
+    v0: &'c SegwitV0Hashes,
+}
+
+fn check_one(
+    i: usize,
+    txin: &TxIn,
+    map: &InputMap,
+    d: &mut Deriver,
+    ms: &mut Ms,
+    report: &mut Report,
+) -> InputReport {
     let idx = i as u16;
     let mut r = InputReport {
         finalized: map.is_finalized(),
@@ -300,7 +326,19 @@ fn check_one(i: usize, txin: &TxIn, map: &InputMap, d: &mut Deriver, report: &mu
         report.push(Issue::ScriptNotOurs(idx));
         return r;
     }
+    let mut multi: Option<(multisig::MsSpend, crate::multisig::Scripts)> = None;
     let kind = match classify(prev.script_pubkey) {
+        ScriptKind::P2wsh(_) => {
+            if map.redeem_script().is_some() {
+                report.push(Issue::UnneededScript(idx));
+                return r;
+            }
+            match multisig_input(idx, MsScript::Wsh, &key, &prev, map, ms, report) {
+                Some(m) => multi = Some(m),
+                None => return r,
+            }
+            SpendKind::P2wshMulti
+        }
         ScriptKind::P2wpkh(h) => {
             if h != hash160(&pk.serialize()) {
                 report.push(Issue::ScriptNotOurs(idx));
@@ -327,16 +365,26 @@ fn check_one(i: usize, txin: &TxIn, map: &InputMap, d: &mut Deriver, report: &mu
                     report.push(Issue::ScriptNotOurs(idx));
                     return r;
                 }
+                ScriptKind::P2wsh(_) => {
+                    match multisig_input(idx, MsScript::ShWsh, &key, &prev, map, ms, report) {
+                        Some(m) => multi = Some(m),
+                        None => return r,
+                    }
+                }
                 _ => {
                     report.push(Issue::UnsupportedInput(idx));
                     return r;
                 }
             }
-            if map.witness_script().is_some() {
-                report.push(Issue::UnneededScript(idx));
-                return r;
+            if multi.is_some() {
+                SpendKind::P2shP2wshMulti
+            } else {
+                if map.witness_script().is_some() {
+                    report.push(Issue::UnneededScript(idx));
+                    return r;
+                }
+                SpendKind::P2shP2wpkh
             }
-            SpendKind::P2shP2wpkh
         }
         ScriptKind::P2pkh(h) => {
             if h != hash160(&pk.serialize()) {
@@ -398,12 +446,74 @@ fn check_one(i: usize, txin: &TxIn, map: &InputMap, d: &mut Deriver, report: &mu
         report.push(Issue::PathTooDeep(At::Input(idx)));
         return r;
     };
+    if let Some((spend, sc)) = &multi {
+        let (good, bad) =
+            multisig::cosigner_signatures(ms.tx, ms.v0, i, sc, prev.value, &pk, map.partial_sigs());
+        r.cosigs = good;
+        if bad {
+            report.push(Issue::BadCosignerSignature(idx));
+        }
+        let _ = spend;
+    }
     r.owned = Some(Verified(OwnedInput {
         kind,
         path,
         pubkey: pk,
         amount: prev.value,
         source,
+        ms: multi.map(|(m, _)| m),
     }));
     r
+}
+
+/// A P2WSH (or P2SH-P2WSH) input with this seed's key: it must be a
+/// registered wallet's script, with claims that agree with the wallet.
+fn multisig_input(
+    idx: u16,
+    script: MsScript,
+    key: &OurKey,
+    prev: &TxOut,
+    map: &InputMap,
+    ms: &mut Ms,
+    report: &mut Report,
+) -> Option<(multisig::MsSpend, crate::multisig::Scripts)> {
+    let Some(ws) = map.witness_script() else {
+        report.push(Issue::MissingWitnessScript(idx));
+        return None;
+    };
+    // this seed's key must be in the script at all (else the claim lies)
+    let in_script = crate::multisig::parse_multisig_script(ws)
+        .is_some_and(|(_, keys, n)| keys[..n as usize].contains(&key.pubkey.serialize()));
+    if !in_script {
+        report.push(if crate::multisig::parse_multisig_script(ws).is_some() {
+            Issue::ScriptNotOurs(idx)
+        } else {
+            Issue::UnsupportedInput(idx)
+        });
+        return None;
+    }
+    let Some(path) = key.source.to_path() else {
+        report.push(Issue::PathTooDeep(At::Input(idx)));
+        return None;
+    };
+    match multisig::input(
+        ms.ctx,
+        ms.cache,
+        script,
+        &path,
+        &key.pubkey,
+        prev.script_pubkey,
+        ws,
+        &|| map.bip32_derivations(),
+    ) {
+        InputMatch::Registered(spend, sc) => Some((spend, sc)),
+        InputMatch::Unregistered => {
+            report.push(Issue::UnregisteredMultisig(idx));
+            None
+        }
+        InputMatch::ClaimMismatch => {
+            report.push(Issue::MultisigClaimMismatch(multisig::at_input(idx as usize)));
+            None
+        }
+    }
 }

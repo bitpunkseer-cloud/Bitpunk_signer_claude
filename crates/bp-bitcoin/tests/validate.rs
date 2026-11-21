@@ -292,7 +292,8 @@ fn duplicate_inputs() {
 #[test]
 fn unsupported_and_inconsistent_inputs() {
     let w = Wallet::ours();
-    // our key in a P2WSH script (multisig is M7)
+    // our key claimed for a P2WSH output: without the witness script, then
+    // with a script that is not multisig (M7 signs registered multisig only)
     let mut p = simple(Kind::Wpkh);
     let ws = ScriptBuf::from_bytes(vec![0x51]);
     let spk = ScriptBuf::new_p2wsh(&ws.wscript_hash());
@@ -301,6 +302,8 @@ fn unsupported_and_inconsistent_inputs() {
     p.unsigned_tx.input[0].previous_output.txid = prev.compute_txid();
     p.inputs[0].witness_utxo = Some(prev.output[1].clone());
     p.inputs[0].non_witness_utxo = Some(prev);
+    assert!(check(&p).has(Issue::MissingWitnessScript(0)));
+    p.inputs[0].witness_script = Some(ws);
     assert!(check(&p).has(Issue::UnsupportedInput(0)));
     // Taproot with a script tree, a script-leaf claim, a wrong internal key
     let mut p = simple(Kind::Tr);

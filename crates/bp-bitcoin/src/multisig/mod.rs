@@ -267,19 +267,30 @@ pub struct Scripts {
 }
 
 impl Branch {
-    pub fn derive(&self, index: u32) -> Result<Scripts, DeriveError> {
+    /// The child keys at `index`, in the wallet's key order.
+    pub fn child_keys(&self, index: u32) -> Result<[[u8; 33]; MAX_KEYS], DeriveError> {
         if index & HARDENED != 0 {
             return Err(DeriveError::Index);
         }
-        let n = self.n as usize;
-        let mut pubkeys = [[0u8; 33]; MAX_KEYS];
-        for (p, k) in pubkeys.iter_mut().zip(&self.keys[..n]) {
+        let mut keys = [[0u8; 33]; MAX_KEYS];
+        for (p, k) in keys.iter_mut().zip(&self.keys[..self.n as usize]) {
             *p = k
                 .derive_child(index)
                 .map_err(|_| DeriveError::Key)?
                 .key
                 .serialize();
         }
+        Ok(keys)
+    }
+
+    pub fn derive(&self, index: u32) -> Result<Scripts, DeriveError> {
+        Ok(self.scripts(&self.child_keys(index)?))
+    }
+
+    /// The scripts for child keys from `child_keys` (sorted here, BIP-67).
+    pub fn scripts(&self, child: &[[u8; 33]; MAX_KEYS]) -> Scripts {
+        let n = self.n as usize;
+        let mut pubkeys = *child;
         pubkeys[..n].sort_unstable();
         let mut ws = [0u8; MAX_WITNESS_SCRIPT];
         let ws_len = multisig_script(self.m, &pubkeys[..n], &mut ws);
@@ -295,14 +306,14 @@ impl Branch {
                 23
             }
         };
-        Ok(Scripts {
+        Scripts {
             ws,
             ws_len,
             pubkeys,
             n: self.n,
             spk,
             spk_len,
-        })
+        }
     }
 }
 

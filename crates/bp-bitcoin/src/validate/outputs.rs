@@ -2,6 +2,7 @@
 //! re-deriving the key and rebuilding the script, the change path rules,
 //! and the output warnings.
 
+use super::multisig::{self, Cache, OutputMatch};
 use super::script::{self, classify, ScriptKind};
 use super::{
     At, Context, DeriveError, Deriver, Issue, OutputKind, OutputReport, OwnedOutput, Report, SpendKind,
@@ -16,7 +17,7 @@ use bp_crypto::secp256k1::PublicKey;
 /// OP_RETURN with up to 80 bytes of data (Bitcoin Core's old default).
 const MAX_OP_RETURN_SCRIPT: usize = 83;
 
-pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Report) {
+pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, cache: &mut Cache, report: &mut Report) {
     let mut op_returns = 0;
     for (j, (out, map)) in psbt.tx.outputs().zip(psbt.outputs()).enumerate() {
         let idx = j as u16;
@@ -44,6 +45,22 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Re
         }
         if out.value == 0 && kind != ScriptKind::OpReturn {
             report.push(Issue::ZeroValue(idx));
+        }
+        // a registered multisig wallet's address?
+        if matches!(kind, ScriptKind::P2wsh(_) | ScriptKind::P2sh(_)) {
+            match multisig_output(idx, out.script_pubkey, &map, ctx, d, cache, report) {
+                Ok(Some(k)) => {
+                    rep.kind = k;
+                    report.outputs[j] = rep;
+                    continue;
+                }
+                Ok(None) => {}
+                Err(issue) => {
+                    report.push(issue);
+                    report.outputs[j] = rep;
+                    continue;
+                }
+            }
         }
         if kind != ScriptKind::OpReturn {
             match ours(idx, kind, &map, d, report) {
@@ -206,6 +223,7 @@ fn owned_kind(
         kind: spend,
         path,
         pubkey,
+        ms: None,
     };
     match s[3] {
         0 => Some(OutputKind::SelfSend(Verified(owned))),
@@ -240,4 +258,75 @@ fn owned_kind(
         }
         _ => violation(report),
     }
+}
+
+/// A P2WSH / P2SH output with this seed's key claimed at a registered
+/// wallet's path: that wallet's address (change, self-send, or another
+/// registered wallet), or an attack if the script is not that wallet's.
+/// `Ok(None)`: no such claim (handled as any other output).
+fn multisig_output(
+    idx: u16,
+    spk: &[u8],
+    map: &OutputMap,
+    ctx: &Context,
+    d: &mut Deriver,
+    cache: &mut Cache,
+    report: &mut Report,
+) -> Result<Option<OutputKind>, Issue> {
+    if ctx.multisig.iter().all(|w| w.is_none()) {
+        return Ok(None);
+    }
+    for (k, src) in map.bip32_derivations() {
+        if src.fingerprint != d.fingerprint {
+            continue;
+        }
+        let derived = match d.xpub(&src) {
+            Ok(x) => x.key,
+            Err(DeriveError::TooDeep) => return Err(Issue::PathTooDeep(At::Output(idx))),
+            Err(DeriveError::Failed) => return Err(Issue::KeyNotFromSeed(At::Output(idx))),
+        };
+        if PublicKey::parse(k) != Some(derived) {
+            return Err(Issue::KeyNotFromSeed(At::Output(idx)));
+        }
+        let Some(path) = src.to_path() else {
+            return Err(Issue::PathTooDeep(At::Output(idx)));
+        };
+        let m = multisig::output(ctx, cache, idx, &path, spk, map.witness_script(), &|| {
+            map.bip32_derivations()
+        })?;
+        let OutputMatch::Registered(spend) = m else {
+            continue;
+        };
+        let kind = if matches!(classify(spk), ScriptKind::P2sh(_)) {
+            SpendKind::P2shP2wshMulti
+        } else {
+            SpendKind::P2wshMulti
+        };
+        let owned = OwnedOutput {
+            kind,
+            path,
+            pubkey: derived,
+            ms: Some(spend),
+        };
+        if report.wallet != Some(spend.wallet) {
+            return Ok(Some(OutputKind::OtherWallet(Verified(owned))));
+        }
+        if spend.branch == 0 {
+            return Ok(Some(OutputKind::SelfSend(Verified(owned))));
+        }
+        // change far beyond the indexes this wallet spends from
+        let base = report
+            .inputs()
+            .iter()
+            .filter_map(|r| r.owned.as_ref()?.get().ms)
+            .filter(|m| m.wallet == spend.wallet)
+            .map(|m| m.index)
+            .min()
+            .unwrap_or(0);
+        if spend.index > base.saturating_add(ctx.policy.change_index_gap) {
+            report.push(Issue::ChangeIndexFar(idx));
+        }
+        return Ok(Some(OutputKind::Change(Verified(owned))));
+    }
+    Ok(None)
 }

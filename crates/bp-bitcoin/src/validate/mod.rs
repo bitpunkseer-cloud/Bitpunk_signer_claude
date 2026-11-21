@@ -15,10 +15,12 @@
 mod fees;
 mod inputs;
 pub mod memory;
+mod multisig;
 mod outputs;
 pub mod script;
 
 pub use memory::UtxoMemory;
+pub use multisig::MsSpend;
 
 use crate::address::ScriptType;
 use crate::bip32::{DerivationPath, Xpriv, Xpub, HARDENED};
@@ -150,6 +152,21 @@ pub enum Issue {
     BadOpReturn(u16),
     /// A path of this seed for another network (coin type).
     NetworkMismatch(At),
+    /// A P2WSH input of this seed without its witness script.
+    MissingWitnessScript(u16),
+    /// A multisig input with this seed's key that is not a registered
+    /// wallet's script (unregistered wallet, or a script built to look
+    /// like one).
+    UnregisteredMultisig(u16),
+    /// Derivation claims in a multisig input that contradict the
+    /// registered wallet (wrong path, wrong key, unknown cosigner).
+    MultisigClaimMismatch(At),
+    /// Inputs of this seed from more than one wallet (two multisig
+    /// wallets, or multisig and single-key together).
+    MixedWallets,
+    /// A global xpub at a cosigner's origin that is not that cosigner's
+    /// registered key.
+    GlobalXpubMismatch,
 
     // ---- warnings
     /// Segwit v0 inputs without previous transactions in a transaction
@@ -183,6 +200,9 @@ pub enum Issue {
     UnknownScript(u16),
     /// A zero-amount output.
     ZeroValue(u16),
+    /// A cosigner signature on a multisig input that does not verify, or
+    /// by a key not in the script (not counted).
+    BadCosignerSignature(u16),
 }
 
 impl Issue {
@@ -197,10 +217,23 @@ impl Issue {
             | ChangeContradiction(_)
             | ChangePathViolation(_)
             | UtxoAmountChanged(_)
+            | MultisigClaimMismatch(_)
+            | GlobalXpubMismatch
             | Parse(ParseError::UtxoMismatch) => Class::Attack,
-            UnverifiedAmounts | ExternalInputs | PartlySigned | HighFee | HighFeeRate | FeeUnknown
-            | NoChange | ChangeIndexFar(_) | MixedScriptTypes | MultipleAccounts | OpReturnNonStandard
-            | UnknownScript(_) | ZeroValue(_) => Class::Warning,
+            UnverifiedAmounts
+            | ExternalInputs
+            | PartlySigned
+            | HighFee
+            | HighFeeRate
+            | FeeUnknown
+            | NoChange
+            | ChangeIndexFar(_)
+            | MixedScriptTypes
+            | MultipleAccounts
+            | OpReturnNonStandard
+            | UnknownScript(_)
+            | ZeroValue(_)
+            | BadCosignerSignature(_) => Class::Warning,
             _ => Class::Error,
         }
     }
@@ -231,16 +264,26 @@ pub enum SpendKind {
     P2shP2wpkh,
     P2pkh,
     P2trKey,
+    /// A registered P2WSH multisig wallet.
+    P2wshMulti,
+    /// A registered P2SH-P2WSH multisig wallet.
+    P2shP2wshMulti,
 }
 
 impl SpendKind {
+    /// The address family (multisig kinds give the segwit family they
+    /// share an address format with).
     pub fn script_type(self) -> ScriptType {
         match self {
-            SpendKind::P2wpkh => ScriptType::NativeSegwit,
-            SpendKind::P2shP2wpkh => ScriptType::NestedSegwit,
+            SpendKind::P2wpkh | SpendKind::P2wshMulti => ScriptType::NativeSegwit,
+            SpendKind::P2shP2wpkh | SpendKind::P2shP2wshMulti => ScriptType::NestedSegwit,
             SpendKind::P2pkh => ScriptType::Legacy,
             SpendKind::P2trKey => ScriptType::Taproot,
         }
+    }
+
+    pub fn is_multisig(self) -> bool {
+        matches!(self, SpendKind::P2wshMulti | SpendKind::P2shP2wshMulti)
     }
 }
 
@@ -252,6 +295,8 @@ pub struct OwnedInput {
     pub pubkey: PublicKey,
     pub amount: u64,
     pub source: AmountSource,
+    /// Multisig: the registered wallet and the address in it.
+    pub ms: Option<MsSpend>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -264,6 +309,8 @@ pub struct InputReport {
     pub finalized: bool,
     /// Already carries this seed's signature.
     pub signed: bool,
+    /// Multisig: valid signatures by the wallet's other keys.
+    pub cosigs: u8,
 }
 
 impl InputReport {
@@ -273,6 +320,7 @@ impl InputReport {
         source: None,
         finalized: false,
         signed: false,
+        cosigs: 0,
     };
 }
 
@@ -282,6 +330,8 @@ pub struct OwnedOutput {
     pub kind: SpendKind,
     pub path: DerivationPath,
     pub pubkey: PublicKey,
+    /// Multisig: the registered wallet and the address in it.
+    pub ms: Option<MsSpend>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -292,6 +342,8 @@ pub enum OutputKind {
     Change(Verified<OwnedOutput>),
     /// Branch 0 of one of this seed's accounts.
     SelfSend(Verified<OwnedOutput>),
+    /// An address of another registered multisig wallet (counted as sent).
+    OtherWallet(Verified<OwnedOutput>),
     OpReturn,
 }
 
@@ -378,6 +430,8 @@ pub struct Report {
     pub truncated: bool,
     fingerprints: [[u8; 4]; MAX_FINGERPRINTS],
     n_fingerprints: usize,
+    /// Registry slot of the multisig wallet this seed's inputs spend from.
+    pub wallet: Option<u8>,
 }
 
 impl Report {
@@ -405,6 +459,7 @@ impl Report {
             truncated: false,
             fingerprints: [[0; 4]; MAX_FINGERPRINTS],
             n_fingerprints: 0,
+            wallet: None,
         }
     }
 
@@ -439,7 +494,7 @@ impl Report {
         let mut h = H(Sha256::new());
         let _ = write!(
             h,
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{}|{}|{:?}|{:?}",
             self.master_fingerprint,
             self.issues(),
             self.inputs(),
@@ -447,7 +502,8 @@ impl Report {
             self.totals,
             self.lock_time,
             self.rbf,
-            self.fingerprints()
+            self.fingerprints(),
+            self.wallet
         );
         h.0.finalize()
     }
@@ -500,6 +556,8 @@ pub struct Context<'a> {
     pub network: Network,
     pub policy: Policy,
     pub memory: Option<&'a UtxoMemory>,
+    /// Registered multisig wallets, by registry slot.
+    pub multisig: &'a [Option<&'a crate::multisig::Wallet>],
 }
 
 impl<'a> Context<'a> {
@@ -509,6 +567,7 @@ impl<'a> Context<'a> {
             network,
             policy: Policy::default(),
             memory: None,
+            multisig: &[],
         }
     }
 }
@@ -589,13 +648,43 @@ pub fn validate<'a>(raw: &'a [u8], ctx: &Context) -> (Option<Psbt<'a>>, Report) 
     report.lock_time = psbt.tx.lock_time;
     report.rbf = psbt.tx.inputs().any(|i| i.sequence < 0xFFFF_FFFE);
     check_global_xpubs(&psbt, ctx, &mut d, &mut report);
-    inputs::check(&psbt, ctx, &mut d, &mut report);
+    let mut cache = multisig::Cache::new();
+    inputs::check(&psbt, ctx, &mut d, &mut cache, &mut report);
     if report.has(Issue::NoInputsForSeed) {
         return (Some(psbt), report); // nothing here concerns this seed
     }
-    outputs::check(&psbt, ctx, &mut d, &mut report);
+    spending_wallet(&psbt, ctx, &mut report);
+    outputs::check(&psbt, ctx, &mut d, &mut cache, &mut report);
     fees::check(&psbt, ctx, &mut report);
     (Some(psbt), report)
+}
+
+/// The one wallet this seed's inputs spend from: a registered multisig
+/// wallet, or single-key. Anything else is `MixedWallets`.
+fn spending_wallet(psbt: &Psbt, ctx: &Context, report: &mut Report) {
+    let mut wallet: Option<Option<u8>> = None;
+    let mut mixed = false;
+    for o in report.inputs().iter().filter_map(|r| r.owned.as_ref()) {
+        let w = o.get().ms.map(|m| m.wallet);
+        match wallet {
+            None => wallet = Some(w),
+            Some(prev) if prev != w => mixed = true,
+            _ => {}
+        }
+    }
+    if mixed {
+        report.push(Issue::MixedWallets);
+        return;
+    }
+    report.wallet = wallet.flatten();
+    if let Some(w) = report
+        .wallet
+        .and_then(|s| ctx.multisig.get(s as usize).copied().flatten())
+    {
+        if let Some(issue) = multisig::global_xpubs(psbt, w) {
+            report.push(issue);
+        }
+    }
 }
 
 /// Global xpubs naming this seed must be what the seed derives there.

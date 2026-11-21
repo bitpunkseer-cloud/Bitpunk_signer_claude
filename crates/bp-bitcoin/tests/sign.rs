@@ -41,6 +41,7 @@ fn approve_and_sign(raw: &[u8], memory: &mut UtxoMemory, overridden: bool) -> Re
         master: &m,
         network: Network::Signet,
         policy: Policy::default(),
+        multisig: &[],
     };
     let mut out = vec![0u8; 16 * 1024];
     let s = sign_psbt(raw, &signer, memory, &digest, overridden, &mut out)?;
@@ -221,6 +222,7 @@ fn verdict_must_not_change_after_approval() {
         master: &m,
         network: Network::Signet,
         policy,
+        multisig: &[],
     };
     let mut out = vec![0u8; 8192];
     // another recipient amount after approval
@@ -352,6 +354,7 @@ fn small_output_buffer_is_wiped() {
         master: &m,
         network: Network::Signet,
         policy: Policy::default(),
+        multisig: &[],
     };
     let mut out = vec![0u8; 100];
     let mut mem = UtxoMemory::new();
@@ -500,6 +503,7 @@ fn signing_mutated_psbts() {
         master: &m,
         network: Network::Signet,
         policy: Policy::default(),
+        multisig: &[],
     };
     let mut x = 0x0dd5_eed5_u64;
     let mut next = move || {

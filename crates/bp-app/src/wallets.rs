@@ -1010,6 +1010,11 @@ impl App {
         }
     }
 
+    /// The registered wallets by registry slot (for the validator).
+    pub(crate) fn multisig_wallets(&self) -> [Option<&Wallet>; register::MAX_WALLETS] {
+        core::array::from_fn(|i| self.wallets.get(i as u8).map(|e| &e.wallet))
+    }
+
     pub(crate) fn render_wallets(&self, c: &mut dyn Canvas, step: WlStep) {
         let s = self.text();
         let t = s.wl;

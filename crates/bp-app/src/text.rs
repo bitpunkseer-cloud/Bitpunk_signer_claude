@@ -416,7 +416,7 @@ pub struct Strings {
 }
 
 /// Number of issue kinds (see `review::issue_index`).
-pub const ISSUE_KINDS: usize = 47;
+pub const ISSUE_KINDS: usize = 53;
 
 /// Strings of the PSBT review and signing screens.
 pub struct ReviewStrings {
@@ -441,7 +441,7 @@ pub struct ReviewStrings {
     pub fee: &'static str,
     pub unknown: &'static str,
     pub output_n: &'static str,
-    pub kinds: [&'static str; 4],
+    pub kinds: [&'static str; 5],
     pub verified: &'static str,
     pub no_address: &'static str,
     pub fee_title: &'static str,
@@ -503,7 +503,7 @@ pub static EN_REVIEW: ReviewStrings = ReviewStrings {
     fee: "Fee",
     unknown: "unknown",
     output_n: "Output {} of {}",
-    kinds: ["Recipient", "Change", "To yourself", "Data (OP_RETURN)"],
+    kinds: ["Recipient", "Change", "To yourself", "Data (OP_RETURN)", "To your other wallet"],
     verified: "Verified: an address of this seed",
     no_address: "(no address for this script)",
     fee_title: "Fee",
@@ -589,6 +589,12 @@ pub static EN_REVIEW: ReviewStrings = ReviewStrings {
         ("Extra key claims", "A single-key output lists more than one key, or keys of both kinds."),
         ("Unverifiable mixed accounts", "SegWit inputs from different accounts came without previous transactions, so their amounts cannot be checked."),
         ("Input from another wallet", "A message or proof of reserves may only include this seed's coins. One input is not from this seed."),
+        ("Witness script missing", "A multisig input of this seed came without its witness script."),
+        ("Unregistered multisig", "A multisig input with this seed's key is not a registered wallet's. Register the wallet (or type its code) first."),
+        ("Multisig paths contradict", "Key paths in a multisig input or output disagree with the registered wallet: wrong path, wrong key or unknown cosigner."),
+        ("Inputs from several wallets", "This seed's inputs come from more than one wallet (two multisig wallets, or multisig and single-key)."),
+        ("Cosigner key replaced", "The PSBT names a cosigner's key at its path, but it is not the registered key: a sign of a key swap."),
+        ("Bad cosigner signature", "A signature already in the PSBT does not verify, or is by a key not in the wallet. It is not counted."),
     ],
     msg_title: "Sign message (BIP-322)",
     por_title: "Proof of Reserves",
@@ -1086,7 +1092,7 @@ pub static KO_REVIEW: ReviewStrings = ReviewStrings {
     fee: "수수료",
     unknown: "알 수 없음",
     output_n: "출력 {} / {}",
-    kinds: ["받는 사람", "거스름돈", "내 주소", "데이터 (OP_RETURN)"],
+    kinds: ["받는 사람", "거스름돈", "내 주소", "데이터 (OP_RETURN)", "내 다른 지갑으로"],
     verified: "확인됨: 이 시드의 주소",
     no_address: "(이 스크립트는 주소로 표시할 수 없음)",
     fee_title: "수수료",
@@ -1172,6 +1178,12 @@ pub static KO_REVIEW: ReviewStrings = ReviewStrings {
         ("남는 키 정보", "단일 키 출력에 키가 둘 이상이거나 두 종류의 키가 적혀 있습니다."),
         ("확인할 수 없는 여러 계정", "서로 다른 계정의 SegWit 입력에 이전 거래가 없어 금액을 확인할 수 없습니다."),
         ("다른 지갑의 입력", "메시지나 보유 증명에는 이 시드의 코인만 넣을 수 있습니다. 입력 하나가 이 시드의 것이 아닙니다."),
+        ("위트니스 스크립트 없음", "이 시드의 멀티시그 입력에 위트니스 스크립트가 없습니다."),
+        ("등록되지 않은 멀티시그", "이 시드의 키가 든 멀티시그 입력이 등록된 지갑의 것이 아닙니다. 먼저 지갑을 등록하세요 (또는 지갑 코드 입력)."),
+        ("멀티시그 경로 모순", "멀티시그 입력이나 출력의 키 경로가 등록된 지갑과 다릅니다: 경로, 키, 또는 모르는 공동서명자."),
+        ("여러 지갑의 입력", "이 시드의 입력이 둘 이상의 지갑에서 옵니다 (멀티시그 지갑 두 개, 또는 멀티시그와 단일 키)."),
+        ("공동서명자 키 바뀜", "PSBT가 공동서명자 경로에 적은 키가 등록된 키가 아닙니다: 키 바꿔치기의 징후입니다."),
+        ("잘못된 공동서명자 서명", "PSBT에 이미 있는 서명이 맞지 않거나 지갑에 없는 키의 서명입니다. 세지 않습니다."),
     ],
     msg_title: "메시지 서명 (BIP-322)",
     por_title: "보유 증명 (Proof of Reserves)",

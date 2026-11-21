@@ -15,9 +15,19 @@ fn compact_len(n: usize) -> u64 {
 
 /// Signed-input sizes (non-witness bytes, witness bytes). ECDSA signatures
 /// are at most 71 bytes with low-R grinding, plus the sighash byte.
-fn input_size(kind: Option<SpendKind>) -> (u64, u64) {
+fn input_size(kind: Option<SpendKind>, ms: Option<super::MsSpend>) -> (u64, u64) {
     const OUTPOINT_SEQ: u64 = 36 + 4;
     const P2WPKH_WITNESS: u64 = 1 + (1 + 72) + (1 + 33);
+    if let Some(m) = ms {
+        // items, the empty CHECKMULTISIG dummy, m signatures, the script
+        let ws = 3 + 34 * m.n as u64;
+        let witness = 1 + 1 + m.m as u64 * (1 + 72) + compact_len(ws as usize) + ws;
+        let base = match kind {
+            Some(SpendKind::P2shP2wshMulti) => OUTPOINT_SEQ + 1 + 35,
+            _ => OUTPOINT_SEQ + 1,
+        };
+        return (base, witness);
+    }
     match kind {
         Some(SpendKind::P2pkh) => (OUTPOINT_SEQ + 1 + (1 + 72) + (1 + 33), 0),
         Some(SpendKind::P2shP2wpkh) => (OUTPOINT_SEQ + 1 + 23, P2WPKH_WITNESS),
@@ -49,7 +59,7 @@ fn estimate_vsize(psbt: &Psbt, report: &Report) -> u64 {
             continue;
         }
         let kind = r.owned.map(|o| o.get().kind).or(prev_kind);
-        let (b, w) = input_size(kind);
+        let (b, w) = input_size(kind, r.owned.and_then(|o| o.get().ms));
         base += b;
         if w > 0 {
             witness += w;
@@ -104,7 +114,9 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, report: &mut Report) {
         match o.kind {
             OutputKind::Change(_) => add(&mut t.change, o.amount),
             OutputKind::SelfSend(_) => add(&mut t.self_send, o.amount),
-            OutputKind::External | OutputKind::OpReturn => add(&mut t.recipients, o.amount),
+            OutputKind::External | OutputKind::OtherWallet(_) | OutputKind::OpReturn => {
+                add(&mut t.recipients, o.amount)
+            }
         }
     }
     if overflow {

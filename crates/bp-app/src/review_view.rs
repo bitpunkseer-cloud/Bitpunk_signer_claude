@@ -377,6 +377,7 @@ impl App {
                     OutputKind::Change(v) => (rv.kinds[1], theme::OK, Some(v.get().path)),
                     OutputKind::SelfSend(v) => (rv.kinds[2], theme::OK, Some(v.get().path)),
                     OutputKind::OpReturn => (rv.kinds[3], theme::WARN, None),
+                    OutputKind::OtherWallet(v) => (rv.kinds[4], theme::ACCENT, Some(v.get().path)),
                 };
                 TITLE.draw(c, MARGIN, top + 24, kind, color);
                 HUGE.draw(c, MARGIN, top + 62, amount(o.amount, units).as_str(), theme::TEXT);

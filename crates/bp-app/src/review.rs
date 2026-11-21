@@ -233,11 +233,13 @@ impl App {
             let Some(seed) = self.seeds[slot].as_ref() else {
                 continue;
             };
+            let wallets = self.multisig_wallets();
             let ctx = Context {
                 master: seed.master(),
                 network: self.settings.network,
                 policy,
                 memory: Some(&self.memory),
+                multisig: &wallets,
             };
             let (_, report) = validate(raw, &ctx);
             if !report.has(Issue::NoInputsForSeed) {
@@ -406,6 +408,8 @@ impl App {
         let Some(seed) = r.slot.and_then(|s| self.seeds[s as usize].as_ref()) else {
             return;
         };
+        let wallets: [Option<&bp_bitcoin::multisig::Wallet>; bp_bitcoin::multisig::register::MAX_WALLETS] =
+            core::array::from_fn(|i| self.wallets.get(i as u8).map(|e| &e.wallet));
         let signer = Signer {
             master: seed.master(),
             network: self.settings.network,
@@ -413,6 +417,7 @@ impl App {
                 message: r.message.is_some(),
                 ..self.settings.policy()
             },
+            multisig: &wallets,
         };
         let (psbt, out) = self.scan.buffers();
         let result = sign::sign_psbt(
@@ -489,6 +494,12 @@ pub fn issue_index(i: &Issue) -> usize {
         SurplusClaims(_) => 44,
         UnverifiedMixedBasePaths => 45,
         ExternalMessageInput => 46,
+        MissingWitnessScript(_) => 47,
+        UnregisteredMultisig(_) => 48,
+        MultisigClaimMismatch(_) => 49,
+        MixedWallets => 50,
+        GlobalXpubMismatch => 51,
+        BadCosignerSignature(_) => 52,
     }
 }
 
@@ -497,7 +508,11 @@ pub fn issue_at(i: &Issue) -> Option<validate::At> {
     use validate::At;
     use Issue::*;
     match *i {
-        KeyNotFromSeed(a) | PathTooDeep(a) | PathTooShort(a) | NetworkMismatch(a) => Some(a),
+        KeyNotFromSeed(a)
+        | PathTooDeep(a)
+        | PathTooShort(a)
+        | NetworkMismatch(a)
+        | MultisigClaimMismatch(a) => Some(a),
         ScriptNotOurs(n)
         | RedeemMismatch(n)
         | WitnessScriptMismatch(n)
@@ -512,6 +527,9 @@ pub fn issue_at(i: &Issue) -> Option<validate::At> {
         | InconsistentInput(n)
         | UncompressedKey(n)
         | DuplicateInput(n)
+        | MissingWitnessScript(n)
+        | UnregisteredMultisig(n)
+        | BadCosignerSignature(n)
         | NonStandardSighash(n) => Some(At::Input(n)),
         ChangeContradiction(n)
         | ChangePathViolation(n)
