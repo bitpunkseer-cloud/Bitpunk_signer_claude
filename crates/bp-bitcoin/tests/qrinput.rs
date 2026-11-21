@@ -159,9 +159,43 @@ fn addresses_keys_descriptors_text() {
                 len,
                 network,
                 kind: k,
+                index,
             } => {
+                assert_eq!(index, None);
                 assert_eq!((network, k), (net, kind), "{text}");
                 assert_eq!(&out[..len], addr.as_bytes());
+            }
+            _ => panic!("{text} is not an address"),
+        }
+    }
+    // an index hint in the URI
+    for (text, want) in [
+        (
+            "bitcoin:bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?index=17",
+            Some(17),
+        ),
+        (
+            "bitcoin:bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?amount=1&index=0",
+            Some(0),
+        ),
+        (
+            "bitcoin:bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?index=-1",
+            None,
+        ),
+        (
+            "bitcoin:bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?index=2147483648",
+            None,
+        ),
+        (
+            "bitcoin:bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?xindex=5",
+            None,
+        ),
+    ] {
+        let mut out = vec![0u8; 256];
+        match classify(text.as_bytes(), &mut out).unwrap() {
+            Content::Address { index, len, .. } => {
+                assert_eq!(index, want, "{text}");
+                assert_eq!(len, 42);
             }
             _ => panic!("{text} is not an address"),
         }

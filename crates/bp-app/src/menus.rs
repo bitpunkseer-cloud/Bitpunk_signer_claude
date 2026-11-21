@@ -41,6 +41,8 @@ pub enum Action {
     Todo(Label, Label),
     /// Tools > Address explorer (picks a seed first if several are loaded).
     Explorer,
+    /// Tools > Verify address (scans an address, needs a loaded seed).
+    VerifyAddress,
     Start(Start),
     CycleSetting,
     About,
@@ -128,7 +130,11 @@ static TOOLS: [Entry; 7] = [
         detail: ">",
         action: Action::Explorer,
     },
-    todo_entry!(|s| s.verify_address, "M6", |s| s.ms_signing),
+    Entry {
+        label: |s| s.verify_address,
+        detail: ">",
+        action: Action::VerifyAddress,
+    },
     todo_entry!(|s| s.sign_message, "M6", |s| s.ms_signing),
     todo_entry!(|s| s.bip85, "M8", |s| s.ms_keys),
     todo_entry!(|s| s.secure_notes, "M10", |s| s.ms_tools),

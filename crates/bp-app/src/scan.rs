@@ -23,6 +23,8 @@ pub enum Purpose {
     Seed,
     /// Check a hand-copied SeedQR against the seed in this slot.
     Verify { slot: u8 },
+    /// Tools > Verify address: an address (anything else is refused).
+    Address,
 }
 
 /// What the scan produced (data in `ScanState::out`).
@@ -42,6 +44,7 @@ pub enum Outcome {
         len: usize,
         network: Network,
         kind: AddressKind,
+        index: Option<u32>,
     },
     Descriptor {
         len: usize,
@@ -57,6 +60,8 @@ pub enum Outcome {
     },
     /// A seed arrived where something else was expected (or vice versa).
     NotASeed,
+    /// Something other than an address arrived for Verify address.
+    NotAnAddress,
     Failed,
 }
 
@@ -204,6 +209,10 @@ impl ScanState {
         self.collector.reset();
         bp_crypto::secret::wipe(&mut self.work);
         let outcome = match r {
+            // a seed (or anything else) is never taken for an address
+            Ok((c, _)) if purpose == Purpose::Address && !matches!(c, Content::Address { .. }) => {
+                Some(Outcome::NotAnAddress)
+            }
             Ok((Content::Seed { mnemonic, source }, _)) => {
                 self.seed = Some(mnemonic);
                 self.seed_source = Some(source);
@@ -213,7 +222,17 @@ impl ScanState {
             Ok((c, source)) => Some(match c {
                 Content::Psbt { len, summary } => Outcome::Psbt { len, summary, source },
                 Content::Xpub { len, network, depth } => Outcome::Xpub { len, network, depth },
-                Content::Address { len, network, kind } => Outcome::Address { len, network, kind },
+                Content::Address {
+                    len,
+                    network,
+                    kind,
+                    index,
+                } => Outcome::Address {
+                    len,
+                    network,
+                    kind,
+                    index,
+                },
                 Content::Descriptor { len } => Outcome::Descriptor { len },
                 Content::UnknownUr { len } => Outcome::UnknownUr { len },
                 Content::Text { len } => Outcome::Text { len },

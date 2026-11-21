@@ -265,3 +265,34 @@ fn transaction_parser_and_sighashes_never_panic() {
 }
 
 const BIP143_SIGNED: &str = "01000000000102fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f00000000494830450221008b9d1dc26ba6a9cb62127b02742fa9d754cd3bebf337f7a55d114c8e5cdd30be022040529b194ba3f9281a99f2b1c0a19c0489bc22ede944ccf4ecbab4cc618ef3ed01eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac000247304402203609e17b84f6a7d30c80bfa610b5b4542f32a8a0d5447a12fb1366d7f01cc44a0220573a954c4518331561406f90300e8f3358f51928d43c212a8caed02de67eebee0121025476c2e83188368da1ff3e292e7acafcdb3566bb0ad253f62fc70f07aeee635711000000";
+
+#[test]
+fn address_parser_never_panics() {
+    use bp_bitcoin::addrcheck::Target;
+    use bp_bitcoin::Network;
+    let valid = [
+        &b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"[..],
+        b"bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr",
+        b"tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+        b"bcrt1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+        b"1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+        b"3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy",
+        b"bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3",
+    ];
+    let mut rng = Rng(0xadd7);
+    for i in 0..30_000 {
+        let v = if i % 3 == 0 {
+            let n = rng.below(100);
+            rng.bytes(n)
+        } else {
+            let k = rng.below(valid.len());
+            mutate(&mut rng, valid[k])
+        };
+        let Ok(s) = core::str::from_utf8(&v) else { continue };
+        for net in Network::ALL {
+            if let Ok(t) = Target::parse(s, net) {
+                assert!(matches!(t.script().len(), 22 | 23 | 25 | 34));
+            }
+        }
+    }
+}

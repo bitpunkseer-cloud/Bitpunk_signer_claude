@@ -11,6 +11,7 @@ mod scan;
 mod seeds;
 mod settings;
 mod text;
+mod verify;
 mod view;
 
 use bp_bitcoin::address::ScriptType;
@@ -228,6 +229,10 @@ pub enum Screen {
     Review {
         step: review::Step,
     },
+    /// Is this scanned address one of a loaded seed's?
+    VerifyAddr {
+        step: verify::VaStep,
+    },
 }
 
 pub struct App {
@@ -257,6 +262,13 @@ pub struct App {
     review: Option<review::Review>,
     /// Amounts of the UTXOs signed since power-on.
     memory: bp_bitcoin::validate::UtxoMemory,
+    /// The address being verified and its search.
+    verify: Option<verify::VerifyState>,
+    /// Index of the address verified last (searched first next time).
+    last_found: Option<u32>,
+    /// Accounts used this session (0 first), searched by Verify address.
+    session_accounts: [u32; verify::SESSION_ACCOUNTS],
+    n_session_accounts: usize,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -318,6 +330,10 @@ impl App {
             scanned: None,
             review: None,
             memory: bp_bitcoin::validate::UtxoMemory::new(),
+            verify: None,
+            last_found: None,
+            session_accounts: [0; verify::SESSION_ACCOUNTS],
+            n_session_accounts: 1,
         }
     }
 
@@ -421,6 +437,9 @@ impl App {
                 }
             }
         }
+        if self.verify_tick() {
+            self.dirty = true;
+        }
         core::mem::take(&mut self.dirty)
     }
 
@@ -433,6 +452,12 @@ impl App {
             .any(|s| matches!(s, Screen::QrShow { .. }))
         {
             self.qr = None;
+        }
+        if !self.stack[..self.depth]
+            .iter()
+            .any(|s| matches!(s, Screen::VerifyAddr { .. }))
+        {
+            self.verify = None;
         }
         self.end_scan_if_left();
     }
@@ -513,6 +538,14 @@ impl App {
             }
         } else if let Some(scan::Outcome::Psbt { len, .. }) = self.scan.outcome {
             self.start_review(len);
+        } else if let Some(scan::Outcome::Address { len, index, .. }) = self.scan.outcome {
+            let mut addr = [0u8; bp_bitcoin::address::MAX_ADDRESS_LEN];
+            let n = len.min(addr.len());
+            addr[..n].copy_from_slice(&self.scan.out[..n]);
+            self.start_verify(&addr[..n], index);
+            bp_crypto::secret::wipe(&mut addr);
+            // the scan buffers are no longer needed: wipe them now
+            self.end_scan_if_left();
         } else {
             self.set_current(Screen::ScanResult);
         }
@@ -707,11 +740,14 @@ impl App {
                     st,
                     account: account.saturating_sub(1),
                 }),
-                Key::Right => self.set_current(Screen::XpubView {
-                    slot,
-                    st,
-                    account: (account + 1).min(99),
-                }),
+                Key::Right => {
+                    self.note_account((account + 1).min(99));
+                    self.set_current(Screen::XpubView {
+                        slot,
+                        st,
+                        account: (account + 1).min(99),
+                    })
+                }
                 Key::Esc | Key::Backspace | Key::Enter => {
                     self.pop();
                     // details opened from an xpub QR: follow the account change
@@ -909,6 +945,7 @@ impl App {
                 Pick::None => {}
             },
             Screen::Review { step } => self.review_key(step, ev),
+            Screen::VerifyAddr { step } => self.verify_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1269,10 +1306,20 @@ impl App {
                 }
                 _ => self.push(Screen::PickSeed { sel: 0 }),
             },
+            Action::VerifyAddress => {
+                if self.seed_count() == 0 {
+                    self.push(Screen::NoSeed);
+                } else {
+                    self.start_scan(scan::Purpose::Address);
+                }
+            }
             Action::PowerOff => {
                 self.flow = None;
                 self.seeds = [None, None, None];
                 self.review = None;
+                self.verify = None;
+                self.last_found = None;
+                self.n_session_accounts = 1;
                 self.memory.clear();
                 self.reset_to(Screen::PoweredOff);
             }

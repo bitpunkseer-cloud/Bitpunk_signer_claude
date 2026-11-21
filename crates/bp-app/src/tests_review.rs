@@ -526,5 +526,220 @@ fn demo_psbt() {
     std::println!("{}", b64(&standard(&w).serialize()));
 }
 
+// ---------- M6: address verification ----------
+
+use crate::verify::VaStep;
+use bitcoin::Address;
+use std::string::ToString;
+
+/// A P2WPKH (or P2TR) address of `w` at m/{84,86}'/0'/account'/chain/index.
+fn addr_of(w: &W, taproot: bool, account: u32, chain: u32, index: u32) -> String {
+    let purpose = if taproot { 86 } else { 84 };
+    let (pk, _) = w.key(&format!("m/{purpose}'/0'/{account}'/{chain}/{index}"));
+    if taproot {
+        Address::p2tr(&w.secp, pk.x_only_public_key().0, None, bitcoin::Network::Bitcoin).to_string()
+    } else {
+        Address::p2wpkh(&CompressedPublicKey(pk), bitcoin::Network::Bitcoin).to_string()
+    }
+}
+
+fn va(a: &App) -> VaStep {
+    match a.current() {
+        Screen::VerifyAddr { step } => step,
+        s => panic!("not verifying: {s:?}"),
+    }
+}
+
+/// Tools > Verify address, then scan `text`.
+fn verify_scan(a: &mut App, text: &str) {
+    press(a, Key::Char('3')); // Tools
+    press(a, Key::Char('3')); // Verify address
+    assert_eq!(
+        a.current(),
+        Screen::Scan {
+            purpose: scan::Purpose::Address
+        }
+    );
+    a.on_qr_text(text.as_bytes());
+}
+
+fn search_until_done(a: &mut App) -> u32 {
+    let mut ticks = 0;
+    while va(a) == VaStep::Searching {
+        a.tick(16);
+        ticks += 1;
+        assert!(ticks < 10_000);
+    }
+    ticks
+}
+
+fn found(a: &App) -> bp_bitcoin::addrcheck::Found {
+    match a.verify.as_ref().unwrap().search_state() {
+        Some(bp_bitcoin::addrcheck::State::Found(f)) => f,
+        s => panic!("not found: {s:?}"),
+    }
+}
+
+#[test]
+fn verify_finds_receive_and_change_addresses() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    load_abandon(&mut a);
+    for (taproot, chain, index) in [(false, 1, 7), (true, 0, 3)] {
+        verify_scan(&mut a, &addr_of(&w, taproot, 0, chain, index));
+        assert_eq!(va(&a), VaStep::Confirm { sel: 0 });
+        render(&a);
+        press(&mut a, Key::Enter);
+        assert_eq!(va(&a), VaStep::Searching);
+        render(&a);
+        search_until_done(&mut a);
+        assert_eq!(va(&a), VaStep::Found);
+        render(&a);
+        let f = found(&a);
+        assert_eq!(
+            (f.fingerprint, f.account, f.change, f.index),
+            ([0x73, 0xc5, 0xda, 0x0a], 0, chain == 1, index)
+        );
+        assert_eq!(a.last_found, Some(index));
+        press(&mut a, Key::Enter);
+        assert!(matches!(
+            a.current(),
+            Screen::Menu {
+                id: MenuId::Tools,
+                ..
+            }
+        ));
+        assert!(a.verify.is_none(), "state wiped on leaving");
+        press(&mut a, Key::Esc);
+    }
+}
+
+#[test]
+fn verify_uses_the_index_hint_and_the_last_index() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    load_abandon(&mut a);
+    // far beyond the first batch, but the URI names the index
+    verify_scan(
+        &mut a,
+        &format!("bitcoin:{}?index=1500", addr_of(&w, false, 0, 0, 1500)),
+    );
+    press(&mut a, Key::Enter);
+    assert!(search_until_done(&mut a) <= 1);
+    assert_eq!(found(&a).index, 1500);
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Esc);
+    // next time the neighbourhood of 1500 is searched first
+    verify_scan(&mut a, &addr_of(&w, false, 0, 1, 1510));
+    press(&mut a, Key::Enter);
+    assert!(search_until_done(&mut a) <= 6);
+    assert_eq!(found(&a).index, 1510);
+}
+
+#[test]
+fn verify_pauses_after_a_batch_and_offers_more_or_another_account() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    load_abandon(&mut a);
+    // an address of account 2 is not in account 0
+    verify_scan(&mut a, &addr_of(&w, false, 2, 0, 4));
+    press(&mut a, Key::Enter);
+    // Esc stops mid-batch: "Continue searching"
+    a.tick(16);
+    press(&mut a, Key::Esc);
+    assert_eq!(va(&a), VaStep::Paused { sel: 0 });
+    render(&a);
+    press(&mut a, Key::Enter);
+    assert_eq!(va(&a), VaStep::Searching);
+    search_until_done(&mut a);
+    assert_eq!(va(&a), VaStep::Paused { sel: 0 });
+    let s = a.verify.as_ref().unwrap();
+    assert_eq!(s.scanned(), Some(bp_bitcoin::addrcheck::BATCH));
+    render(&a);
+    // try account 1 (not there), then account 2
+    for want in [1, 2] {
+        press(&mut a, Key::Down);
+        press(&mut a, Key::Enter);
+        assert_eq!(va(&a), VaStep::Searching);
+        search_until_done(&mut a);
+        if want == 1 {
+            assert_eq!(va(&a), VaStep::Paused { sel: 0 });
+        }
+    }
+    let f = found(&a);
+    assert_eq!((f.account, f.index), (2, 4));
+    // an account found is searched by default from now on
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Esc);
+    verify_scan(&mut a, &addr_of(&w, false, 2, 1, 9));
+    press(&mut a, Key::Enter);
+    search_until_done(&mut a);
+    assert_eq!(found(&a).account, 2);
+    // "Stop" leaves
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Esc);
+    verify_scan(&mut a, &addr_of(&W::other(), false, 0, 0, 0));
+    press(&mut a, Key::Enter);
+    search_until_done(&mut a);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    assert!(matches!(
+        a.current(),
+        Screen::Menu {
+            id: MenuId::Tools,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn verify_refuses_other_networks_scripts_and_non_addresses() {
+    let mut a = app();
+    // no seed: Verify address explains first
+    press(&mut a, Key::Char('3'));
+    press(&mut a, Key::Char('3'));
+    assert_eq!(a.current(), Screen::NoSeed);
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Esc);
+    load_abandon(&mut a);
+    for (addr, err) in [
+        (
+            "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+            bp_bitcoin::addrcheck::TargetError::WrongNetwork,
+        ),
+        (
+            "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3",
+            bp_bitcoin::addrcheck::TargetError::Multisig,
+        ),
+    ] {
+        verify_scan(&mut a, addr);
+        assert_eq!(va(&a), VaStep::Confirm { sel: 0 });
+        assert_eq!(a.verify.as_ref().unwrap().target_error(), Some(err));
+        render(&a);
+        press(&mut a, Key::Down);
+        press(&mut a, Key::Enter); // Enter only closes it
+        assert!(matches!(
+            a.current(),
+            Screen::Menu {
+                id: MenuId::Tools,
+                ..
+            }
+        ));
+        press(&mut a, Key::Esc);
+    }
+    // anything else, a seed included, is refused (and not loaded)
+    for text in ["hello", ABANDON] {
+        verify_scan(&mut a, text);
+        assert_eq!(a.current(), Screen::ScanResult);
+        assert_eq!(a.scan.outcome, Some(scan::Outcome::NotAnAddress));
+        assert!(a.scanned.is_none());
+        render(&a);
+        press(&mut a, Key::Enter);
+        press(&mut a, Key::Esc);
+    }
+    assert_eq!(a.seed_count(), 1);
+}
+
 #[path = "tests_layout.rs"]
 mod layout;

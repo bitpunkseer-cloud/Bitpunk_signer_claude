@@ -53,6 +53,8 @@ pub enum Content {
         len: usize,
         network: Network,
         kind: AddressKind,
+        /// `index=N` from a `bitcoin:` URI: where to start looking for it.
+        index: Option<u32>,
     },
     /// Descriptor or wallet-file text in `out[..len]`.
     Descriptor {
@@ -180,6 +182,18 @@ fn address_info(addr: &[u8]) -> Option<(Network, AddressKind)> {
     }
 }
 
+/// `index=N` among the `&`-separated URI parameters (N < 2^31).
+fn uri_index(query: &[u8]) -> Option<u32> {
+    query.split(|&c| c == b'&').find_map(|p| {
+        let v = p.strip_prefix(b"index=")?;
+        if v.is_empty() || v.len() > 10 || !v.iter().all(u8::is_ascii_digit) {
+            return None;
+        }
+        let n = core::str::from_utf8(v).ok()?.parse::<u32>().ok()?;
+        (n < 1 << 31).then_some(n)
+    })
+}
+
 fn is_descriptor(t: &[u8]) -> bool {
     const MARKS: [&[u8]; 8] = [
         b"wpkh(",
@@ -252,17 +266,19 @@ pub fn classify(data: &[u8], out: &mut [u8]) -> Result<Content, Error> {
         });
     }
     // bitcoin: URI or a bare address
-    let addr = if t.len() > 8 && t[..8].eq_ignore_ascii_case(b"bitcoin:") {
+    let (addr, query) = if t.len() > 8 && t[..8].eq_ignore_ascii_case(b"bitcoin:") {
         let rest = &t[8..];
-        &rest[..rest.iter().position(|&c| c == b'?').unwrap_or(rest.len())]
+        let q = rest.iter().position(|&c| c == b'?').unwrap_or(rest.len());
+        (&rest[..q], rest.get(q + 1..).unwrap_or(&[]))
     } else {
-        t
+        (t, &[][..])
     };
     if let Some((network, kind)) = address_info(addr) {
         return Ok(Content::Address {
             len: copy(out, addr)?,
             network,
             kind,
+            index: uri_index(query),
         });
     }
     // extended public key, optionally "[fingerprint/path]key"

@@ -30,5 +30,9 @@ panic = "abort"
 # debug test builds (keeps `cargo test` fast).
 [profile.dev.package.rqrr]
 opt-level = 3
+# Elliptic-curve arithmetic runs optimised in test builds too (address
+# searches and signing tests derive thousands of keys).
+[profile.dev.package.bp-crypto]
+opt-level = 3
 [profile.dev.package.rxing]
 opt-level = 3

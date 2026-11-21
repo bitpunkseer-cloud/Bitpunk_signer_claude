@@ -4,6 +4,7 @@
 //! PSBT v0/v2, output descriptors, miniscript.
 #![no_std]
 
+pub mod addrcheck;
 pub mod address;
 pub mod base58;
 pub mod base64;

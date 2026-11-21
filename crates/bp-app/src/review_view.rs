@@ -53,7 +53,7 @@ fn prose(c: &mut dyn Canvas, y: i32, text: &str, font: &Font, color: bp_hal::Rgb
 }
 
 /// An address in groups of four characters, eight groups per line.
-fn address_lines(c: &mut dyn Canvas, x: i32, y: i32, addr: &str) -> i32 {
+pub(crate) fn address_lines(c: &mut dyn Canvas, x: i32, y: i32, addr: &str) -> i32 {
     let mut y = y;
     for chunk in addr.as_bytes().chunks(32) {
         let mut line = Buf::<48>::new();
@@ -77,7 +77,7 @@ fn row(c: &mut dyn Canvas, y: i32, label: &str, value: &str, color: bp_hal::Rgb)
     c.fill_rect(MARGIN, y + BODY.height as i32 + 8, W - 2 * MARGIN, 1, theme::LINE);
 }
 
-fn fps(list: &[[u8; 4]]) -> Buf<48> {
+pub(crate) fn fps(list: &[[u8; 4]]) -> Buf<48> {
     let mut b = Buf::<48>::new();
     for (i, fp) in list.iter().enumerate() {
         if i > 0 {

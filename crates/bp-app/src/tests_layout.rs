@@ -506,6 +506,55 @@ fn tour(lang: Lang) -> usize {
     );
     scan_psbt(&mut a, &p);
     t.snap(&a, "review-warning");
+
+    // address verification: confirm, searching, found, paused, refusals
+    let mut a = t.app();
+    load_abandon(&mut a);
+    verify_scan(&mut a, &addr_of(&w, false, 0, 1, 7));
+    t.snap(&a, "verify-confirm");
+    press(&mut a, Key::Enter);
+    search_until_done(&mut a);
+    t.snap(&a, "verify-found");
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Esc);
+    verify_scan(&mut a, &addr_of(&W::other(), false, 0, 0, 0));
+    press(&mut a, Key::Enter);
+    for _ in 0..20 {
+        a.tick(16);
+    }
+    t.snap(&a, "verify-searching");
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Esc);
+    verify_scan(&mut a, &addr_of(&W::other(), true, 0, 0, 0));
+    press(&mut a, Key::Enter);
+    a.tick(16);
+    press(&mut a, Key::Esc);
+    t.snap(&a, "verify-stopped");
+    press(&mut a, Key::Enter);
+    search_until_done(&mut a);
+    t.snap(&a, "verify-paused");
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Esc);
+    for (text, name) in [
+        (
+            "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl",
+            "verify-wrong-network",
+        ),
+        (
+            "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3",
+            "verify-multisig",
+        ),
+        ("hello", "verify-not-an-address"),
+    ] {
+        verify_scan(&mut a, text);
+        t.snap(&a, name);
+        press(&mut a, Key::Enter);
+        press(&mut a, Key::Esc);
+    }
+    let mut a = t.app();
+    press(&mut a, Key::Char('1'));
+    a.on_qr_text(b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
+    t.snap(&a, "verify-no-seed");
     t.n
 }
 

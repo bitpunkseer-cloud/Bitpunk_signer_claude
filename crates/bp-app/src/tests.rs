@@ -977,20 +977,18 @@ fn scanned_address_shows_and_state_is_wiped() {
     let mut a = app();
     press(&mut a, Key::Char('1'));
     a.on_qr_text(b"bitcoin:bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?amount=1");
-    assert_eq!(a.current(), Screen::ScanResult);
-    assert!(matches!(
-        a.scan.outcome,
-        Some(scan::Outcome::Address {
-            len: 42,
-            network: bp_bitcoin::Network::Mainnet,
-            kind: bp_bitcoin::qrinput::AddressKind::SegwitV0
-        })
-    ));
-    assert_eq!(&a.scan.out[..42], b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
+    assert_eq!(
+        a.current(),
+        Screen::VerifyAddr {
+            step: verify::VaStep::Confirm { sel: 0 }
+        }
+    );
+    assert!(!a.scan_live);
+    assert!(a.scan.out.iter().all(|&b| b == 0), "scan buffer wiped");
+    // no seed loaded: Enter only closes it
     press(&mut a, Key::Enter);
     assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
-    assert!(!a.scan_live);
-    assert!(a.scan.out.iter().all(|&b| b == 0), "result buffer wiped");
+    assert!(a.verify.is_none());
 }
 
 #[test]

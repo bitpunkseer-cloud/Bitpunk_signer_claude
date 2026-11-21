@@ -382,6 +382,7 @@ impl App {
             Screen::ScanVerify { slot } => self.render_scan_verify(c, slot),
             Screen::ScanResult => self.render_scan_result(c),
             Screen::Review { step } => self.render_review(c, step),
+            Screen::VerifyAddr { step } => self.render_verify(c, step),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
@@ -1256,6 +1257,7 @@ impl App {
             Purpose::Any => s.scan_qr,
             Purpose::Seed => s.scan_seedqr,
             Purpose::Verify { .. } => s.verify_seedqr,
+            Purpose::Address => s.verify_address,
         };
         self.status(c, title);
         let (bx, by) = (MARGIN, STATUS_H + 20);
@@ -1437,24 +1439,8 @@ impl App {
                 BODY.draw(c, MARGIN, y0 + 56, l.as_str(), theme::TEXT);
                 wrap(c, MARGIN, y0 + 96, text(len), 8);
             }
-            Outcome::Address { len, network, kind } => {
-                self.status(c, s.res_address);
-                TITLE.draw(c, MARGIN, y0, s.res_address, theme::ACCENT);
-                let k = s.addr_kinds[kind as usize];
-                let l: Buf<128> = fill(s.words_count, &[&k, &network.name()]);
-                BODY.draw(c, MARGIN, y0 + 56, l.as_str(), theme::TEXT);
-                for (row, chunk) in text(len).as_bytes().chunks(32).enumerate() {
-                    let mut line = Buf::<48>::new();
-                    for (i, g) in chunk.chunks(4).enumerate() {
-                        if i > 0 {
-                            line.push_str(" ");
-                        }
-                        line.push_str(core::str::from_utf8(g).unwrap_or(""));
-                    }
-                    TITLE.draw(c, MARGIN, y0 + 100 + row as i32 * 46, line.as_str(), theme::TEXT);
-                }
-                SMALL.draw(c, MARGIN, y0 + 260, s.res_m6, theme::TEXT_DIM);
-            }
+            // addresses open the verification screens instead
+            Outcome::Address { .. } => {}
             Outcome::Descriptor { len } => {
                 self.status(c, s.res_descriptor);
                 TITLE.draw(c, MARGIN, y0, s.res_descriptor, theme::ACCENT);
@@ -1478,6 +1464,16 @@ impl App {
             Outcome::NotASeed => {
                 self.status(c, s.res_not_seed);
                 widgets::message_at(c, STATUS_H + 90, s.res_not_seed, theme::WARN, &[s.res_not_seed_1]);
+            }
+            Outcome::NotAnAddress => {
+                self.status(c, s.verify_address);
+                widgets::message_at(
+                    c,
+                    STATUS_H + 90,
+                    s.va_not_address,
+                    theme::WARN,
+                    &[s.va_not_address_1],
+                );
             }
             Outcome::Failed => {
                 self.status(c, s.res_failed);
