@@ -88,6 +88,7 @@ impl Sink for Buf<'_> {
 }
 
 /// Cursor over consensus-encoded bytes.
+#[derive(Clone)]
 pub struct Reader<'a> {
     d: &'a [u8],
     p: usize,

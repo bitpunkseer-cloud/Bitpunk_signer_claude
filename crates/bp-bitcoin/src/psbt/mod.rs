@@ -1,5 +1,14 @@
-//! PSBT (BIP-174 v0, BIP-370 v2) structure check and summary: input and
-//! output counts. Full parsing and signing arrive in M5.
+//! PSBT (BIP-174). `summary` is a quick structure check that also accepts
+//! v2 (BIP-370) for the scan result screen; `parse` is the strict v0 parser
+//! that everything the signer decides on goes through; `write` serializes.
+
+mod parse;
+pub mod write;
+
+pub use parse::{
+    is_valid_ecdsa_sig_encoding, Error as ParseError, InputMap, KeySource, OutputMap, Pair, Pairs, Psbt,
+    TapDerivation,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -21,7 +30,7 @@ pub struct Summary {
 pub const MAGIC: &[u8; 5] = b"psbt\xff";
 
 /// A key and its value.
-type Pair<'a> = (&'a [u8], &'a [u8]);
+type RawPair<'a> = (&'a [u8], &'a [u8]);
 
 struct Cur<'a> {
     d: &'a [u8],
@@ -45,7 +54,7 @@ impl<'a> Cur<'a> {
         })
     }
     /// Next key-value pair; `None` at the 0x00 separator.
-    fn pair(&mut self) -> Result<Option<Pair<'a>>, Error> {
+    fn pair(&mut self) -> Result<Option<RawPair<'a>>, Error> {
         let klen = self.varint()? as usize;
         if klen == 0 {
             return Ok(None);
