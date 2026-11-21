@@ -515,3 +515,13 @@ fn signed_psbt_qr_round_trips_in_every_format() {
     assert!(a.qr.is_none() && a.review.is_none());
     let _ = p;
 }
+
+/// A demo PSBT for the "abandon ... about" seed on mainnet (one P2WPKH
+/// input, a recipient and change), for trying the simulator:
+/// cargo test -p bp-app demo_psbt -- --ignored --nocapture
+#[test]
+#[ignore]
+fn demo_psbt() {
+    let w = W::from_phrase(ABANDON);
+    std::println!("{}", b64(&standard(&w).serialize()));
+}

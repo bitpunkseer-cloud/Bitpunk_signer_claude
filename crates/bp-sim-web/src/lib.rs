@@ -25,7 +25,7 @@ use std::cell::RefCell;
 /// Largest camera frame the page may send (the scanner limit is 1024).
 const FRAME_W: usize = 1024;
 const FRAME_H: usize = 768;
-const TEXT_MAX: usize = 8192;
+const TEXT_MAX: usize = 48 * 1024;
 
 struct Sim {
     app: App,
@@ -130,6 +130,18 @@ pub extern "C" fn bp_text(len: u32) {
         app.on_qr_text(&text[..n]);
         text[..n].fill(0);
     });
+}
+
+/// Length of the signed PSBT while its review is open (0 otherwise).
+#[no_mangle]
+pub extern "C" fn bp_signed_len() -> u32 {
+    with_sim(|s| s.app.signed_psbt().map_or(0, |p| p.len() as u32)).unwrap_or(0)
+}
+
+/// The signed PSBT bytes (valid while `bp_signed_len` is non-zero).
+#[no_mangle]
+pub extern "C" fn bp_signed_ptr() -> *const u8 {
+    with_sim(|s| s.app.signed_psbt().map_or(core::ptr::null(), |p| p.as_ptr())).unwrap_or(core::ptr::null())
 }
 
 #[no_mangle]

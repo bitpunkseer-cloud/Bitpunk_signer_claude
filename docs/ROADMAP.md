@@ -75,13 +75,15 @@ QR 디코더(흑백 프레임 → 데이터), UR fountain 디코딩, SeedQR 스�
 
 **결과:** 직접 만든 스캐너가 실사진 90.8% (rxing 86.6%, rqrr 67.9%), 스캔 시험대 기준 거리 98.2%. 상세: [M4_PLAN.md](milestones/M4_PLAN.md) 12장, [QR_SCAN_BENCH.md](QR_SCAN_BENCH.md).
 
-## M5 — PSBT 서명 (MVP)
+## M5 — PSBT 서명 (MVP) ✅ 구현 완료 (Signet 실송금 확인 대기)
 
 PSBT v0 파서, ECDSA(RFC 6979, low-S)·Schnorr(BIP-340/341) 서명, 거래 검토 화면(금액·수수료·거스름),
 SeedSigner 방식의 세분화된 경고(소유권 모순, 음수 수수료, 누락 UTXO, 스크립트 불일치, OP_RETURN 등),
 서명된 PSBT 애니메이션 UR QR 출력, Wycheproof 벡터 + 퍼징.
 
 **완료 기준:** Signet에서 Sparrow → Bitpunk → Sparrow 실제 송금 성공.
+
+**결과:** ECDSA·Schnorr가 libsecp256k1과 바이트 일치, Core·BIP·Wycheproof·Coldcard 벡터, SeedSigner 시나리오 같은 판정, 서명을 rust-bitcoin으로 독립 검증, 결과 QR(UR·BBQr·Specter) 왕복. 상세: [M5_PLAN.md](milestones/M5_PLAN.md) 11장, 조사: [SIGNING_SURVEY.md](SIGNING_SURVEY.md).
 
 ## M6 — 서명 확장
 

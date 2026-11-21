@@ -752,7 +752,7 @@ pub static EN: Strings = Strings {
     verify_len: "The copy holds a different number of words.",
     res_psbt: "PSBT received",
     res_psbt_lines: ["Version {}", "{} inputs, {} outputs", "{} bytes, via {}"],
-    res_m5: "Reviewing and signing arrive in M5.",
+    res_m5: "Opening the review...",
     res_via: ["QR", "UR", "BBQr", "Specter"],
     res_xpub: "Extended public key",
     res_xpub_line: "{}, depth {}",

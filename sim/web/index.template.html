@@ -166,6 +166,11 @@
       <textarea id="pasteText" spellcheck="false" placeholder="QR content. For animated codes put one part per line (UR or BBQr parts)."></textarea>
       <div class="cam-row"><button class="btn" id="pasteSend" type="button">Send to scanner</button></div>
     </div>
+    <div id="signedBox" hidden>
+      <div class="cam-head"><h2>Signed PSBT</h2><span class="cam-state">Base64, for wallets without a webcam (the device itself only shows QR codes)</span></div>
+      <textarea id="signedText" readonly spellcheck="false"></textarea>
+      <div class="cam-row"><button class="btn" id="signedCopy" type="button">Copy</button></div>
+    </div>
     <p class="cam-note">Simulator only. The real device reads QR codes with its own camera module; it has no webcam, radio or USB data.</p>
   </section>
 
@@ -184,8 +189,8 @@
       <p>The layout of the real CardKB v1.1 (50 keys). <kbd>Sym</kbd> types the small symbol beside a letter; <kbd>⇧</kbd> once for a capital, twice for caps lock. <kbd>Fn</kbd> + <kbd>Q</kbd> opens the QR scanner.</p>
     </div>
     <div class="card">
-      <h2>This build · M4</h2>
-      <p id="status">QR input: Scan QR reads SeedQRs, seed words, PSBTs (UR, BBQr, Specter, Base64), keys and addresses. QR output: Export xpub, address QR, Backup SeedQR. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
+      <h2>This build · M5</h2>
+      <p id="status">PSBT signing: scan a PSBT (UR, BBQr, Specter, Base64) with its seed loaded, review every check, output and the fee, then sign; the signed PSBT comes back as UR, BBQr or Specter QR codes. Also: SeedQR and seed words input, xpub and address export, Backup SeedQR. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
     </div>
   </div>
 </div>
@@ -430,7 +435,7 @@
     const frames = lines.length > 1 && lines.every(l => /^(ur:|B\$|p\d+of\d+ )/i.test(l)) ? lines : [pasteText.value.trim()];
     for (const t of frames) {
       if (!scanning()) break;
-      const bytes = enc.encode(t).slice(0, 8192);
+      const bytes = enc.encode(t).slice(0, 48 * 1024);
       new Uint8Array(wasm.memory.buffer, wasm.bp_text_buffer(), bytes.length).set(bytes);
       wasm.bp_text(bytes.length);
     }
@@ -439,6 +444,26 @@
   });
   // keystrokes in the paste box must not reach the device
   pasteText.addEventListener("keydown", e => e.stopPropagation());
+
+  // ---------- signed PSBT (simulator convenience) ----------
+  const signedBox = document.getElementById("signedBox");
+  const signedText = document.getElementById("signedText");
+  let signedShown = 0;
+  function updateSigned() {
+    const n = wasm.bp_signed_len();
+    if (n === signedShown) return;
+    signedShown = n;
+    signedBox.hidden = n === 0;
+    if (n === 0) { signedText.value = ""; return; }
+    const bytes = new Uint8Array(wasm.memory.buffer, wasm.bp_signed_ptr(), n);
+    let bin = "";
+    for (let i = 0; i < n; i++) bin += String.fromCharCode(bytes[i]);
+    signedText.value = btoa(bin);
+  }
+  document.getElementById("signedCopy").addEventListener("click", () => {
+    navigator.clipboard && navigator.clipboard.writeText(signedText.value);
+  });
+  signedText.addEventListener("keydown", e => e.stopPropagation());
 
   setInterval(() => {
     if (!wasm) return;
@@ -470,6 +495,7 @@
       const loop = now => {
         const dt = Math.min(250, Math.round(now - last)); last = now;
         if (wasm.bp_tick(dt)) blit();
+        updateSigned();
         requestAnimationFrame(loop);
       };
       requestAnimationFrame(loop);

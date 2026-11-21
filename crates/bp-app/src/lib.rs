@@ -453,6 +453,13 @@ impl App {
         }
     }
 
+    /// The signed PSBT while its review is open (the simulator offers it as
+    /// text; the device only shows it as QR codes).
+    pub fn signed_psbt(&self) -> Option<&[u8]> {
+        let len = self.review.as_ref()?.signed?.len;
+        self.scan.work().get(..len)
+    }
+
     /// True while the scan screen wants camera frames.
     pub fn wants_camera(&self) -> bool {
         matches!(self.current(), Screen::Scan { .. })

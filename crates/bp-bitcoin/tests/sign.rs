@@ -478,3 +478,59 @@ fn core_signer_vectors() {
     assert!(compared >= 4, "compared {compared}");
     let _ = RefSecretKey::from_slice(&[1; 32]);
 }
+
+/// Mutated PSBTs: signing either refuses or returns a trimmed PSBT for the
+/// very same transaction whose every signature verifies; never a panic.
+#[test]
+fn signing_mutated_psbts() {
+    let w = Wallet::ours();
+    let seeds: Vec<Vec<u8>> = [Kind::Wpkh, Kind::ShWpkh, Kind::Pkh, Kind::Tr]
+        .iter()
+        .map(|&k| {
+            build(
+                &w,
+                &[In::new(k, 3, 100_000)],
+                &[Out::pay(60_000), Out::change(&w, k, 2, 39_000)],
+            )
+            .serialize()
+        })
+        .collect();
+    let m = master();
+    let signer = Signer {
+        master: &m,
+        network: Network::Signet,
+        policy: Policy::default(),
+    };
+    let mut x = 0x0dd5_eed5_u64;
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let (mut signed, mut refused) = (0, 0);
+    for i in 0..400 {
+        let mut d = seeds[i % seeds.len()].clone();
+        for _ in 0..1 + next() % 2 {
+            let j = (next() as usize) % d.len();
+            d[j] ^= 1 << (next() % 8);
+        }
+        let mut mem = UtxoMemory::new();
+        let digest = validate(&d, &Context::new(&m, Network::Signet)).1.digest();
+        let mut out = vec![0u8; 8192];
+        match sign_psbt(&d, &signer, &mut mem, &digest, true, &mut out) {
+            Ok(s) => {
+                signed += 1;
+                let orig = RefPsbt::deserialize(&d).unwrap();
+                let r = RefPsbt::deserialize(&out[..s.len]).unwrap();
+                assert_eq!(r.unsigned_tx, orig.unsigned_tx);
+                assert_eq!(s.signatures, 1);
+            }
+            Err(_) => {
+                refused += 1;
+                assert!(out.iter().all(|&b| b == 0));
+            }
+        }
+    }
+    assert!(signed > 10 && refused > 100, "signed {signed}, refused {refused}");
+}

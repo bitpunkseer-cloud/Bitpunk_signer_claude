@@ -119,7 +119,6 @@ impl ScanState {
     }
 
     /// The work buffer (read-only; the signed PSBT after signing).
-    #[allow(dead_code)] // the result QR reads it (next step)
     pub fn work(&self) -> &[u8] {
         &self.work
     }
