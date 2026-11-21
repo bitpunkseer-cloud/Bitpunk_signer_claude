@@ -10,6 +10,7 @@ pub enum Error {
 }
 
 /// Reads definite-length items from a CBOR buffer.
+#[derive(Clone)]
 pub struct Reader<'a> {
     data: &'a [u8],
     pos: usize,
@@ -83,6 +84,71 @@ impl<'a> Reader<'a> {
 
     pub fn tag(&mut self) -> Result<u64, Error> {
         self.head(6)
+    }
+
+    /// `false` / `true` (simple values 20 and 21).
+    pub fn boolean(&mut self) -> Result<bool, Error> {
+        match self.data.get(self.pos) {
+            Some(0xF4) => {
+                self.pos += 1;
+                Ok(false)
+            }
+            Some(0xF5) => {
+                self.pos += 1;
+                Ok(true)
+            }
+            _ => Err(Error::Malformed),
+        }
+    }
+
+    /// Skip one complete item (nested arrays, maps and tags included),
+    /// without recursion. Floats and simple values are skipped too.
+    pub fn skip(&mut self) -> Result<(), Error> {
+        let mut pending: u64 = 1;
+        while pending > 0 {
+            // every item takes at least one byte: more pending than bytes left is malformed
+            if pending > (self.data.len() - self.pos) as u64 {
+                return Err(Error::Malformed);
+            }
+            let major = self.peek_major().ok_or(Error::Malformed)?;
+            pending -= 1;
+            match major {
+                0 | 1 => {
+                    self.head(major)?;
+                }
+                2 => {
+                    self.bytes()?;
+                }
+                3 => {
+                    self.text()?;
+                }
+                4 => pending = pending.checked_add(self.head(4)?).ok_or(Error::Malformed)?,
+                5 => {
+                    let n = self.head(5)?.checked_mul(2).ok_or(Error::Malformed)?;
+                    pending = pending.checked_add(n).ok_or(Error::Malformed)?;
+                }
+                6 => {
+                    self.head(6)?;
+                    pending += 1;
+                }
+                _ => {
+                    let info = self.data[self.pos] & 0x1F;
+                    let extra = match info {
+                        0..=23 => 0,
+                        24 => 1,
+                        25 => 2,
+                        26 => 4,
+                        27 => 8,
+                        _ => return Err(Error::Malformed),
+                    };
+                    if self.pos + 1 + extra > self.data.len() {
+                        return Err(Error::Malformed);
+                    }
+                    self.pos += 1 + extra;
+                }
+            }
+        }
+        Ok(())
     }
 }
 

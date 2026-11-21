@@ -6,6 +6,7 @@
 //! find the (branch, index) to rebuild at.
 
 pub mod descriptor;
+pub mod formats;
 
 use crate::address::MAX_ADDRESS_LEN;
 use crate::bip32::{self, DerivationPath, KeyVersion, Xpub, HARDENED};
