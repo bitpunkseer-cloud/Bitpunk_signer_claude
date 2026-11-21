@@ -60,6 +60,10 @@ pub enum Content {
     SignMessage {
         len: usize,
     },
+    /// A message in the armored "BEGIN BITCOIN SIGNED MESSAGE" format.
+    SignedMessage {
+        len: usize,
+    },
     /// Descriptor or wallet-file text in `out[..len]`.
     Descriptor {
         len: usize,
@@ -271,6 +275,9 @@ pub fn classify(data: &[u8], out: &mut [u8]) -> Result<Content, Error> {
     }
     if t.starts_with(b"signmessage ") {
         return Ok(Content::SignMessage { len: copy(out, t)? });
+    }
+    if t.starts_with(crate::message::BEGIN_MSG) {
+        return Ok(Content::SignedMessage { len: copy(out, t)? });
     }
     // bitcoin: URI or a bare address
     let (addr, query) = if t.len() > 8 && t[..8].eq_ignore_ascii_case(b"bitcoin:") {

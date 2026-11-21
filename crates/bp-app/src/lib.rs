@@ -11,6 +11,7 @@ mod review_view;
 mod scan;
 mod seeds;
 mod settings;
+mod sigverify;
 mod text;
 mod verify;
 mod view;
@@ -240,6 +241,10 @@ pub enum Screen {
     MsgSign {
         step: msgsign::MsStep,
     },
+    /// Verify a signed message.
+    SigVerify {
+        step: sigverify::SvStep,
+    },
 }
 
 pub struct App {
@@ -278,6 +283,8 @@ pub struct App {
     n_session_accounts: usize,
     /// The message being signed and its signature.
     msg: Option<msgsign::MsgState>,
+    /// A signed message being verified.
+    sig: Option<sigverify::SigState>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -344,6 +351,7 @@ impl App {
             session_accounts: [0; verify::SESSION_ACCOUNTS],
             n_session_accounts: 1,
             msg: None,
+            sig: None,
         }
     }
 
@@ -475,6 +483,12 @@ impl App {
         {
             self.msg = None;
         }
+        if !self.stack[..self.depth]
+            .iter()
+            .any(|s| matches!(s, Screen::SigVerify { .. }))
+        {
+            self.sig = None;
+        }
         self.end_scan_if_left();
     }
 
@@ -534,7 +548,7 @@ impl App {
         }
     }
 
-    fn start_scan(&mut self, purpose: scan::Purpose) {
+    pub(crate) fn start_scan(&mut self, purpose: scan::Purpose) {
         self.scan.clear();
         self.scanned = None;
         self.scan_live = true;
@@ -557,6 +571,29 @@ impl App {
             }
         } else if let Some(scan::Outcome::Psbt { len, .. }) = self.scan.outcome {
             self.start_review(len);
+        } else if purpose == scan::Purpose::SigText {
+            let mut text = [0u8; 256];
+            let n = match self.scan.outcome {
+                Some(scan::Outcome::Text { len }) => len.min(text.len()),
+                _ => 0,
+            };
+            text[..n].copy_from_slice(&self.scan.out[..n]);
+            self.sig_signature(&text[..n]);
+        } else if let Some(scan::Outcome::SignedMessage { len }) = self.scan.outcome {
+            let mut text = [0u8; bp_bitcoin::message::MAX_MESSAGE + 512];
+            let n = len.min(text.len());
+            text[..n].copy_from_slice(&self.scan.out[..n]);
+            self.verify_armored(&text[..n]);
+            bp_crypto::secret::wipe(&mut text);
+            self.end_scan_if_left();
+        } else if let (scan::Purpose::Signed, Some(scan::Outcome::Address { len, .. })) =
+            (purpose, self.scan.outcome)
+        {
+            let mut addr = [0u8; bp_bitcoin::address::MAX_ADDRESS_LEN];
+            let n = len.min(addr.len());
+            addr[..n].copy_from_slice(&self.scan.out[..n]);
+            self.sig_address(&addr[..n]);
+            self.end_scan_if_left();
         } else if let Some(scan::Outcome::SignMessage { len }) = self.scan.outcome {
             let mut text = [0u8; bp_bitcoin::message::MAX_MESSAGE + 128];
             let n = len.min(text.len());
@@ -985,6 +1022,7 @@ impl App {
             Screen::Review { step } => self.review_key(step, ev),
             Screen::VerifyAddr { step } => self.verify_key(step, ev),
             Screen::MsgSign { step } => self.msg_key(step, ev),
+            Screen::SigVerify { step } => self.sig_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1346,6 +1384,7 @@ impl App {
             Action::Scan(purpose) => self.start_scan(purpose),
             Action::Explorer => self.open_explorer(),
             Action::SignMessage => self.start_msg_typing(None),
+            Action::VerifySignature => self.start_scan(scan::Purpose::Signed),
             Action::VerifyAddress => {
                 if self.seed_count() == 0 {
                     self.push(Screen::NoSeed);
@@ -1359,6 +1398,7 @@ impl App {
                 self.review = None;
                 self.verify = None;
                 self.msg = None;
+                self.sig = None;
                 self.last_found = None;
                 self.n_session_accounts = 1;
                 self.memory.clear();

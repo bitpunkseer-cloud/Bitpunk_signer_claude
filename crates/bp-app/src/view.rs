@@ -384,6 +384,7 @@ impl App {
             Screen::Review { step } => self.render_review(c, step),
             Screen::VerifyAddr { step } => self.render_verify(c, step),
             Screen::MsgSign { step } => self.render_msg(c, step),
+            Screen::SigVerify { step } => self.render_sig(c, step),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
@@ -1260,6 +1261,8 @@ impl App {
             Purpose::Seed => s.scan_seedqr,
             Purpose::Verify { .. } => s.verify_seedqr,
             Purpose::Address => s.verify_address,
+            Purpose::Signed => s.verify_sig,
+            Purpose::SigText => s.sv_scan_sig,
         };
         self.status(c, title);
         let (bx, by) = (MARGIN, STATUS_H + 20);
@@ -1441,8 +1444,18 @@ impl App {
                 BODY.draw(c, MARGIN, y0 + 56, l.as_str(), theme::TEXT);
                 wrap(c, MARGIN, y0 + 96, text(len), 8);
             }
-            // addresses and message requests open their own screens
-            Outcome::Address { .. } | Outcome::SignMessage { .. } => {}
+            // addresses and messages open their own screens
+            Outcome::Address { .. } | Outcome::SignMessage { .. } | Outcome::SignedMessage { .. } => {}
+            Outcome::NotSigned => {
+                self.status(c, s.verify_sig);
+                widgets::message_at(
+                    c,
+                    STATUS_H + 90,
+                    s.sv_not_signed,
+                    theme::WARN,
+                    &[s.sv_not_signed_1],
+                );
+            }
             Outcome::Descriptor { len } => {
                 self.status(c, s.res_descriptor);
                 TITLE.draw(c, MARGIN, y0, s.res_descriptor, theme::ACCENT);

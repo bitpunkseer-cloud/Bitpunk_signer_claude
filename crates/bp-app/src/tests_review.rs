@@ -1200,5 +1200,131 @@ fn proof_of_reserves_needs_every_input_to_be_ours() {
     render(&a);
 }
 
+// ---------- M6: signature verification ----------
+
+use crate::sigverify::SvStep;
+
+fn sv(a: &App) -> SvStep {
+    match a.current() {
+        Screen::SigVerify { step } => step,
+        s => panic!("not verifying a signature: {s:?}"),
+    }
+}
+
+fn verdict(a: &App) -> crate::sigverify::Verdict {
+    a.sig.as_ref().unwrap().verdict.unwrap()
+}
+
+fn armored(msg: &str, addr: &str, sig: &str) -> String {
+    format!("-----BEGIN BITCOIN SIGNED MESSAGE-----\n{msg}\n-----BEGIN BITCOIN SIGNATURE-----\n{addr}\n{sig}\n-----END BITCOIN SIGNATURE-----\n")
+}
+
+#[test]
+fn armored_messages_verify_from_the_main_scanner() {
+    use bp_bitcoin::message::{CheckError, SigKind};
+    let mut a = app();
+    // BIP-322 simple (official vector)
+    let smp = "smpAkcwRAIgZRfIY3p7/DoVTty6YZbWS71bc5Vct9p9Fia83eRmw2QCICK/ENGfwLtptFluMGs2KsqoNSk89pO7F29zJLUx9a/sASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=";
+    scan_text(
+        &mut a,
+        &armored("Hello World", "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l", smp),
+    );
+    assert_eq!(sv(&a), SvStep::Result { sel: 0 });
+    assert_eq!(
+        verdict(&a),
+        Ok((bp_bitcoin::address::ScriptType::NativeSegwit, SigKind::Bip322))
+    );
+    render(&a);
+    press(&mut a, Key::Enter); // no seed: only "Done"
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(a.sig.is_none());
+    // a changed message is invalid
+    scan_text(
+        &mut a,
+        &armored("Hello World!", "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l", smp),
+    );
+    assert_eq!(verdict(&a), Err(CheckError::Invalid));
+    render(&a);
+    press(&mut a, Key::Enter);
+    // Coldcard's BIP-137 header on another address type: valid, with a warning
+    a.settings.network = bp_bitcoin::Network::Testnet;
+    let sig = "J3jE1G2pv+6GG35Unak824xig8GzotLE8pFfvNwlgGU7KebANAxo7RuwybCNXrK9+RvjUEohtffM521N+phQNX0=";
+    scan_text(
+        &mut a,
+        &armored("aaaaaaaaaaaaaaaaaa", "mwhrUneshkXh8yUw2L2T16UYCoF3ouy4L2", sig),
+    );
+    assert!(matches!(
+        verdict(&a),
+        Ok((
+            _,
+            SigKind::Legacy {
+                header_matches: false,
+                bip137: true
+            }
+        ))
+    ));
+    render(&a);
+}
+
+#[test]
+fn verify_signature_step_by_step_then_check_the_address() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    a.settings.msg_signing = true;
+    load_abandon(&mut a);
+    // sign on the device first
+    scan_text(&mut a, "signmessage m/84h/0h/0h/0/5 ascii:proof of address");
+    let sig = approve_message(&mut a);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    // Tools > Verify signature: address, message, signature
+    press(&mut a, Key::Char('3'));
+    press(&mut a, Key::Char('5'));
+    assert_eq!(
+        a.current(),
+        Screen::Scan {
+            purpose: scan::Purpose::Signed
+        }
+    );
+    a.on_qr_text(addr_of(&w, false, 0, 0, 5).as_bytes());
+    assert_eq!(sv(&a), SvStep::Type);
+    type_str(&mut a, "proof of address");
+    render(&a);
+    press(&mut a, Key::Enter);
+    assert_eq!(
+        a.current(),
+        Screen::Scan {
+            purpose: scan::Purpose::SigText
+        }
+    );
+    a.on_qr_text(sig.as_bytes());
+    assert_eq!(sv(&a), SvStep::Result { sel: 0 });
+    assert!(verdict(&a).is_ok());
+    render(&a);
+    // "is this address mine?" continues with Verify address
+    press(&mut a, Key::Enter);
+    assert!(matches!(a.current(), Screen::VerifyAddr { .. }));
+    press(&mut a, Key::Enter);
+    search_until_done(&mut a);
+    assert_eq!(found(&a).index, 5);
+    // a seed QR given as the signature is not loaded
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Char('5'));
+    a.on_qr_text(addr_of(&w, false, 0, 0, 5).as_bytes());
+    type_str(&mut a, "x");
+    press(&mut a, Key::Enter);
+    a.on_qr_text(ABANDON.as_bytes());
+    assert_eq!(verdict(&a), Err(bp_bitcoin::message::CheckError::Encoding));
+    assert!(a.scanned.is_none());
+    assert_eq!(a.seed_count(), 1);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    // something else entirely
+    press(&mut a, Key::Char('5'));
+    a.on_qr_text(b"hello");
+    assert_eq!(a.scan.outcome, Some(scan::Outcome::NotSigned));
+    render(&a);
+}
+
 #[path = "tests_layout.rs"]
 mod layout;

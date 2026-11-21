@@ -368,6 +368,21 @@ pub struct Strings {
     pub newline_mark: &'static str,
     pub ms_shortcut: &'static str,
 
+    // M6: signature verification
+    pub verify_sig: &'static str,
+    pub sv_type_label: &'static str,
+    pub sv_scan_sig: &'static str,
+    pub sv_valid: &'static str,
+    pub sv_invalid: &'static str,
+    /// Invalid address, wrong network ({}), multisig, unsupported,
+    /// encoding, not signed by this address.
+    pub sv_reasons: [&'static str; 6],
+    pub sv_kinds: [&'static str; 3],
+    pub sv_header_warn: &'static str,
+    pub sv_options: [&'static str; 2],
+    pub sv_not_signed: &'static str,
+    pub sv_not_signed_1: &'static str,
+
     // PSBT review
     pub rv: &'static ReviewStrings,
 }
@@ -967,6 +982,24 @@ pub static EN: Strings = Strings {
     ms_sig_qr: "Message signature",
     newline_mark: "¶",
     ms_shortcut: "Sign message",
+    verify_sig: "Verify signature",
+    sv_type_label: "MESSAGE THAT WAS SIGNED",
+    sv_scan_sig: "Scan the signature",
+    sv_valid: "Valid signature",
+    sv_invalid: "Invalid signature",
+    sv_reasons: [
+        "The address is not valid.",
+        "The address is not for {}. Check the network setting.",
+        "A multisig or script address: descriptor wallets arrive in M7.",
+        "This kind of signature is not checked here (BIP-322 full or proof of funds).",
+        "The signature is not in a format this device reads.",
+        "This address did not sign this message.",
+    ],
+    sv_kinds: ["Electrum / Bitcoin Core", "BIP-137", "BIP-322 simple"],
+    sv_header_warn: "The signature's header names another address type, but the key matches this address.",
+    sv_options: ["Is this address mine? (Verify address)", "Done"],
+    sv_not_signed: "Not a signed message",
+    sv_not_signed_1: "Scan a signed message (BEGIN BITCOIN SIGNED MESSAGE) or the signer's address.",
     rv: &EN_REVIEW,
 };
 
@@ -1494,6 +1527,24 @@ pub static KO: Strings = Strings {
     ms_sig_qr: "메시지 서명",
     newline_mark: "¶",
     ms_shortcut: "메시지 서명",
+    verify_sig: "서명 확인",
+    sv_type_label: "서명된 메시지",
+    sv_scan_sig: "서명 스캔",
+    sv_valid: "올바른 서명",
+    sv_invalid: "잘못된 서명",
+    sv_reasons: [
+        "올바른 주소가 아닙니다.",
+        "{}용 주소가 아닙니다. 네트워크 설정을 확인하세요.",
+        "다중 서명·스크립트 주소입니다. 디스크립터 지갑은 M7에서 추가됩니다.",
+        "여기서 확인하지 않는 서명 종류입니다 (BIP-322 full, proof of funds).",
+        "이 기기가 읽는 형식의 서명이 아닙니다.",
+        "이 주소가 이 메시지에 서명하지 않았습니다.",
+    ],
+    sv_kinds: ["Electrum / Bitcoin Core", "BIP-137", "BIP-322 simple"],
+    sv_header_warn: "서명 헤더가 다른 주소 종류를 가리키지만, 키는 이 주소와 맞습니다.",
+    sv_options: ["내 주소인지 확인 (주소 확인)", "완료"],
+    sv_not_signed: "서명된 메시지가 아님",
+    sv_not_signed_1: "서명된 메시지(BEGIN BITCOIN SIGNED MESSAGE)나 서명한 주소를 스캔하세요.",
     rv: &KO_REVIEW,
 };
 

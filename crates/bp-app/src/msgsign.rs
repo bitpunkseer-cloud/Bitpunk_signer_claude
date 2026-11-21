@@ -463,21 +463,11 @@ impl App {
 
     fn msg_type_key(&mut self, ev: KeyEvent) {
         let Some(m) = self.msg.as_mut() else { return };
+        if edit_key(&mut m.msg, &mut m.len, ev) {
+            m.rule = None;
+            return;
+        }
         match ev.key {
-            Key::Char(c) if (' '..='~').contains(&c) => {
-                if m.len < MAX_MESSAGE {
-                    m.msg[m.len] = c as u8;
-                    m.len += 1;
-                }
-                m.rule = None;
-            }
-            Key::Backspace => {
-                if m.len > 0 {
-                    m.len -= 1;
-                    m.msg[m.len] = 0;
-                }
-                m.rule = None;
-            }
             Key::Enter => {
                 if let Err(e) = message::check_message(m.message()) {
                     m.rule = Some(e);
@@ -560,66 +550,15 @@ impl App {
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_cancel)]);
             }
             MsStep::Type => {
-                widgets::label(c, MARGIN, STATUS_H + 12, s.ms_type_label);
-                bp_ui::draw::round_rect(
+                let warn: Option<Buf<192>> = m
+                    .rule
+                    .map(|e| fill(s.ms_problems[3], &[&s.ms_rules[rule_index(e)]]));
+                draw_editor(
+                    s,
                     c,
-                    MARGIN,
-                    STATUS_H + 34,
-                    800 - 2 * MARGIN,
-                    9 * LINE_H + 16,
-                    10,
-                    theme::SURFACE,
-                );
-                // the tail of the text that fits, with a cursor
-                let text = core::str::from_utf8(m.message()).unwrap_or("");
-                let cols = cols() - 2;
-                let mut starts = [0usize; 64];
-                let mut count = 0;
-                let mut rest = text;
-                loop {
-                    let (line, tail) = split_line(rest, cols);
-                    if count < starts.len() {
-                        starts[count] = line.as_ptr() as usize - text.as_ptr() as usize;
-                        count += 1;
-                    }
-                    if tail.is_empty() {
-                        break;
-                    }
-                    rest = tail;
-                }
-                let first = count.saturating_sub(9);
-                let mut end_x = MARGIN + 16;
-                let mut y = STATUS_H + 42;
-                for i in first..count {
-                    let a = starts[i];
-                    let b = if i + 1 < count { starts[i + 1] } else { text.len() };
-                    // the last line keeps its trailing spaces: the cursor follows them
-                    let line = if i + 1 < count {
-                        text[a..b].trim_end()
-                    } else {
-                        &text[a..b]
-                    };
-                    end_x = BODY.draw(c, MARGIN + 16, y, line, theme::TEXT);
-                    if i + 1 < count {
-                        y += LINE_H;
-                    }
-                }
-                c.fill_rect(end_x, y + 4, 3, BODY.height as i32 - 8, theme::ACCENT);
-                let count_s: Buf<48> = fill(s.progress, &[&m.len, &MAX_MESSAGE]);
-                SMALL.draw(
-                    c,
-                    800 - MARGIN - SMALL.text_width(count_s.as_str()),
-                    STATUS_H + 12,
-                    count_s.as_str(),
-                    theme::TEXT_DIM,
-                );
-                if let Some(e) = m.rule {
-                    let l: Buf<192> = fill(s.ms_problems[3], &[&s.ms_rules[rule_index(e)]]);
-                    BODY.draw_wrapped(c, MARGIN, 368, 800 - 2 * MARGIN, 28, 2, l.as_str(), theme::WARN);
-                }
-                widgets::hint_bar(
-                    c,
-                    &[("Del", s.h_delete), ("Enter", s.h_continue), ("Esc", s.h_cancel)],
+                    s.ms_type_label,
+                    m.message(),
+                    warn.as_ref().map(|w| w.as_str()),
                 );
             }
             MsStep::Message { page } => self.render_msg_page(c, m, page),
@@ -727,4 +666,96 @@ pub(crate) fn draw_message_page(s: &crate::Strings, c: &mut dyn Canvas, msg: &[u
         SMALL.draw(c, MARGIN, 382, s.ms_read_all, theme::WARN);
         widgets::hint_bar(c, &[("<>", s.h_page), ("Enter", s.h_page), ("Esc", s.h_back)]);
     }
+}
+
+/// Typing into a message buffer: printable ASCII appends, Del deletes.
+/// Returns true when the key edited the text.
+pub(crate) fn edit_key(buf: &mut [u8], len: &mut usize, ev: KeyEvent) -> bool {
+    match ev.key {
+        Key::Char(c) if (' '..='~').contains(&c) => {
+            if *len < buf.len() {
+                buf[*len] = c as u8;
+                *len += 1;
+            }
+            true
+        }
+        Key::Backspace => {
+            if *len > 0 {
+                *len -= 1;
+                buf[*len] = 0;
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// The message editor: a box with the tail of the text, a cursor, the
+/// character count and an optional warning below.
+pub(crate) fn draw_editor(
+    s: &crate::Strings,
+    c: &mut dyn Canvas,
+    label: &str,
+    msg: &[u8],
+    warn: Option<&str>,
+) {
+    widgets::label(c, MARGIN, STATUS_H + 12, label);
+    bp_ui::draw::round_rect(
+        c,
+        MARGIN,
+        STATUS_H + 34,
+        800 - 2 * MARGIN,
+        9 * LINE_H + 16,
+        10,
+        theme::SURFACE,
+    );
+    let text = core::str::from_utf8(msg).unwrap_or("");
+    let cols = cols() - 2;
+    let mut starts = [0usize; 64];
+    let mut count = 0;
+    let mut rest = text;
+    loop {
+        let (line, tail) = split_line(rest, cols);
+        if count < starts.len() {
+            starts[count] = line.as_ptr() as usize - text.as_ptr() as usize;
+            count += 1;
+        }
+        if tail.is_empty() {
+            break;
+        }
+        rest = tail;
+    }
+    let first = count.saturating_sub(9);
+    let mut end_x = MARGIN + 16;
+    let mut y = STATUS_H + 42;
+    for i in first..count {
+        let a = starts[i];
+        let b = if i + 1 < count { starts[i + 1] } else { text.len() };
+        // the last line keeps its trailing spaces: the cursor follows them
+        let line = if i + 1 < count {
+            text[a..b].trim_end()
+        } else {
+            &text[a..b]
+        };
+        end_x = BODY.draw(c, MARGIN + 16, y, line, theme::TEXT);
+        if i + 1 < count {
+            y += LINE_H;
+        }
+    }
+    c.fill_rect(end_x, y + 4, 3, BODY.height as i32 - 8, theme::ACCENT);
+    let count_s: Buf<48> = fill(s.progress, &[&msg.len(), &MAX_MESSAGE]);
+    SMALL.draw(
+        c,
+        800 - MARGIN - SMALL.text_width(count_s.as_str()),
+        STATUS_H + 12,
+        count_s.as_str(),
+        theme::TEXT_DIM,
+    );
+    if let Some(w) = warn {
+        BODY.draw_wrapped(c, MARGIN, 368, 800 - 2 * MARGIN, 28, 2, w, theme::WARN);
+    }
+    widgets::hint_bar(
+        c,
+        &[("Del", s.h_delete), ("Enter", s.h_continue), ("Esc", s.h_cancel)],
+    );
 }

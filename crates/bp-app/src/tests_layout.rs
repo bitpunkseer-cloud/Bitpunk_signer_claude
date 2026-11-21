@@ -694,6 +694,54 @@ fn tour(lang: Lang) -> usize {
     );
     scan_psbt(&mut a, &ext);
     t.snap(&a, "por-external");
+
+    // signature verification
+    let mut a = t.app();
+    load_abandon(&mut a);
+    let smp = "smpAkcwRAIgZRfIY3p7/DoVTty6YZbWS71bc5Vct9p9Fia83eRmw2QCICK/ENGfwLtptFluMGs2KsqoNSk89pO7F29zJLUx9a/sASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=";
+    scan_text(
+        &mut a,
+        &armored("Hello World", "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l", smp),
+    );
+    t.snap(&a, "sig-valid");
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    scan_text(
+        &mut a,
+        &armored("Hello World!", "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l", smp),
+    );
+    t.snap(&a, "sig-invalid");
+    press(&mut a, Key::Enter);
+    a.settings.network = bp_bitcoin::Network::Testnet;
+    let sig = "J3jE1G2pv+6GG35Unak824xig8GzotLE8pFfvNwlgGU7KebANAxo7RuwybCNXrK9+RvjUEohtffM521N+phQNX0=";
+    scan_text(
+        &mut a,
+        &armored("aaaaaaaaaaaaaaaaaa", "mwhrUneshkXh8yUw2L2T16UYCoF3ouy4L2", sig),
+    );
+    t.snap(&a, "sig-header-warning");
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    scan_text(
+        &mut a,
+        &armored("aaa", "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l", sig),
+    );
+    t.snap(&a, "sig-wrong-network");
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Char('3'));
+    press(&mut a, Key::Char('5'));
+    t.snap(&a, "sig-scan");
+    a.on_qr_text(b"mwhrUneshkXh8yUw2L2T16UYCoF3ouy4L2");
+    type_str(&mut a, "aaaaaaaaaaaaaaaaaa");
+    t.snap(&a, "sig-type");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "sig-scan-signature");
+    a.on_qr_text(b"hello");
+    t.snap(&a, "sig-bad-encoding");
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Char('5'));
+    a.on_qr_text(b"hello");
+    t.snap(&a, "sig-not-signed");
     t.n
 }
 

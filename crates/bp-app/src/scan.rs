@@ -25,6 +25,11 @@ pub enum Purpose {
     Verify { slot: u8 },
     /// Tools > Verify address: an address (anything else is refused).
     Address,
+    /// Tools > Verify signature: an armored signed message or the signer's
+    /// address.
+    Signed,
+    /// The signature itself (text), after the address and the message.
+    SigText,
 }
 
 /// What the scan produced (data in `ScanState::out`).
@@ -52,6 +57,9 @@ pub enum Outcome {
     SignMessage {
         len: usize,
     },
+    SignedMessage {
+        len: usize,
+    },
     UnknownUr {
         len: usize,
     },
@@ -65,6 +73,8 @@ pub enum Outcome {
     NotASeed,
     /// Something other than an address arrived for Verify address.
     NotAnAddress,
+    /// Neither a signed message nor an address, for Verify signature.
+    NotSigned,
     Failed,
 }
 
@@ -216,6 +226,26 @@ impl ScanState {
             Ok((c, _)) if purpose == Purpose::Address && !matches!(c, Content::Address { .. }) => {
                 Some(Outcome::NotAnAddress)
             }
+            Ok((c, _)) if purpose == Purpose::Signed => Some(match c {
+                Content::SignedMessage { len } => Outcome::SignedMessage { len },
+                Content::Address {
+                    len,
+                    network,
+                    kind,
+                    index,
+                } => Outcome::Address {
+                    len,
+                    network,
+                    kind,
+                    index,
+                },
+                _ => Outcome::NotSigned,
+            }),
+            // the signature is text; nothing else (a seed least of all)
+            Ok((c, _)) if purpose == Purpose::SigText => Some(match c {
+                Content::Text { len } => Outcome::Text { len },
+                _ => Outcome::Text { len: 0 },
+            }),
             Ok((Content::Seed { mnemonic, source }, _)) => {
                 self.seed = Some(mnemonic);
                 self.seed_source = Some(source);
@@ -238,6 +268,7 @@ impl ScanState {
                 },
                 Content::Descriptor { len } => Outcome::Descriptor { len },
                 Content::SignMessage { len } => Outcome::SignMessage { len },
+                Content::SignedMessage { len } => Outcome::SignedMessage { len },
                 Content::UnknownUr { len } => Outcome::UnknownUr { len },
                 Content::Text { len } => Outcome::Text { len },
                 Content::Binary { len } => Outcome::Binary { len },

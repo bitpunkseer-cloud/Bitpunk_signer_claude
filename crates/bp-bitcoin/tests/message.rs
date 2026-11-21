@@ -192,3 +192,53 @@ fn armored_round_trip() {
             .header_matches
     );
 }
+
+#[test]
+fn verify_any_picks_the_format() {
+    use bp_bitcoin::message::{verify_any, CheckError, SigKind};
+    let t = Network::Testnet;
+    let m = b"aaaaaaaaaaaaaaaaaa";
+    let v = verify_any(
+        "tb1qkxgmh66fdthecudx042feulz3ymzkyuf7gma0x",
+        t,
+        m,
+        "J3jE1G2pv+6GG35Unak824xig8GzotLE8pFfvNwlgGU7KebANAxo7RuwybCNXrK9+RvjUEohtffM521N+phQNX0=",
+    );
+    assert_eq!(
+        v,
+        Ok((
+            ScriptType::NativeSegwit,
+            SigKind::Legacy {
+                header_matches: true,
+                bip137: true
+            }
+        ))
+    );
+    // BIP-322 simple (official vector), with and without the prefix
+    let addr = "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l";
+    let smp = "smpAkcwRAIgM2gBAQqvZX15ZiysmKmQpDrG83avLIT492QBzLnQIxYCIBaTpOaD20qRlEylyxFSeEA2ba9YOixpX8z46TSDtS40ASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=";
+    assert_eq!(
+        verify_any(addr, Network::Mainnet, b"", smp),
+        Ok((ScriptType::NativeSegwit, SigKind::Bip322))
+    );
+    assert_eq!(
+        verify_any(addr, Network::Mainnet, b"", &smp[3..]),
+        Ok((ScriptType::NativeSegwit, SigKind::Bip322))
+    );
+    assert_eq!(
+        verify_any(addr, Network::Mainnet, b"x", smp),
+        Err(CheckError::Invalid)
+    );
+    assert_eq!(
+        verify_any(addr, Network::Mainnet, b"", "ful AAAA"),
+        Err(CheckError::Unsupported)
+    );
+    assert_eq!(
+        verify_any(addr, Network::Mainnet, b"", "!!!"),
+        Err(CheckError::Encoding)
+    );
+    assert!(matches!(
+        verify_any(addr, Network::Testnet, b"", smp),
+        Err(CheckError::Address(_))
+    ));
+}

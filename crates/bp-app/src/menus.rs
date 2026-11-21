@@ -45,6 +45,8 @@ pub enum Action {
     VerifyAddress,
     /// Tools > Sign message (needs message signing turned on).
     SignMessage,
+    /// Tools > Verify signature.
+    VerifySignature,
     Start(Start),
     CycleSetting,
     About,
@@ -125,7 +127,7 @@ static LOAD_SEED: [Entry; 6] = [
     todo_entry!(|s| s.encrypted_backup, "M10", |s| s.ms_backup),
 ];
 
-static TOOLS: [Entry; 7] = [
+static TOOLS: [Entry; 8] = [
     start(|s| s.final_word, Start::FinalWord),
     Entry {
         label: |s| s.address_explorer,
@@ -141,6 +143,11 @@ static TOOLS: [Entry; 7] = [
         label: |s| s.sign_message,
         detail: ">",
         action: Action::SignMessage,
+    },
+    Entry {
+        label: |s| s.verify_sig,
+        detail: ">",
+        action: Action::VerifySignature,
     },
     todo_entry!(|s| s.bip85, "M8", |s| s.ms_keys),
     todo_entry!(|s| s.secure_notes, "M10", |s| s.ms_tools),

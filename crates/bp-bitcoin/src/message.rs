@@ -262,7 +262,68 @@ pub fn parse_request(text: &[u8], net: Network) -> Result<Request<'_>, RequestEr
     })
 }
 
-const BEGIN_MSG: &[u8] = b"-----BEGIN BITCOIN SIGNED MESSAGE-----";
+/// How a verified signature was made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SigKind {
+    /// Compact recoverable ECDSA; `header_matches` as in [`Verified`].
+    Legacy { header_matches: bool, bip137: bool },
+    /// BIP-322 simple.
+    Bip322,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckError {
+    Address(TargetError),
+    /// Not Base64 of a legacy signature or of a witness.
+    Encoding,
+    /// A full / proof-of-funds BIP-322 signature, or a script type whose
+    /// signatures are not checked here.
+    Unsupported,
+    /// Not a signature of this message by this address.
+    Invalid,
+}
+
+/// Verify any single-key signature of `msg` by `address`: legacy
+/// (Electrum, BIP-137) or BIP-322 simple, chosen by the signature's form.
+pub fn verify_any(
+    address: &str,
+    net: Network,
+    msg: &[u8],
+    sig: &str,
+) -> Result<(ScriptType, SigKind), CheckError> {
+    let target = Target::parse(address.trim(), net).map_err(CheckError::Address)?;
+    let s = sig.trim();
+    let mut raw = [0u8; 66];
+    let legacy = !s.starts_with(crate::bip322::SIMPLE_PREFIX)
+        && target.script_type() != ScriptType::Taproot
+        && base64::decode(s.as_bytes(), &mut raw).ok() == Some(65);
+    if legacy {
+        return match verify(address, net, msg, s) {
+            Ok(v) => Ok((
+                v.script_type,
+                SigKind::Legacy {
+                    header_matches: v.header_matches,
+                    bip137: raw[0] >= 35,
+                },
+            )),
+            Err(VerifyError::Address(e)) => Err(CheckError::Address(e)),
+            Err(VerifyError::Encoding | VerifyError::Header) => Err(CheckError::Encoding),
+            Err(VerifyError::Taproot) => Err(CheckError::Unsupported),
+            Err(VerifyError::Invalid) => Err(CheckError::Invalid),
+        };
+    }
+    use crate::bip322::{verify_simple, SimpleError};
+    match verify_simple(address, net, msg, s) {
+        Ok(st) => Ok((st, SigKind::Bip322)),
+        Err(SimpleError::Address(e)) => Err(CheckError::Address(e)),
+        Err(SimpleError::Encoding) => Err(CheckError::Encoding),
+        Err(SimpleError::OtherVariant | SimpleError::Unsupported) => Err(CheckError::Unsupported),
+        Err(SimpleError::Invalid) => Err(CheckError::Invalid),
+    }
+}
+
+/// First line of the armored format.
+pub const BEGIN_MSG: &[u8] = b"-----BEGIN BITCOIN SIGNED MESSAGE-----";
 const BEGIN_SIG: &[u8] = b"-----BEGIN BITCOIN SIGNATURE-----";
 const END_SIG: &[u8] = b"-----END BITCOIN SIGNATURE-----";
 
