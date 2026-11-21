@@ -209,6 +209,11 @@ impl PublicKey {
         self.y.is_odd().unwrap_public()
     }
 
+    /// The y parity as a mask (for constant-time key negation).
+    pub fn y_is_odd(&self) -> Choice {
+        self.y.is_odd()
+    }
+
     /// Parse a compressed (33-byte) or uncompressed (65-byte) key.
     pub fn parse(b: &[u8]) -> Option<PublicKey> {
         match (b.len(), b.first()) {

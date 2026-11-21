@@ -8,6 +8,7 @@ pub mod ecdsa;
 pub mod field;
 pub mod point;
 pub mod scalar;
+pub mod schnorr;
 
 pub use point::{Point, PublicKey};
 pub use scalar::{Scalar, SecretKey};

@@ -3,8 +3,8 @@
 use crate::bech32;
 use crate::bip32::{DerivationPath, KeyVersion, HARDENED};
 use crate::{base58, Network};
-use bp_crypto::hashes::{hash160, tagged_hash};
-use bp_crypto::secp256k1::{PublicKey, Scalar};
+use bp_crypto::hashes::hash160;
+use bp_crypto::secp256k1::PublicKey;
 
 pub const MAX_ADDRESS_LEN: usize = 90;
 
@@ -85,14 +85,7 @@ impl ScriptType {
 
 /// BIP-86 output key: x(lift_x(P) + H_TapTweak(x(P)) * G).
 pub fn taproot_output_key(internal: &PublicKey) -> Option<[u8; 32]> {
-    let even = if internal.has_odd_y() {
-        internal.negate()
-    } else {
-        *internal
-    };
-    let x = even.x_only();
-    let t = Scalar::from_bytes(&tagged_hash(b"TapTweak", &[&x]))?;
-    Some(even.add_tweak(&t)?.x_only())
+    bp_crypto::secp256k1::schnorr::tweak_public_key(&internal.x_only(), None).map(|(q, _)| q)
 }
 
 /// Encode the address for `pk`; returns its length.
