@@ -26,12 +26,15 @@ pub enum Error {
     InvalidKey,
 }
 
-/// Version bytes. SLIP-132: y = P2SH-P2WPKH, z = P2WPKH.
+/// Version bytes. SLIP-132: y = P2SH-P2WPKH, z = P2WPKH, and for multisig
+/// Y (testnet U) = P2SH-P2WSH, Z (testnet V) = P2WSH.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyVersion {
     X,
     Y,
     Z,
+    MultiY,
+    MultiZ,
 }
 
 impl KeyVersion {
@@ -41,9 +44,13 @@ impl KeyVersion {
             (KeyVersion::X, true) => 0x0488_B21E,
             (KeyVersion::Y, true) => 0x049D_7CB2,
             (KeyVersion::Z, true) => 0x04B2_4746,
+            (KeyVersion::MultiY, true) => 0x0295_B43F,
+            (KeyVersion::MultiZ, true) => 0x02AA_7ED3,
             (KeyVersion::X, false) => 0x0435_87CF,
             (KeyVersion::Y, false) => 0x044A_5262,
             (KeyVersion::Z, false) => 0x045F_1CF6,
+            (KeyVersion::MultiY, false) => 0x0242_89EF,
+            (KeyVersion::MultiZ, false) => 0x0257_5483,
         };
         v.to_be_bytes()
     }
@@ -54,9 +61,13 @@ impl KeyVersion {
             (KeyVersion::X, true) => 0x0488_ADE4,
             (KeyVersion::Y, true) => 0x049D_7878,
             (KeyVersion::Z, true) => 0x04B2_430C,
+            (KeyVersion::MultiY, true) => 0x0295_B005,
+            (KeyVersion::MultiZ, true) => 0x02AA_7A99,
             (KeyVersion::X, false) => 0x0435_8394,
             (KeyVersion::Y, false) => 0x044A_4E28,
             (KeyVersion::Z, false) => 0x045F_18BC,
+            (KeyVersion::MultiY, false) => 0x0242_85B5,
+            (KeyVersion::MultiZ, false) => 0x0257_5048,
         };
         v.to_be_bytes()
     }
@@ -387,7 +398,13 @@ impl Xpub {
 
 fn lookup_version(v: &[u8], public: bool) -> Result<(Network, KeyVersion), Error> {
     for net in [Network::Mainnet, Network::Testnet] {
-        for kv in [KeyVersion::X, KeyVersion::Y, KeyVersion::Z] {
+        for kv in [
+            KeyVersion::X,
+            KeyVersion::Y,
+            KeyVersion::Z,
+            KeyVersion::MultiY,
+            KeyVersion::MultiZ,
+        ] {
             let candidate = if public { kv.public(net) } else { kv.private(net) };
             if v == candidate {
                 return Ok((net, kv));

@@ -156,7 +156,30 @@ impl PartialEq for PublicKey {
 }
 impl Eq for PublicKey {}
 
+/// Big-endian bytes to little-endian limbs, usable in constants.
+const fn const_limbs(b: &[u8; 32]) -> [u64; 4] {
+    let mut r = [0u64; 4];
+    let mut i = 0;
+    while i < 4 {
+        let mut v = 0u64;
+        let mut j = 0;
+        while j < 8 {
+            v = (v << 8) | b[24 - 8 * i + j] as u64;
+            j += 1;
+        }
+        r[i] = v;
+        i += 1;
+    }
+    r
+}
+
 impl PublicKey {
+    /// The generator G: a valid key, useful as a placeholder in fixed arrays.
+    pub const GENERATOR: PublicKey = PublicKey {
+        x: Fe(const_limbs(&GX)),
+        y: Fe(const_limbs(&GY)),
+    };
+
     pub fn from_secret(sk: &SecretKey) -> PublicKey {
         let p = Point::generator().mul(sk.scalar());
         let (x, y) = p.to_affine().expect("k in [1, n) never gives infinity");

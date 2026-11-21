@@ -14,6 +14,7 @@ pub mod bip322;
 pub mod bip39;
 pub mod entropy;
 pub mod message;
+pub mod multisig;
 pub mod psbt;
 pub mod qrinput;
 pub mod seedqr;
