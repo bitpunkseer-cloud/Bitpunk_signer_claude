@@ -167,7 +167,7 @@
       <div class="cam-row"><button class="btn" id="pasteSend" type="button">Send to scanner</button></div>
     </div>
     <div id="signedBox" hidden>
-      <div class="cam-head"><h2>Signed PSBT</h2><span class="cam-state">Base64, for wallets without a webcam (the device itself only shows QR codes)</span></div>
+      <div class="cam-head"><h2>Signed output</h2><span class="cam-state">Signed PSBT (Base64) or message signature, for wallets without a webcam (the device itself only shows QR codes)</span></div>
       <textarea id="signedText" readonly spellcheck="false"></textarea>
       <div class="cam-row"><button class="btn" id="signedCopy" type="button">Copy</button></div>
     </div>
@@ -179,7 +179,7 @@
       <h2>Controls</h2>
       <ul>
         <li>Arrow keys (bottom left) move, <kbd>Enter</kbd> selects, <kbd>Esc</kbd> goes back</li>
-        <li><kbd>1</kbd>–<kbd>6</kbd> dice, <kbd>H</kbd>/<kbd>T</kbd> coin, <kbd>Del</kbd> undo</li>
+        <li><kbd>1</kbd>–<kbd>6</kbd> dice, <kbd>H</kbd>/<kbd>T</kbd> coin, D20: number then <kbd>Space</kbd>, <kbd>Del</kbd> undo</li>
         <li>Type 4 letters of a word; it completes itself</li>
         <li>Your computer keyboard works too</li>
       </ul>
@@ -189,8 +189,8 @@
       <p>The layout of the real CardKB v1.1 (50 keys). <kbd>Sym</kbd> types the small symbol beside a letter; <kbd>⇧</kbd> once for a capital, twice for caps lock. <kbd>Fn</kbd> + <kbd>Q</kbd> opens the QR scanner.</p>
     </div>
     <div class="card">
-      <h2>This build · M5</h2>
-      <p id="status">PSBT signing: scan a PSBT (UR, BBQr, Specter, Base64) with its seed loaded, review every check, output and the fee, then sign; the signed PSBT comes back as UR, BBQr or Specter QR codes. Also: SeedQR and seed words input, xpub and address export, Backup SeedQR. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
+      <h2>This build · M6</h2>
+      <p id="status">PSBT signing with full review; address verification (scan an address); message signing (Settings &gt; Message signing on, then a <code>signmessage</code> QR, Tools &gt; Sign message, or a BIP-322 / Proof of Reserves PSBT) and verification; fee thresholds and settings QR; D20 dice; Korean (Settings &gt; Language). Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
     </div>
   </div>
 </div>
@@ -458,7 +458,9 @@
     const bytes = new Uint8Array(wasm.memory.buffer, wasm.bp_signed_ptr(), n);
     let bin = "";
     for (let i = 0; i < n; i++) bin += String.fromCharCode(bytes[i]);
-    signedText.value = btoa(bin);
+    // a PSBT ("psbt" 0xff) as Base64; a message signature is already text
+    const psbt = n > 5 && bin.startsWith("psbt\xff");
+    signedText.value = psbt ? btoa(bin) : bin;
   }
   document.getElementById("signedCopy").addEventListener("click", () => {
     navigator.clipboard && navigator.clipboard.writeText(signedText.value);

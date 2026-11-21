@@ -85,10 +85,12 @@ SeedSigner 방식의 세분화된 경고(소유권 모순, 음수 수수료, 누
 
 **결과:** ECDSA·Schnorr가 libsecp256k1과 바이트 일치, Core·BIP·Wycheproof·Coldcard 벡터, SeedSigner 시나리오 같은 판정, 서명을 rust-bitcoin으로 독립 검증, 결과 QR(UR·BBQr·Specter) 왕복. 상세: [M5_PLAN.md](milestones/M5_PLAN.md) 11장, 조사: [SIGNING_SURVEY.md](SIGNING_SURVEY.md).
 
-## M6 — 서명 확장
+## M6 — 서명 확장 ✅ 구현 완료
 
 QR로 주소 검증, 메시지 서명(BIP-137, BIP-322) 및 검증, BBQr, Specter 형식, SettingsQR, D20 주사위,
 고급 기능 토글·경고 강도 설정, **한국어 UI**(한글 폰트 포함).
+
+**결과:** 주소 검증(scriptPubKey 비교, 모든 시드·세션 계정, 1,000개 단위), Electrum·BIP-137 서명이 rust-bitcoin·Bitcoin Core 벡터와 바이트 일치, BIP-322 공식 벡터 전부(simple 서명·검증, PSBT 판정, 보유 증명), 메시지 서명 기본 꺼짐, 수수료 기준 설정과 약화 금지 SettingsQR, D20, 한국어 UI(377자, 모든 화면 넘침 검사). 상세: [M6_PLAN.md](milestones/M6_PLAN.md) 13장, Sparrow 왕복 방법 14장, 조사: [M6_SURVEY.md](M6_SURVEY.md).
 
 ## M7 — 멀티시그 · 디스크립터
 
