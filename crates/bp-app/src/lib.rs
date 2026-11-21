@@ -4,6 +4,7 @@
 
 mod flow;
 mod menus;
+mod msgsign;
 mod qrview;
 pub mod review;
 mod review_view;
@@ -60,6 +61,8 @@ pub enum QrKind {
     SignedPsbt {
         format: PsbtFormat,
     },
+    /// The message signature (one static QR).
+    MessageSig,
 }
 
 /// QR formats for the signed PSBT (decision 5: UR by default).
@@ -233,6 +236,10 @@ pub enum Screen {
     VerifyAddr {
         step: verify::VaStep,
     },
+    /// Sign a message (QR request or typed).
+    MsgSign {
+        step: msgsign::MsStep,
+    },
 }
 
 pub struct App {
@@ -269,6 +276,8 @@ pub struct App {
     /// Accounts used this session (0 first), searched by Verify address.
     session_accounts: [u32; verify::SESSION_ACCOUNTS],
     n_session_accounts: usize,
+    /// The message being signed and its signature.
+    msg: Option<msgsign::MsgState>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -334,6 +343,7 @@ impl App {
             last_found: None,
             session_accounts: [0; verify::SESSION_ACCOUNTS],
             n_session_accounts: 1,
+            msg: None,
         }
     }
 
@@ -459,6 +469,12 @@ impl App {
         {
             self.verify = None;
         }
+        if !self.stack[..self.depth]
+            .iter()
+            .any(|s| matches!(s, Screen::MsgSign { .. }))
+        {
+            self.msg = None;
+        }
         self.end_scan_if_left();
     }
 
@@ -484,6 +500,9 @@ impl App {
     /// The signed PSBT while its review is open (the simulator offers it as
     /// text; the device only shows it as QR codes).
     pub fn signed_psbt(&self) -> Option<&[u8]> {
+        if let Some(sig) = self.msg.as_ref().and_then(|m| m.signature()) {
+            return Some(sig);
+        }
         let len = self.review.as_ref()?.signed?.len;
         self.scan.work().get(..len)
     }
@@ -538,6 +557,13 @@ impl App {
             }
         } else if let Some(scan::Outcome::Psbt { len, .. }) = self.scan.outcome {
             self.start_review(len);
+        } else if let Some(scan::Outcome::SignMessage { len }) = self.scan.outcome {
+            let mut text = [0u8; bp_bitcoin::message::MAX_MESSAGE + 128];
+            let n = len.min(text.len());
+            text[..n].copy_from_slice(&self.scan.out[..n]);
+            self.start_msg_request(&text[..n]);
+            bp_crypto::secret::wipe(&mut text);
+            self.end_scan_if_left();
         } else if let Some(scan::Outcome::Address { len, index, .. }) = self.scan.outcome {
             let mut addr = [0u8; bp_bitcoin::address::MAX_ADDRESS_LEN];
             let n = len.min(addr.len());
@@ -839,12 +865,24 @@ impl App {
                     page: 0,
                     sel: 0,
                 }),
-                Key::Enter => self.push(Screen::AddressDetail {
-                    slot,
-                    st,
-                    change,
-                    index: page * 10 + sel as u32,
-                }),
+                Key::Enter => {
+                    let index = page * 10 + sel as u32;
+                    let t = msgsign::Target {
+                        slot,
+                        st,
+                        account: 0,
+                        change,
+                        index,
+                    };
+                    if !self.msg_pick(t) {
+                        self.push(Screen::AddressDetail {
+                            slot,
+                            st,
+                            change,
+                            index,
+                        });
+                    }
+                }
                 Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
             },
@@ -946,6 +984,7 @@ impl App {
             },
             Screen::Review { step } => self.review_key(step, ev),
             Screen::VerifyAddr { step } => self.verify_key(step, ev),
+            Screen::MsgSign { step } => self.msg_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1078,6 +1117,17 @@ impl App {
                 bp_crypto::secret::wipe(&mut digits);
                 bp_crypto::secret::wipe(&mut ent);
                 s
+            }
+            QrKind::MessageSig => {
+                let Some(sig) = self.msg.as_ref().and_then(|m| m.signature()) else {
+                    return;
+                };
+                qrview::QrSession::new(
+                    qrview::Format::Static,
+                    sig,
+                    qrview::Density::Auto,
+                    qrview::Speed::Normal,
+                )
             }
             QrKind::SignedPsbt { format } => {
                 let Some(len) = self.review.as_ref().and_then(|r| r.signed).map(|s| s.len) else {
@@ -1294,18 +1344,8 @@ impl App {
             Action::CycleSetting => self.change_setting(row as u8, 1),
             Action::About => self.push(Screen::About),
             Action::Scan(purpose) => self.start_scan(purpose),
-            Action::Explorer => match self.seed_count() {
-                0 => self.push(Screen::NoSeed),
-                1 => {
-                    let slot = self.seed_row_slot(0).unwrap_or(0) as u8;
-                    self.push(Screen::ScriptSelect {
-                        slot,
-                        explorer: true,
-                        sel: 0,
-                    });
-                }
-                _ => self.push(Screen::PickSeed { sel: 0 }),
-            },
+            Action::Explorer => self.open_explorer(),
+            Action::SignMessage => self.start_msg_typing(None),
             Action::VerifyAddress => {
                 if self.seed_count() == 0 {
                     self.push(Screen::NoSeed);
@@ -1318,11 +1358,28 @@ impl App {
                 self.seeds = [None, None, None];
                 self.review = None;
                 self.verify = None;
+                self.msg = None;
                 self.last_found = None;
                 self.n_session_accounts = 1;
                 self.memory.clear();
                 self.reset_to(Screen::PoweredOff);
             }
+        }
+    }
+
+    /// Tools > Address explorer: pick a seed first if several are loaded.
+    pub(crate) fn open_explorer(&mut self) {
+        match self.seed_count() {
+            0 => self.push(Screen::NoSeed),
+            1 => {
+                let slot = self.seed_row_slot(0).unwrap_or(0) as u8;
+                self.push(Screen::ScriptSelect {
+                    slot,
+                    explorer: true,
+                    sel: 0,
+                });
+            }
+            _ => self.push(Screen::PickSeed { sel: 0 }),
         }
     }
 

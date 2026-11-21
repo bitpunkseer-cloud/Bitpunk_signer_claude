@@ -19,4 +19,4 @@ bp-ui = { workspace = true, features = ["layout-check"] }
 rqrr = "0.8"
 rxing = { version = "=0.9.3", default-features = false, features = ["qrcode", "decoders", "encoding_rs"] }
 # Test-only reference for building and checking PSBTs in flow tests.
-bitcoin = "0.32"
+bitcoin = { version = "0.32", features = ["secp-recovery"] }

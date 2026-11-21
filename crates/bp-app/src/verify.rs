@@ -234,11 +234,26 @@ impl App {
                 crate::Pick::Choose(_) | crate::Pick::Back => self.pop(),
                 crate::Pick::None => {}
             },
-            VaStep::Found => {
-                if back || ev.key == Key::Enter {
-                    self.pop();
+            VaStep::Found => match ev.key {
+                Key::Char('s' | 'S') => {
+                    let v = self.verify.as_ref();
+                    let found = v.and_then(|v| match (v.search.as_ref().map(|s| s.state()), v.target) {
+                        (Some(State::Found(f)), Ok(t)) => Some((f, t.script_type())),
+                        _ => None,
+                    });
+                    if let Some((f, st)) = found {
+                        self.start_msg_typing(Some(crate::msgsign::Target {
+                            slot: f.slot,
+                            st,
+                            account: f.account,
+                            change: f.change,
+                            index: f.index,
+                        }));
+                    }
                 }
-            }
+                _ if back || ev.key == Key::Enter => self.pop(),
+                _ => {}
+            },
         }
     }
 
@@ -447,7 +462,7 @@ impl App {
             BODY.draw(c, x, y, line.as_str(), theme::TEXT);
             y += 30;
         }
-        widgets::hint_bar(c, &[("Enter", s.h_done)]);
+        widgets::hint_bar(c, &[("Enter", s.h_done), ("S", s.ms_shortcut)]);
     }
 }
 

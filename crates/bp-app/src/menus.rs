@@ -43,6 +43,8 @@ pub enum Action {
     Explorer,
     /// Tools > Verify address (scans an address, needs a loaded seed).
     VerifyAddress,
+    /// Tools > Sign message (needs message signing turned on).
+    SignMessage,
     Start(Start),
     CycleSetting,
     About,
@@ -135,18 +137,23 @@ static TOOLS: [Entry; 7] = [
         detail: ">",
         action: Action::VerifyAddress,
     },
-    todo_entry!(|s| s.sign_message, "M6", |s| s.ms_signing),
+    Entry {
+        label: |s| s.sign_message,
+        detail: ">",
+        action: Action::SignMessage,
+    },
     todo_entry!(|s| s.bip85, "M8", |s| s.ms_keys),
     todo_entry!(|s| s.secure_notes, "M10", |s| s.ms_tools),
     todo_entry!(|s| s.totp, "M10", |s| s.ms_tools),
 ];
 
-static SETTINGS: [Entry; 6] = [
+static SETTINGS: [Entry; 7] = [
     setting(|s| s.network),
     setting(|s| s.units),
     setting(|s| s.qr_density),
     setting(|s| s.advanced),
     setting(|s| s.language),
+    setting(|s| s.msg_signing),
     Entry {
         label: |s| s.about,
         detail: ">",

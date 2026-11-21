@@ -165,6 +165,103 @@ pub fn verify(address: &str, net: Network, msg: &[u8], sig_b64: &str) -> Result<
     })
 }
 
+/// A `signmessage <path> ascii:<message>` request (the QR format of
+/// Sparrow, Coldcard, SeedSigner, Jade, Krux and Passport). The path may
+/// start with the seed's fingerprint: `73c5da0a/m/84h/0h/0h/0/5`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Request<'a> {
+    pub fingerprint: Option<[u8; 4]>,
+    pub script_type: ScriptType,
+    pub account: u32,
+    pub change: bool,
+    pub index: u32,
+    pub message: &'a [u8],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestError {
+    /// Not `signmessage <path> ascii:<message>`.
+    Format,
+    /// Only m/{44,49,84,86}'/coin'/account'/{0,1}/index is signed.
+    Path,
+    /// The coin type is not the device's network.
+    Network,
+    Message(MessageError),
+}
+
+fn step(s: &str) -> Option<(u32, bool)> {
+    let (num, hard) = match s.strip_suffix(['\'', 'h', 'H']) {
+        Some(n) => (n, true),
+        None => (s, false),
+    };
+    if num.is_empty()
+        || num.len() > 10
+        || !num.bytes().all(|c| c.is_ascii_digit())
+        || (num.len() > 1 && num.starts_with('0'))
+    {
+        return None;
+    }
+    let v: u32 = num.parse().ok()?;
+    (v < 1 << 31).then_some((v, hard))
+}
+
+/// Parse and check a request: path shape, network and message rules.
+pub fn parse_request(text: &[u8], net: Network) -> Result<Request<'_>, RequestError> {
+    let rest = text.strip_prefix(b"signmessage ").ok_or(RequestError::Format)?;
+    let sp = rest.iter().position(|&c| c == b' ').ok_or(RequestError::Format)?;
+    let path = core::str::from_utf8(&rest[..sp]).map_err(|_| RequestError::Format)?;
+    let message = rest[sp + 1..]
+        .strip_prefix(b"ascii:")
+        .ok_or(RequestError::Format)?;
+    // optional fingerprint, optional "m/"
+    let (fingerprint, path) = match path.split_once('/') {
+        Some((fp, p)) if fp.len() == 8 && fp.bytes().all(|c| c.is_ascii_hexdigit()) => {
+            let mut b = [0u8; 4];
+            for (i, d) in b.iter_mut().enumerate() {
+                *d = u8::from_str_radix(&fp[2 * i..2 * i + 2], 16).map_err(|_| RequestError::Format)?;
+            }
+            (Some(b), p)
+        }
+        _ => (None, path),
+    };
+    let path = path.strip_prefix("m/").unwrap_or(path);
+    let mut steps = [(0u32, false); 5];
+    let mut n = 0;
+    for part in path.split('/') {
+        if n == 5 {
+            return Err(RequestError::Path);
+        }
+        steps[n] = step(part).ok_or(RequestError::Path)?;
+        n += 1;
+    }
+    if n != 5 {
+        return Err(RequestError::Path);
+    }
+    let [(purpose, h0), (coin, h1), (account, h2), (chain, h3), (index, h4)] = steps;
+    if !(h0 && h1 && h2) || h3 || h4 || chain > 1 {
+        return Err(RequestError::Path);
+    }
+    let script_type = match purpose {
+        44 => ScriptType::Legacy,
+        49 => ScriptType::NestedSegwit,
+        84 => ScriptType::NativeSegwit,
+        86 => ScriptType::Taproot,
+        _ => return Err(RequestError::Path),
+    };
+    if coin != net.coin_type() {
+        return Err(RequestError::Network);
+    }
+    check_message(message).map_err(RequestError::Message)?;
+    Ok(Request {
+        fingerprint,
+        script_type,
+        account,
+        change: chain == 1,
+        index,
+        message,
+    })
+}
+
 const BEGIN_MSG: &[u8] = b"-----BEGIN BITCOIN SIGNED MESSAGE-----";
 const BEGIN_SIG: &[u8] = b"-----BEGIN BITCOIN SIGNATURE-----";
 const END_SIG: &[u8] = b"-----END BITCOIN SIGNATURE-----";
@@ -256,6 +353,61 @@ mod tests {
         );
         assert_eq!(check_message(b"a   b"), Err(MessageError::TooManySpaces));
         assert_eq!(check_message(b"a  b"), Ok(()));
+    }
+
+    #[test]
+    fn signmessage_requests() {
+        let r = parse_request(b"signmessage m/84h/0h/0h/0/5 ascii:hello world", Network::Mainnet).unwrap();
+        assert_eq!(
+            (
+                r.fingerprint,
+                r.script_type,
+                r.account,
+                r.change,
+                r.index,
+                r.message
+            ),
+            (None, ScriptType::NativeSegwit, 0, false, 5, &b"hello world"[..])
+        );
+        let r = parse_request(
+            b"signmessage 73c5da0a/m/86'/1'/2'/1/0 ascii:a\nb",
+            Network::Signet,
+        )
+        .unwrap();
+        assert_eq!(r.fingerprint, Some([0x73, 0xc5, 0xda, 0x0a]));
+        assert_eq!(
+            (r.script_type, r.account, r.change),
+            (ScriptType::Taproot, 2, true)
+        );
+        let bad = |t: &[u8]| parse_request(t, Network::Mainnet).unwrap_err();
+        assert_eq!(
+            bad(b"signmessage m/84h/0h/0h/0/5 base64:aGk="),
+            RequestError::Format
+        );
+        assert_eq!(bad(b"sign m/84h/0h/0h/0/5 ascii:hi"), RequestError::Format);
+        assert_eq!(
+            bad(b"signmessage m/84h/1h/0h/0/5 ascii:hi"),
+            RequestError::Network
+        );
+        assert_eq!(bad(b"signmessage m/48h/0h/0h/0/5 ascii:hi"), RequestError::Path);
+        assert_eq!(bad(b"signmessage m/84h/0h/0/0/5 ascii:hi"), RequestError::Path);
+        assert_eq!(bad(b"signmessage m/84h/0h/0h/2/5 ascii:hi"), RequestError::Path);
+        assert_eq!(bad(b"signmessage m/84h/0h/0h/0/5h ascii:hi"), RequestError::Path);
+        assert_eq!(bad(b"signmessage m/84h/0h/0h/0 ascii:hi"), RequestError::Path);
+        assert_eq!(bad(b"signmessage m/84h/0h/0h/0/5/1 ascii:hi"), RequestError::Path);
+        assert_eq!(bad(b"signmessage m/84h/0h/0h/0/05 ascii:hi"), RequestError::Path);
+        assert_eq!(
+            bad(b"signmessage m/84h/0h/2147483648h/0/5 ascii:hi"),
+            RequestError::Path
+        );
+        assert_eq!(
+            bad(b"signmessage m/84h/0h/0h/0/5 ascii: hi"),
+            RequestError::Message(MessageError::LeadingOrTrailingSpace)
+        );
+        assert_eq!(
+            bad(b"signmessage m/84h/0h/0h/0/5 ascii:x"),
+            RequestError::Message(MessageError::TooShort)
+        );
     }
 
     #[test]

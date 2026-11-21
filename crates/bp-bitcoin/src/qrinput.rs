@@ -56,6 +56,10 @@ pub enum Content {
         /// `index=N` from a `bitcoin:` URI: where to start looking for it.
         index: Option<u32>,
     },
+    /// A `signmessage <path> ascii:<message>` request in `out[..len]`.
+    SignMessage {
+        len: usize,
+    },
     /// Descriptor or wallet-file text in `out[..len]`.
     Descriptor {
         len: usize,
@@ -264,6 +268,9 @@ pub fn classify(data: &[u8], out: &mut [u8]) -> Result<Content, Error> {
             mnemonic: m,
             source: SeedSource::Words,
         });
+    }
+    if t.starts_with(b"signmessage ") {
+        return Ok(Content::SignMessage { len: copy(out, t)? });
     }
     // bitcoin: URI or a bare address
     let (addr, query) = if t.len() > 8 && t[..8].eq_ignore_ascii_case(b"bitcoin:") {

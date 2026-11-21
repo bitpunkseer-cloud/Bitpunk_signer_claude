@@ -741,5 +741,218 @@ fn verify_refuses_other_networks_scripts_and_non_addresses() {
     assert_eq!(a.seed_count(), 1);
 }
 
+// ---------- M6: message signing ----------
+
+use crate::msgsign::MsStep;
+
+fn ms(a: &App) -> MsStep {
+    match a.current() {
+        Screen::MsgSign { step } => step,
+        s => panic!("not signing a message: {s:?}"),
+    }
+}
+
+fn scan_text(a: &mut App, text: &str) {
+    press(a, Key::Char('1'));
+    a.on_qr_text(text.as_bytes());
+}
+
+/// Message pages -> address -> confirm -> Sign; returns the signature.
+fn approve_message(a: &mut App) -> String {
+    while let MsStep::Message { .. } = ms(a) {
+        render(a);
+        press(a, Key::Enter);
+    }
+    assert_eq!(ms(a), MsStep::Address);
+    render(a);
+    press(a, Key::Enter);
+    assert_eq!(ms(a), MsStep::Confirm { sel: 0 });
+    render(a);
+    press(a, Key::Down);
+    press(a, Key::Enter);
+    assert_eq!(ms(a), MsStep::Done { sel: 0 });
+    render(a);
+    String::from_utf8(a.signed_psbt().unwrap().to_vec()).unwrap()
+}
+
+fn ref_verify(w: &W, path: &str, msg: &str, sig: &str, kind: &str) -> bool {
+    let (pk, _) = w.key(path);
+    let mut raw = [0u8; 66];
+    let n = bp_bitcoin::base64::decode(sig.as_bytes(), &mut raw).unwrap();
+    let ms = bitcoin::sign_message::MessageSignature::from_slice(&raw[..n]).unwrap();
+    let cpk = CompressedPublicKey(pk);
+    let addr = match kind {
+        "p2pkh" => Address::p2pkh(cpk, bitcoin::Network::Bitcoin),
+        "p2sh" => Address::p2shwpkh(&cpk, bitcoin::Network::Bitcoin),
+        _ => Address::p2wpkh(&cpk, bitcoin::Network::Bitcoin),
+    };
+    let h = bitcoin::sign_message::signed_msg_hash(msg);
+    // rust-bitcoin checks P2PKH addresses itself; for SegWit compare the
+    // key libsecp256k1 recovers
+    match kind {
+        "p2pkh" => ms.is_signed_by_address(&w.secp, &addr, h).unwrap(),
+        _ => ms.recover_pubkey(&w.secp, h).unwrap().inner == pk,
+    }
+}
+
+#[test]
+fn message_signing_is_off_until_the_device_turns_it_on() {
+    let mut a = app();
+    load_abandon(&mut a);
+    scan_text(&mut a, "signmessage m/84h/0h/0h/0/0 ascii:hello");
+    assert_eq!(ms(&a), MsStep::Off);
+    render(&a);
+    press(&mut a, Key::Enter);
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(a.msg.is_none());
+    press(&mut a, Key::Char('3')); // Tools
+    press(&mut a, Key::Char('4')); // Sign message
+    assert_eq!(ms(&a), MsStep::Off);
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Esc);
+    // Settings > Message signing
+    press(&mut a, Key::Char('4'));
+    press(&mut a, Key::Char('6'));
+    assert!(a.settings.msg_signing);
+}
+
+#[test]
+fn signmessage_qr_signs_every_address_type() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    a.settings.msg_signing = true;
+    load_abandon(&mut a);
+    for (path, kind) in [
+        ("m/84'/0'/0'/0/3", "p2wpkh"),
+        ("m/49'/0'/0'/1/0", "p2sh"),
+        ("m/44'/0'/1'/0/7", "p2pkh"),
+    ] {
+        let msg = "I control this address. 2026-11-21";
+        scan_text(&mut a, &format!("signmessage {path} ascii:{msg}"));
+        assert_eq!(ms(&a), MsStep::Message { page: 0 });
+        let sig = approve_message(&mut a);
+        assert_eq!(sig.len(), 88, "{sig}");
+        assert!(ref_verify(&w, path, msg, &sig, kind), "{path}");
+        // the signature QR shows the same text
+        press(&mut a, Key::Enter);
+        assert_eq!(
+            a.current(),
+            Screen::QrShow {
+                kind: QrKind::MessageSig
+            }
+        );
+        render(&a);
+        press(&mut a, Key::Esc);
+        press(&mut a, Key::Down);
+        press(&mut a, Key::Enter);
+        assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+        assert!(a.msg.is_none(), "wiped");
+    }
+    // Taproot: BIP-322 simple with the "smp" prefix
+    let msg = "Hello World";
+    scan_text(
+        &mut a,
+        &format!("signmessage 73c5da0a/m/86h/0h/0h/0/0 ascii:{msg}"),
+    );
+    let sig = approve_message(&mut a);
+    assert!(sig.starts_with("smp"), "{sig}");
+    let addr = addr_of(&w, true, 0, 0, 0);
+    assert_eq!(
+        bp_bitcoin::bip322::verify_simple(&addr, bp_bitcoin::Network::Mainnet, msg.as_bytes(), &sig),
+        Ok(bp_bitcoin::address::ScriptType::Taproot)
+    );
+}
+
+#[test]
+fn long_messages_must_be_read_page_by_page() {
+    let mut a = app();
+    a.settings.msg_signing = true;
+    load_abandon(&mut a);
+    let msg = (0..30)
+        .map(|i| format!("line {i} of a long statement"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(msg.len() <= 1000);
+    scan_text(&mut a, &format!("signmessage m/84h/0h/0h/0/0 ascii:{msg}"));
+    let mut pages = 0;
+    while let MsStep::Message { page } = ms(&a) {
+        assert_eq!(page, pages);
+        render(&a);
+        pages += 1;
+        press(&mut a, Key::Enter);
+    }
+    assert!(pages >= 4, "{pages}");
+    // back from the address goes to the last page
+    press(&mut a, Key::Esc);
+    assert_eq!(ms(&a), MsStep::Message { page: pages - 1 });
+}
+
+#[test]
+fn bad_requests_are_refused_with_the_reason() {
+    let mut a = app();
+    a.settings.msg_signing = true;
+    load_abandon(&mut a);
+    for text in [
+        "signmessage m/84h/1h/0h/0/0 ascii:testnet path",
+        "signmessage m/48h/0h/0h/0/0 ascii:multisig path",
+        "signmessage m/84h/0h/0h/0/0 ascii:three   spaces",
+        "signmessage m/84h/0h/0h/0/0 base64:aGVsbG8=",
+        "signmessage deadbeef/m/84h/0h/0h/0/0 ascii:other seed",
+    ] {
+        scan_text(&mut a, text);
+        assert_eq!(ms(&a), MsStep::Problem, "{text}");
+        render(&a);
+        press(&mut a, Key::Enter);
+        assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    }
+    // cancel is the default on the final screen
+    scan_text(&mut a, "signmessage m/84h/0h/0h/0/0 ascii:hello");
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Enter);
+    assert_eq!(ms(&a), MsStep::Confirm { sel: 0 });
+    press(&mut a, Key::Enter);
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(a.signed_psbt().is_none());
+}
+
+#[test]
+fn typed_message_with_an_address_from_the_explorer() {
+    let w = W::from_phrase(ABANDON);
+    let mut a = app();
+    a.settings.msg_signing = true;
+    load_abandon(&mut a);
+    press(&mut a, Key::Char('3')); // Tools
+    press(&mut a, Key::Char('4')); // Sign message
+    assert_eq!(ms(&a), MsStep::Type);
+    type_str(&mut a, "a");
+    press(&mut a, Key::Enter); // too short: stays, shows the rule
+    assert_eq!(ms(&a), MsStep::Type);
+    render(&a);
+    type_str(&mut a, "bc proof");
+    press(&mut a, Key::Enter);
+    // one seed: straight to the script types, then the addresses
+    assert!(matches!(a.current(), Screen::ScriptSelect { explorer: true, .. }));
+    press(&mut a, Key::Char('1')); // Native SegWit
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter); // receive #2
+    assert_eq!(ms(&a), MsStep::Message { page: 0 });
+    let sig = approve_message(&mut a);
+    assert!(ref_verify(&w, "m/84'/0'/0'/0/2", "abc proof", &sig, "p2wpkh"));
+    // from a verified address: S signs a message with it
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Esc);
+    verify_scan(&mut a, &addr_of(&w, false, 0, 1, 4));
+    press(&mut a, Key::Enter);
+    search_until_done(&mut a);
+    press(&mut a, Key::Char('s'));
+    assert_eq!(ms(&a), MsStep::Type);
+    type_str(&mut a, "change #4");
+    press(&mut a, Key::Enter);
+    let sig = approve_message(&mut a);
+    assert!(ref_verify(&w, "m/84'/0'/0'/1/4", "change #4", &sig, "p2wpkh"));
+}
+
 #[path = "tests_layout.rs"]
 mod layout;

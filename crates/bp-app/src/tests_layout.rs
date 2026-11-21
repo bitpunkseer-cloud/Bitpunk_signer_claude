@@ -555,6 +555,85 @@ fn tour(lang: Lang) -> usize {
     press(&mut a, Key::Char('1'));
     a.on_qr_text(b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
     t.snap(&a, "verify-no-seed");
+
+    // message signing: off, problems, pages, address, confirm, done, editor
+    let mut a = t.app();
+    load_abandon(&mut a);
+    scan_text(&mut a, "signmessage m/84h/0h/0h/0/0 ascii:hello");
+    t.snap(&a, "msg-off");
+    press(&mut a, Key::Enter);
+    a.settings.msg_signing = true;
+    t.push_snap(
+        &mut a,
+        Screen::Menu {
+            id: MenuId::Settings,
+            sel: 5,
+        },
+        "settings-msg-signing",
+    );
+    for (text, name) in [
+        ("signmessage m/84h/1h/0h/0/0 ascii:testnet path", "msg-network"),
+        ("signmessage m/84h/0h/0h/0/0 ascii:three   spaces", "msg-rule"),
+        (
+            "signmessage deadbeef/m/84h/0h/0h/0/0 ascii:other seed",
+            "msg-seed-missing",
+        ),
+        ("signmessage x", "msg-format"),
+        ("signmessage m/48h/0h/0h/0/0 ascii:x2", "msg-path"),
+    ] {
+        scan_text(&mut a, text);
+        t.snap(&a, name);
+        press(&mut a, Key::Enter);
+    }
+    let long = (0..30)
+        .map(|i| format!("line {i} of a long statement"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    scan_text(&mut a, &format!("signmessage m/86h/0h/0h/0/0 ascii:{long}"));
+    t.snap(&a, "msg-page-1");
+    while let MsStep::Message { page } = ms(&a) {
+        press(&mut a, Key::Enter);
+        if page == 0 {
+            t.snap(&a, "msg-page-2");
+        }
+    }
+    t.snap(&a, "msg-address");
+    press(&mut a, Key::Esc);
+    t.snap(&a, "msg-last-page");
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Enter);
+    t.snap(&a, "msg-confirm");
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    t.snap(&a, "msg-done");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "msg-qr");
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Down);
+    press(&mut a, Key::Enter);
+    press(&mut a, Key::Char('3'));
+    press(&mut a, Key::Char('4'));
+    type_str(&mut a, "I own this address");
+    t.snap(&a, "msg-type");
+    type_str(&mut a, "   ");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "msg-type-rule");
+    let mut b = t.app();
+    b.settings.msg_signing = true;
+    load_abandon(&mut b);
+    for k in ['2', '3', '1', '1'] {
+        press(&mut b, Key::Char(k));
+    }
+    for w in [
+        "lega", "winn", "than", "year", "wave", "saus", "wort", "usef", "lega", "winn", "than", "yell",
+    ] {
+        type_str(&mut b, w);
+    }
+    while !matches!(b.current(), Screen::Menu { id: MenuId::Main, .. }) {
+        press(&mut b, Key::Esc);
+    }
+    scan_text(&mut b, "signmessage m/84h/0h/0h/0/0 ascii:which seed?");
+    t.snap(&b, "msg-pick-seed");
     t.n
 }
 

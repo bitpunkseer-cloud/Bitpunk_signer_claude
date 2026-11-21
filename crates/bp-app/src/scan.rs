@@ -49,6 +49,9 @@ pub enum Outcome {
     Descriptor {
         len: usize,
     },
+    SignMessage {
+        len: usize,
+    },
     UnknownUr {
         len: usize,
     },
@@ -234,6 +237,7 @@ impl ScanState {
                     index,
                 },
                 Content::Descriptor { len } => Outcome::Descriptor { len },
+                Content::SignMessage { len } => Outcome::SignMessage { len },
                 Content::UnknownUr { len } => Outcome::UnknownUr { len },
                 Content::Text { len } => Outcome::Text { len },
                 Content::Binary { len } => Outcome::Binary { len },

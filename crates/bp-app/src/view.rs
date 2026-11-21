@@ -383,6 +383,7 @@ impl App {
             Screen::ScanResult => self.render_scan_result(c),
             Screen::Review { step } => self.render_review(c, step),
             Screen::VerifyAddr { step } => self.render_verify(c, step),
+            Screen::MsgSign { step } => self.render_msg(c, step),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
@@ -1004,7 +1005,7 @@ impl App {
         widgets::hint_bar(c, &[("<>", s.h_prev_next), ("Esc", s.h_back)]);
     }
 
-    fn qr_title(&self, kind: QrKind) -> Buf<64> {
+    fn qr_title(&self, kind: QrKind) -> Buf<128> {
         let s = self.text();
         match kind {
             QrKind::Xpub { st, account, .. } => fill(
@@ -1019,6 +1020,7 @@ impl App {
                 )
             }
             QrKind::SignedPsbt { format } => fill(s.rv.qr_title, &[&s.rv.formats[format as usize]]),
+            QrKind::MessageSig => fill(s.ms_sig_qr, &[]),
         }
     }
 
@@ -1146,7 +1148,7 @@ impl App {
         let extra = match kind {
             QrKind::Xpub { .. } => s.qr_keys_xpub,
             QrKind::SeedQr { .. } => s.qr_keys_seed,
-            QrKind::SignedPsbt { .. } => s.rv.qr_keys,
+            QrKind::SignedPsbt { .. } | QrKind::MessageSig => s.rv.qr_keys,
         };
         let y0 = h - 4 * 21 - 6;
         for (i, k) in s.qr_keys.iter().chain(core::iter::once(&extra)).enumerate() {
@@ -1439,8 +1441,8 @@ impl App {
                 BODY.draw(c, MARGIN, y0 + 56, l.as_str(), theme::TEXT);
                 wrap(c, MARGIN, y0 + 96, text(len), 8);
             }
-            // addresses open the verification screens instead
-            Outcome::Address { .. } => {}
+            // addresses and message requests open their own screens
+            Outcome::Address { .. } | Outcome::SignMessage { .. } => {}
             Outcome::Descriptor { len } => {
                 self.status(c, s.res_descriptor);
                 TITLE.draw(c, MARGIN, y0, s.res_descriptor, theme::ACCENT);

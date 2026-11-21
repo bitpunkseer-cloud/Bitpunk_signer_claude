@@ -34,6 +34,8 @@ pub struct Settings {
     pub qr_density: QrDensity,
     pub advanced: bool,
     pub lang: Lang,
+    /// Message signing (off by default; only the device turns it on).
+    pub msg_signing: bool,
 }
 
 impl Default for Settings {
@@ -44,6 +46,7 @@ impl Default for Settings {
             qr_density: QrDensity::Medium,
             advanced: false,
             lang: Lang::En,
+            msg_signing: false,
         }
     }
 }
@@ -72,6 +75,7 @@ impl Settings {
             }
             3 => self.advanced = !self.advanced,
             4 => self.lang = step(&Lang::ALL, self.lang, dir),
+            5 => self.msg_signing = !self.msg_signing,
             _ => return false,
         }
         true
@@ -91,6 +95,7 @@ impl Settings {
             2 => s.densities[1 + self.qr_density as usize],
             3 => s.on_off[self.advanced as usize],
             4 => crate::text::LANGUAGES[self.lang as usize],
+            5 => s.on_off[self.msg_signing as usize],
             _ => return None,
         })
     }
