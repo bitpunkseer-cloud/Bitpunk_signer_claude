@@ -116,3 +116,27 @@ pub fn encode(pk: &PublicKey, st: ScriptType, net: Network, out: &mut [u8; MAX_A
         }
     }
 }
+
+/// The address of an output script on `net`: P2PKH, P2SH, and segwit v0 to
+/// v16 programs. `None` for anything else (OP_RETURN, bare scripts).
+pub fn from_script(spk: &[u8], net: Network, out: &mut [u8; MAX_ADDRESS_LEN]) -> Option<usize> {
+    match spk {
+        [0x76, 0xA9, 0x14, h @ .., 0x88, 0xAC] if h.len() == 20 => {
+            let mut payload = [0u8; 21];
+            payload[0] = net.p2pkh_version();
+            payload[1..].copy_from_slice(h);
+            base58::encode_check(&payload, out).ok()
+        }
+        [0xA9, 0x14, h @ .., 0x87] if h.len() == 20 => {
+            let mut payload = [0u8; 21];
+            payload[0] = net.p2sh_version();
+            payload[1..].copy_from_slice(h);
+            base58::encode_check(&payload, out).ok()
+        }
+        [v, n, program @ ..] if (*v == 0 || (0x51..=0x60).contains(v)) && program.len() == *n as usize => {
+            let version = if *v == 0 { 0 } else { v - 0x50 };
+            bech32::encode_segwit(net.hrp(), version, program, out).ok()
+        }
+        _ => None,
+    }
+}

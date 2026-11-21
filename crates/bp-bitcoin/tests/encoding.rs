@@ -138,3 +138,47 @@ fn segwit_addresses_bip350() {
         );
     }
 }
+
+#[test]
+fn addresses_from_scripts_match_rust_bitcoin() {
+    use bitcoin::{Address, Network as RefNet, Script};
+    use bp_bitcoin::address::{from_script, MAX_ADDRESS_LEN};
+    use bp_bitcoin::Network;
+    let mut x = 0x1357_9bdf_2468_ace0u64;
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let nets = [
+        (Network::Mainnet, RefNet::Bitcoin),
+        (Network::Testnet, RefNet::Testnet),
+        (Network::Signet, RefNet::Signet),
+        (Network::Regtest, RefNet::Regtest),
+    ];
+    for i in 0..2000 {
+        let body: Vec<u8> = (0..40).map(|_| next() as u8).collect();
+        let spk: Vec<u8> = match i % 7 {
+            0 => [&[0x76, 0xA9, 0x14][..], &body[..20], &[0x88, 0xAC]].concat(),
+            1 => [&[0xA9, 0x14][..], &body[..20], &[0x87]].concat(),
+            2 => [&[0x00, 0x14][..], &body[..20]].concat(),
+            3 => [&[0x00, 0x20][..], &body[..32]].concat(),
+            4 => [&[0x51, 0x20][..], &body[..32]].concat(),
+            5 => {
+                let n = 2 + (next() % 39) as usize;
+                [&[0x52 + (next() % 15) as u8, n as u8][..], &body[..n]].concat()
+            }
+            _ => [&[0x6A, 0x04][..], &body[..4]].concat(),
+        };
+        for (net, rnet) in nets {
+            let mut out = [0u8; MAX_ADDRESS_LEN];
+            let ours =
+                from_script(&spk, net, &mut out).map(|n| String::from_utf8(out[..n].to_vec()).unwrap());
+            let theirs = Address::from_script(Script::from_bytes(&spk), rnet)
+                .ok()
+                .map(|a| a.to_string());
+            assert_eq!(ours, theirs, "{spk:02x?} {net:?}");
+        }
+    }
+}

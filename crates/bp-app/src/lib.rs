@@ -5,6 +5,8 @@
 mod flow;
 mod menus;
 mod qrview;
+pub mod review;
+mod review_view;
 mod scan;
 mod seeds;
 mod settings;
@@ -206,6 +208,10 @@ pub enum Screen {
     },
     /// What a scanned code was (PSBT, key, address, text...).
     ScanResult,
+    /// Reviewing and signing a scanned PSBT.
+    Review {
+        step: review::Step,
+    },
 }
 
 pub struct App {
@@ -231,6 +237,10 @@ pub struct App {
     scan_live: bool,
     /// A scanned seed with its master key, waiting for "Load".
     scanned: Option<seeds::SeedSlot>,
+    /// The PSBT being reviewed (with the scan buffers that hold it).
+    review: Option<review::Review>,
+    /// Amounts of the UTXOs signed since power-on.
+    memory: bp_bitcoin::validate::UtxoMemory,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -290,6 +300,8 @@ impl App {
             scan: scan::ScanState::new(),
             scan_live: false,
             scanned: None,
+            review: None,
+            memory: bp_bitcoin::validate::UtxoMemory::new(),
         }
     }
 
@@ -414,11 +426,13 @@ impl App {
                     | Screen::ScanSeed { .. }
                     | Screen::ScanVerify { .. }
                     | Screen::ScanResult
+                    | Screen::Review { .. }
             )
         });
         if self.scan_live && !scanning {
             self.scan.clear();
             self.scanned = None;
+            self.review = None;
             self.scan_live = false;
         }
     }
@@ -471,6 +485,8 @@ impl App {
                     self.set_current(Screen::ScanSeed { sel: 0 });
                 }
             }
+        } else if let Some(scan::Outcome::Psbt { len, .. }) = self.scan.outcome {
+            self.start_review(len);
         } else {
             self.set_current(Screen::ScanResult);
         }
@@ -866,6 +882,7 @@ impl App {
                 }
                 Pick::None => {}
             },
+            Screen::Review { step } => self.review_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1214,6 +1231,8 @@ impl App {
             Action::PowerOff => {
                 self.flow = None;
                 self.seeds = [None, None, None];
+                self.review = None;
+                self.memory.clear();
                 self.reset_to(Screen::PoweredOff);
             }
         }
@@ -1510,3 +1529,5 @@ fn pick(key: Key, sel: u8, n: u8) -> Pick {
 mod bench;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_review;

@@ -165,6 +165,7 @@ dependencies = [
 name = "bp-app"
 version = "0.0.1"
 dependencies = [
+ "bitcoin",
  "bp-bitcoin",
  "bp-crypto",
  "bp-hal",

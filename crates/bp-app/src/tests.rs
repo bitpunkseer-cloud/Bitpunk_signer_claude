@@ -1090,7 +1090,7 @@ fn animated_psbt_over_ur_text_frames() {
     let n = w.len();
     let enc = bp_qr::ur::UrEncoder::new("crypto-psbt", &cb[..n], 100).unwrap();
     let mut seq = 1;
-    while a.current() != Screen::ScanResult {
+    while matches!(a.current(), Screen::Scan { .. }) {
         let mut buf = [0u8; 600];
         let k = enc.part(seq, &mut buf).unwrap();
         if seq % 3 != 0 {
@@ -1107,6 +1107,13 @@ fn animated_psbt_over_ur_text_frames() {
         seq += 1;
         assert!(seq < 200);
     }
+    // a PSBT goes to the review (no seed loaded here)
+    assert_eq!(
+        a.current(),
+        Screen::Review {
+            step: review::Step::WrongSeed
+        }
+    );
     match a.scan.outcome {
         Some(scan::Outcome::Psbt { len, summary, source }) => {
             assert_eq!(&a.scan.out[..len], &p[..]);

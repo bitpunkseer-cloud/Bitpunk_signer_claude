@@ -39,6 +39,11 @@ impl SeedSlot {
         })
     }
 
+    /// The master key (validation and signing only).
+    pub(crate) fn master(&self) -> &Xpriv {
+        &self.master
+    }
+
     pub fn has_passphrase(&self) -> bool {
         self.passphrase_len > 0
     }

@@ -112,6 +112,18 @@ impl ScanState {
         self.outcome = None;
     }
 
+    /// The received payload and the work buffer (the signed PSBT goes
+    /// there; it is wiped with everything else).
+    pub fn buffers(&mut self) -> (&[u8], &mut [u8]) {
+        (&self.out, &mut self.work)
+    }
+
+    /// The work buffer (read-only; the signed PSBT after signing).
+    #[allow(dead_code)] // the result QR reads it (next step)
+    pub fn work(&self) -> &[u8] {
+        &self.work
+    }
+
     pub fn progress(&self) -> Progress {
         self.collector.progress()
     }

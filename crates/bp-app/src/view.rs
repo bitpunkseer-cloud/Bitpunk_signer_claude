@@ -51,7 +51,7 @@ pub fn seed_label(slot: &crate::seeds::SeedSlot) -> Buf<40> {
 }
 
 impl App {
-    fn status(&self, c: &mut dyn Canvas, title: &str) {
+    pub(crate) fn status(&self, c: &mut dyn Canvas, title: &str) {
         let net = self.settings.network;
         widgets::status_bar(
             c,
@@ -380,6 +380,7 @@ impl App {
             Screen::ScanSeed { sel } => self.render_scan_seed(c, sel),
             Screen::ScanVerify { slot } => self.render_scan_verify(c, slot),
             Screen::ScanResult => self.render_scan_result(c),
+            Screen::Review { step } => self.render_review(c, step),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
