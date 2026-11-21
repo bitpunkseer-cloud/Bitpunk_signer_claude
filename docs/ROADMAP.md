@@ -99,6 +99,8 @@ QR로 주소 검증, 메시지 서명(BIP-137, BIP-322) 및 검증, BBQr, Specte
 
 **완료 기준:** Sparrow·Nunchuk에서 2-of-3 멀티시그 생성·등록·서명 성공.
 
+**계획(제안, 승인 대기):** [M7_PLAN.md](milestones/M7_PLAN.md) — 등록된 지갑만 서명, 저장 공간 없이 등록을 묶는 지갑 코드(시드 HMAC), 공동서명자 xpub을 직접 스캔하는 에어갭 생성, embit과 독립인 구현·3중 오라클 시험. 조사: [M7_SURVEY.md](M7_SURVEY.md).
+
 ## M8 — microSD
 
 FAT 파일시스템, PSBT 파일 읽기/쓰기, 파일 관리자, 서명된 tx 저장, SD 제거 알림, BIP-85(니모닉·WIF·XPRV·HEX·패스워드),
