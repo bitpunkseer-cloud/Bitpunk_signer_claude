@@ -321,3 +321,61 @@ fn armored_messages_never_panic() {
     }
     assert!(parsed > 100);
 }
+
+#[test]
+fn bip322_never_panics() {
+    use bp_bitcoin::bip322::{classify_psbt, verify_simple};
+    use bp_bitcoin::Network;
+    let sigs = [
+        &b"smpAkcwRAIgM2gBAQqvZX15ZiysmKmQpDrG83avLIT492QBzLnQIxYCIBaTpOaD20qRlEylyxFSeEA2ba9YOixpX8z46TSDtS40ASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI="[..],
+        b"AUCJYOwOjxYAvatTAGYaVlNXBVyFuc4MwNQkOuK2tl8xhfKDONd0NjfYyNSYcRqeCp8hsAnCEPHAVEkO9h6vbQ/R",
+    ];
+    let addrs = [
+        "bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l",
+        "bc1pss0zhytly75awhm6x2hhvd5lnzv3vssgrf9axfheq8ldyzn88ges79fler",
+    ];
+    let mut rng = Rng(0xb322);
+    for i in 0..3000 {
+        let k = rng.below(2);
+        let v = mutate(&mut rng, sigs[k]);
+        if let Ok(s) = core::str::from_utf8(&v) {
+            let _ = verify_simple(addrs[i % 2], Network::Mainnet, b"Hello World", s);
+        }
+    }
+    // mutated message PSBTs
+    let base = message_psbt_bytes();
+    let mut msgs = 0;
+    for _ in 0..3000 {
+        let v = mutate(&mut rng, &base);
+        if let Ok(p) = bp_bitcoin::psbt::Psbt::parse(&v) {
+            if matches!(classify_psbt(&p), bp_bitcoin::bip322::PsbtKind::Message { .. }) {
+                msgs += 1;
+            }
+        }
+    }
+    assert!(msgs > 0);
+}
+
+/// A minimal BIP-322 PSBT: global tx + 0x09, input 0 with witness UTXO.
+fn message_psbt_bytes() -> Vec<u8> {
+    use bp_bitcoin::bip322::{to_sign, to_spend_txid};
+    let challenge = [&[0x00, 0x14][..], &[0x2b; 20]].concat();
+    let msg = b"Hello World";
+    let tx = to_sign(&to_spend_txid(&challenge, msg).unwrap());
+    let mut p = b"psbt\xff".to_vec();
+    p.extend_from_slice(&[1, 0x00, tx.len() as u8]);
+    p.extend_from_slice(&tx);
+    p.extend_from_slice(&[1, 0x09, msg.len() as u8]);
+    p.extend_from_slice(msg);
+    p.push(0);
+    // input map: witness UTXO (value 0, challenge)
+    let mut utxo = vec![0u8; 8];
+    utxo.push(challenge.len() as u8);
+    utxo.extend_from_slice(&challenge);
+    p.extend_from_slice(&[1, 0x01, utxo.len() as u8]);
+    p.extend_from_slice(&utxo);
+    p.push(0);
+    // output map
+    p.push(0);
+    p
+}

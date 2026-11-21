@@ -10,6 +10,7 @@ pub mod base58;
 pub mod base64;
 pub mod bech32;
 pub mod bip32;
+pub mod bip322;
 pub mod bip39;
 pub mod entropy;
 pub mod message;
