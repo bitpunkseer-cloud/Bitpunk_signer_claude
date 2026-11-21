@@ -7,7 +7,7 @@ use super::{
     At, Context, DeriveError, Deriver, Issue, OutputKind, OutputReport, OwnedOutput, Report, SpendKind,
     Verified,
 };
-use crate::bip32::{DerivationPath, HARDENED};
+use crate::bip32::HARDENED;
 use crate::psbt::{KeySource, OutputMap, Psbt};
 use crate::tx::MAX_MONEY;
 use bp_crypto::hashes::hash160;
@@ -63,9 +63,39 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Re
     }
 }
 
+/// The single-key script `kind` is, if it is built from `key`.
+fn spend_for(
+    key: &PublicKey,
+    kind: ScriptKind,
+    map: &OutputMap,
+    idx: u16,
+) -> Result<Option<SpendKind>, Issue> {
+    let h = hash160(&key.serialize());
+    Ok(match kind {
+        ScriptKind::P2wpkh(sh) if sh == h => Some(SpendKind::P2wpkh),
+        ScriptKind::P2pkh(sh) if sh == h => Some(SpendKind::P2pkh),
+        ScriptKind::P2sh(sh) if sh[..] == script::p2sh(&script::p2wpkh(key))[2..22] => {
+            match map.redeem_script() {
+                Some(r) if r != script::p2wpkh(key) => return Err(Issue::ChangeContradiction(idx)),
+                _ => Some(SpendKind::P2shP2wpkh),
+            }
+        }
+        ScriptKind::P2tr(q) if q[..] == script::p2tr(key)[2..] && map.tap_tree().is_none() => {
+            Some(SpendKind::P2trKey)
+        }
+        _ => None,
+    })
+}
+
 /// This seed's key claimed for the output, re-derived, and the script it
 /// must then be. `Ok(None)`: no claim, or a script the device does not
 /// rebuild (multisig and the like: shown as an ordinary recipient).
+///
+/// Also refused, as SeedSigner does: claims on the master key or a
+/// one-level path, a claim in the map of the other script family (Taproot
+/// vs BIP-32), more than one derivation entry on a single-key output, and
+/// an output that pays this seed's key at a path claimed for another
+/// fingerprint.
 #[allow(clippy::type_complexity)]
 fn ours<'a>(
     idx: u16,
@@ -74,14 +104,32 @@ fn ours<'a>(
     d: &mut Deriver,
     report: &mut Report,
 ) -> Result<Option<(SpendKind, PublicKey, KeySource<'a>)>, Issue> {
+    let n_ecdsa = map.bip32_derivations().count();
+    let n_tap = map.tap_bip32_derivations().count();
+    let single_key = match kind {
+        ScriptKind::P2wpkh(_) | ScriptKind::P2pkh(_) => true,
+        ScriptKind::P2sh(_) => !matches!(map.redeem_script().map(classify), Some(ScriptKind::P2wsh(_))),
+        ScriptKind::P2tr(_) => map.tap_tree().is_none(),
+        _ => false,
+    };
+    let is_taproot = matches!(kind, ScriptKind::P2tr(_));
     let ecdsa = map.bip32_derivations().map(|(k, s)| (Some(k), None, s));
     let taproot = map
         .tap_bip32_derivations()
         .map(|t| (None, Some(t.xonly), t.source));
     let mut claimed = false;
+    let mut found = None;
     for (k, x, src) in ecdsa.chain(taproot) {
         if src.fingerprint != d.fingerprint {
             report.note_fingerprint(src.fingerprint);
+            // this seed's own key at that path, paid by the output?
+            if single_key && src.depth() >= 2 {
+                if let Ok(ours) = d.xpub(&src) {
+                    if spend_for(&ours.key, kind, map, idx)?.is_some() {
+                        return Err(Issue::ChangeContradiction(idx));
+                    }
+                }
+            }
             continue;
         }
         let derived = match d.xpub(&src) {
@@ -97,38 +145,28 @@ fn ours<'a>(
         if !same {
             return Err(Issue::KeyNotFromSeed(At::Output(idx)));
         }
+        if src.depth() < 2 {
+            return Err(Issue::PathTooShort(At::Output(idx)));
+        }
         claimed = true;
-        let h = hash160(&derived.serialize());
-        let spend = match kind {
-            ScriptKind::P2wpkh(sh) if sh == h => Some(SpendKind::P2wpkh),
-            ScriptKind::P2pkh(sh) if sh == h => Some(SpendKind::P2pkh),
-            ScriptKind::P2sh(sh) if sh[..] == script::p2sh(&script::p2wpkh(&derived))[2..22] => {
-                match map.redeem_script() {
-                    Some(r) if r != script::p2wpkh(&derived) => return Err(Issue::ChangeContradiction(idx)),
-                    _ => Some(SpendKind::P2shP2wpkh),
-                }
+        if x.is_some() != is_taproot && single_key {
+            return Err(Issue::ChangeContradiction(idx));
+        }
+        if found.is_none() {
+            if let Some(s) = spend_for(&derived, kind, map, idx)? {
+                found = Some((s, derived, src));
             }
-            ScriptKind::P2tr(q) if q[..] == script::p2tr(&derived)[2..] && map.tap_tree().is_none() => {
-                Some(SpendKind::P2trKey)
-            }
-            _ => None,
-        };
-        if let Some(s) = spend {
-            return Ok(Some((s, derived, src)));
         }
     }
-    if !claimed {
-        return Ok(None);
+    if claimed && single_key && n_ecdsa + n_tap > 1 {
+        return Err(Issue::SurplusClaims(idx));
+    }
+    if found.is_some() || !claimed {
+        return Ok(found);
     }
     // this seed's key is claimed, but the script is not built from it
     match kind {
-        ScriptKind::P2wpkh(_) | ScriptKind::P2pkh(_) | ScriptKind::P2tr(_) => {
-            Err(Issue::ChangeContradiction(idx))
-        }
-        ScriptKind::P2sh(_) => match map.redeem_script().map(classify) {
-            Some(ScriptKind::P2wsh(_)) => Ok(None), // P2SH-P2WSH multisig
-            _ => Err(Issue::ChangeContradiction(idx)),
-        },
+        _ if single_key => Err(Issue::ChangeContradiction(idx)),
         _ => Ok(None),
     }
 }
@@ -173,19 +211,29 @@ fn owned_kind(
         0 => Some(OutputKind::SelfSend(Verified(owned))),
         1 => {
             let account = &s[..3];
-            let max_index = report
+            let mut spending = false;
+            let mut base = None::<u32>;
+            for p in report
                 .inputs()
                 .iter()
                 .filter_map(|r| r.owned.as_ref())
                 .map(|o| o.get().path)
-                .filter(|p: &DerivationPath| p.steps().len() == 5 && &p.steps()[..3] == account)
-                .map(|p| p.steps()[4])
-                .max();
-            let Some(max_index) = max_index else {
+            {
+                let ps: &[u32] = p.steps();
+                if ps.len() == 5 && &ps[..3] == account {
+                    spending = true;
+                    if !hard(ps[4]) {
+                        base = Some(base.map_or(ps[4], |b| b.min(ps[4])));
+                    }
+                }
+            }
+            if !spending {
                 // change into an account that is not spending
                 return violation(report);
-            };
-            if s[4] > max_index.saturating_add(ctx.policy.change_index_gap) {
+            }
+            // the window starts at the smallest unhardened input index (0
+            // if there is none), as SeedSigner measures it
+            if s[4] > base.unwrap_or(0).saturating_add(ctx.policy.change_index_gap) {
                 report.push(Issue::ChangeIndexFar(idx));
             }
             Some(OutputKind::Change(Verified(owned)))

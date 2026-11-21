@@ -364,6 +364,9 @@ pub fn issue_index(i: &Issue) -> usize {
         OpReturnNonStandard => 40,
         UnknownScript(_) => 41,
         ZeroValue(_) => 42,
+        PathTooShort(_) => 43,
+        SurplusClaims(_) => 44,
+        UnverifiedMixedBasePaths => 45,
     }
 }
 
@@ -372,7 +375,7 @@ pub fn issue_at(i: &Issue) -> Option<validate::At> {
     use validate::At;
     use Issue::*;
     match *i {
-        KeyNotFromSeed(a) | PathTooDeep(a) | NetworkMismatch(a) => Some(a),
+        KeyNotFromSeed(a) | PathTooDeep(a) | PathTooShort(a) | NetworkMismatch(a) => Some(a),
         ScriptNotOurs(n)
         | RedeemMismatch(n)
         | WitnessScriptMismatch(n)

@@ -28,6 +28,9 @@ struct OurKey<'a> {
     source: KeySource<'a>,
     /// A Taproot claim for script leaves.
     leaves_only: bool,
+    /// Claimed in the Taproot derivation map / in the BIP-32 map.
+    taproot_map: bool,
+    ecdsa_map: bool,
 }
 
 pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Report) {
@@ -133,6 +136,29 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Re
     }
     if v0_unverified && psbt.tx.n_inputs() > 1 {
         report.push(Issue::UnverifiedAmounts);
+        // segwit v0 inputs from different wallets (base paths) must each
+        // come with the previous transaction (SeedSigner)
+        let v0 = || {
+            report
+                .inputs()
+                .iter()
+                .filter_map(|r| r.owned.as_ref())
+                .map(|o| o.get())
+                .filter(|o| matches!(o.kind, SpendKind::P2wpkh | SpendKind::P2shP2wpkh))
+        };
+        let base = |o: &OwnedInput| {
+            let s = o.path.steps();
+            let mut b = [u32::MAX; crate::bip32::MAX_DEPTH + 1];
+            b[0] = s.len().saturating_sub(2) as u32;
+            for (d, v) in b[1..].iter_mut().zip(&s[..s.len().saturating_sub(2)]) {
+                *d = *v;
+            }
+            b
+        };
+        let first = v0().next().map(base);
+        if v0().any(|o| Some(base(o)) != first) {
+            report.push(Issue::UnverifiedMixedBasePaths);
+        }
     }
 }
 
@@ -226,17 +252,25 @@ fn check_one(i: usize, txin: &TxIn, map: &InputMap, d: &mut Deriver, report: &mu
             report.push(Issue::KeyNotFromSeed(At::Input(idx)));
             return r;
         }
+        // the master key or a one-level path: no wallet spends from there
+        if src.depth() < 2 {
+            report.push(Issue::PathTooShort(At::Input(idx)));
+            return r;
+        }
         if ours.as_ref().is_none_or(|o| o.pubkey != derived) {
             distinct += 1;
         }
-        let prev_flags = ours
-            .as_ref()
-            .map_or((false, false), |o| (o.uncompressed, o.leaves_only));
+        let taproot_map = matches!(claim, Claim::Taproot(..));
+        let prev_flags = ours.as_ref().map_or((false, false, false, false), |o| {
+            (o.uncompressed, o.leaves_only, o.taproot_map, o.ecdsa_map)
+        });
         ours = Some(OurKey {
             pubkey: derived,
             uncompressed: uncompressed || prev_flags.0,
             source: src,
             leaves_only: leaves_only || prev_flags.1,
+            taproot_map: taproot_map || prev_flags.2,
+            ecdsa_map: !taproot_map || prev_flags.3,
         });
     }
     let Some(key) = ours else {
@@ -252,8 +286,14 @@ fn check_one(i: usize, txin: &TxIn, map: &InputMap, d: &mut Deriver, report: &mu
         return r;
     };
 
-    // the script must be built from the derived key
+    // the script must be built from the derived key, and claimed in the map
+    // of its kind (Taproot derivations for Taproot only, and vice versa)
     let pk = key.pubkey;
+    let is_taproot = matches!(classify(prev.script_pubkey), ScriptKind::P2tr(_));
+    if (key.taproot_map && !is_taproot) || (key.ecdsa_map && is_taproot) {
+        report.push(Issue::ScriptNotOurs(idx));
+        return r;
+    }
     let kind = match classify(prev.script_pubkey) {
         ScriptKind::P2wpkh(h) => {
             if h != hash160(&pk.serialize()) {

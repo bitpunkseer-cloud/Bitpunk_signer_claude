@@ -123,6 +123,14 @@ pub enum Issue {
     DuplicateInput(u16),
     /// A derivation path deeper than the device supports.
     PathTooDeep(At),
+    /// A claim on the master key or a one-level path (no wallet uses it).
+    PathTooShort(At),
+    /// A single-key output with more than one derivation entry, or entries
+    /// in both the BIP-32 and the Taproot maps.
+    SurplusClaims(u16),
+    /// Segwit v0 inputs from different base paths without previous
+    /// transactions (SeedSigner refuses this; no override).
+    UnverifiedMixedBasePaths,
     /// A global xpub of this seed for another network.
     XpubNetwork,
     /// No input belongs to this seed (see `Report::fingerprints`).

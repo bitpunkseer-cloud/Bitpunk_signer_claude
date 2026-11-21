@@ -20,6 +20,8 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
+      - name: Fetch Coldcard test PSBTs (test-only, not stored)
+        run: ./tools/fetch_coldcard_psbts.sh
       - name: Test
         run: cargo test --all
       - name: no_std build (Cortex-M)

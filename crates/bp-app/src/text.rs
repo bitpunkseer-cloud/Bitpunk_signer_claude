@@ -297,7 +297,7 @@ pub struct Strings {
 }
 
 /// Number of issue kinds (see `review::issue_index`).
-pub const ISSUE_KINDS: usize = 43;
+pub const ISSUE_KINDS: usize = 46;
 
 /// Strings of the PSBT review and signing screens.
 pub struct ReviewStrings {
@@ -455,6 +455,9 @@ pub static EN_REVIEW: ReviewStrings = ReviewStrings {
         ("Unusual data output", "Several or large OP_RETURN outputs."),
         ("Unknown output type", "An output script cannot be shown as an address."),
         ("Zero-amount output", "An output sends nothing."),
+        ("Path too short", "A key is claimed at the master key or a one-level path, which no wallet uses."),
+        ("Extra key claims", "A single-key output lists more than one key, or keys of both kinds."),
+        ("Unverifiable mixed accounts", "SegWit inputs from different accounts came without previous transactions, so their amounts cannot be checked."),
     ],
 };
 
