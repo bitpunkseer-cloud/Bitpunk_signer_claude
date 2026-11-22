@@ -22,10 +22,12 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Fetch Coldcard test PSBTs (test-only, not stored)
         run: ./tools/fetch_coldcard_psbts.sh
+      - name: Install dosfstools (test-only FAT reference)
+        run: sudo apt-get update -q && sudo apt-get install -y -q dosfstools
       - name: Test
         run: cargo test --all
       - name: no_std build (Cortex-M)
-        run: cargo build --target thumbv7em-none-eabihf -p bp-crypto -p bp-bitcoin -p bp-qr -p bp-hal -p bp-ui -p bp-app
+        run: cargo build --target thumbv7em-none-eabihf -p bp-crypto -p bp-bitcoin -p bp-qr -p bp-hal -p bp-ui -p bp-app -p bp-fat
 
   simulator:
     needs: check

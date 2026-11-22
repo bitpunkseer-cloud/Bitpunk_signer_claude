@@ -1,0 +1,12 @@
+[package]
+name = "bp-fat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+# Outside reference for building and checking images in tests only.
+fatfs = "0.3.6"

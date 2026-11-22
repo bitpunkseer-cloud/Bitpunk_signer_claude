@@ -1,6 +1,6 @@
 # M8 구현 계획 (v1) — microSD · BIP-85 · 개인키 가져오기
 
-상태: **제안 (승인 대기)** · 근거: [M8_SURVEY.md](../M8_SURVEY.md) (Coldcard·Krux·Specter DIY·Passport·Keystone·OneKey·Jade 조사, BIP-85 2.1.0)
+상태: **승인 (2026-11, 결정 1~9 전부 권장안)** — 구현 중 · 근거: [M8_SURVEY.md](../M8_SURVEY.md) (Coldcard·Krux·Specter DIY·Passport·Keystone·OneKey·Jade 조사, BIP-85 2.1.0)
 
 ## 0. 원칙 — SD 카드는 신뢰할 수 없는 매체
 
