@@ -51,6 +51,8 @@ pub enum Action {
     VerifySignature,
     /// Tools > Multisig wallets.
     Multisig,
+    /// Main > SD card.
+    SdCard,
     /// Settings > Settings as QR.
     SettingsQr,
     Start(Start),
@@ -95,7 +97,7 @@ const fn setting(label: Label) -> Entry {
     }
 }
 
-static MAIN: [Entry; 5] = [
+static MAIN: [Entry; 6] = [
     Entry {
         label: |s| s.scan_qr,
         detail: ">",
@@ -104,6 +106,11 @@ static MAIN: [Entry; 5] = [
     open(|s| s.seeds, MenuId::Seeds),
     open(|s| s.tools, MenuId::Tools),
     open(|s| s.settings, MenuId::Settings),
+    Entry {
+        label: |s| s.sd.menu,
+        detail: ">",
+        action: Action::SdCard,
+    },
     open(|s| s.power, MenuId::Power),
 ];
 

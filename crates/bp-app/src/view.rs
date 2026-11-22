@@ -61,6 +61,7 @@ impl App {
                 mainnet: net == bp_bitcoin::Network::Mainnet,
                 air_gapped: self.text().air_gapped,
                 test_only: self.test_only.then_some(self.text().test_only),
+                sd: self.sd.present.then_some(self.text().sd.badge),
             },
         );
     }
@@ -386,6 +387,7 @@ impl App {
             Screen::SigVerify { step } => self.render_sig(c, step),
             Screen::SettingsImport { sel } => self.render_settings_import(c, sel),
             Screen::Wallets { step } => self.render_wallets(c, step),
+            Screen::Sd { step } => self.render_sd(c, step),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);

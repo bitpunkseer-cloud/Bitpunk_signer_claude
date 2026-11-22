@@ -12,13 +12,21 @@
 //! | `bp_frame(w, h)` | hand the frame to the scanner (only while scanning) |
 //! | `bp_text_buffer()` / `bp_text(len)` | pasted QR content (UTF-8, up to 8 KB) |
 //! | `bp_wants_camera() -> u32` | 1 while the scan screen is open |
+//! | `bp_sd_insert(on)` / `bp_sd_state()` | virtual microSD in or out; state bits (1 present, then power cycles << 1) |
+//! | `bp_file_buffer(len)` | buffer JS fills with a file name and/or contents |
+//! | `bp_sd_put(name_len, data_len) -> u32` | copy a file onto the card like a computer would (0 = done) |
+//! | `bp_sd_list() -> u32` / `bp_out_ptr()` | card listing as `path\tsize\n` lines |
+//! | `bp_sd_get(path_len) -> u32` | file contents into the out buffer (`u32::MAX` on error) |
+//! | `bp_sd_delete(path_len) -> u32` / `bp_sd_erase() -> u32` | delete one file / reformat the card |
 //!
 //! No wasm-bindgen: JS reads the framebuffer straight from linear memory.
 
+mod card;
 mod framebuffer;
 
 use bp_app::App;
 use bp_hal::input::KeyEvent;
+use card::VirtualCard;
 use framebuffer::Framebuffer;
 use std::cell::RefCell;
 
@@ -32,6 +40,19 @@ struct Sim {
     fb: Framebuffer,
     frame: Vec<u8>,
     text: Vec<u8>,
+    card: VirtualCard,
+    file: Vec<u8>,
+    out: Vec<u8>,
+}
+
+impl Sim {
+    /// Run card jobs the app queued (the device firmware does the same
+    /// after every event).
+    fn serve_card(&mut self) {
+        while self.app.sd_pending() {
+            self.app.sd_service(&mut self.card);
+        }
+    }
 }
 
 thread_local! {
@@ -58,8 +79,12 @@ pub extern "C" fn bp_init() {
         fb: Framebuffer::new(),
         frame: vec![0; FRAME_W * FRAME_H],
         text: vec![0; TEXT_MAX],
+        card: VirtualCard::new(&seed),
+        file: Vec::new(),
+        out: Vec::new(),
     };
     sim.app.set_test_only(true); // a web page is not air-gapped
+    sim.app.set_card_present(true);
     sim.app.tick(0);
     sim.app.render(&mut sim.fb);
     SIM.with(|s| *s.borrow_mut() = Some(sim));
@@ -83,13 +108,17 @@ pub extern "C" fn bp_framebuffer() -> *const u8 {
 #[no_mangle]
 pub extern "C" fn bp_key(code: u32, ch: u32, mods: u32) {
     if let Some(ev) = KeyEvent::from_code(code, ch, mods) {
-        with_sim(|s| s.app.on_key(ev));
+        with_sim(|s| {
+            s.app.on_key(ev);
+            s.serve_card();
+        });
     }
 }
 
 #[no_mangle]
 pub extern "C" fn bp_tick(ms: u32) -> u32 {
     with_sim(|s| {
+        s.serve_card();
         if s.app.tick(ms) {
             s.app.render(&mut s.fb);
             1
@@ -145,6 +174,100 @@ pub extern "C" fn bp_signed_ptr() -> *const u8 {
 }
 
 #[no_mangle]
+pub extern "C" fn bp_sd_insert(on: u32) {
+    with_sim(|s| {
+        s.card.present = on != 0;
+        s.app.set_card_present(on != 0);
+        s.serve_card();
+    });
+}
+
+/// Bit 0: card present. Bits 1..: card power cycles (for the SD LED).
+#[no_mangle]
+pub extern "C" fn bp_sd_state() -> u32 {
+    with_sim(|s| s.card.present as u32 | (s.card.cycles << 1)).unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn bp_file_buffer(len: u32) -> *mut u8 {
+    with_sim(|s| {
+        s.file.clear();
+        s.file.resize(len as usize, 0);
+        s.file.as_mut_ptr()
+    })
+    .unwrap_or(core::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn bp_out_ptr() -> *const u8 {
+    with_sim(|s| s.out.as_ptr()).unwrap_or(core::ptr::null())
+}
+
+/// File name (`name_len` bytes) then contents, from `bp_file_buffer`.
+#[no_mangle]
+pub extern "C" fn bp_sd_put(name_len: u32, data_len: u32) -> u32 {
+    with_sim(|s| {
+        let (n, d) = (name_len as usize, data_len as usize);
+        if n + d > s.file.len() {
+            return card::ERR_OTHER;
+        }
+        let r = s.card.put(&s.file[..n], &s.file[n..n + d]);
+        s.app.card_changed();
+        s.serve_card();
+        r
+    })
+    .unwrap_or(card::ERR_OTHER)
+}
+
+#[no_mangle]
+pub extern "C" fn bp_sd_list() -> u32 {
+    with_sim(|s| {
+        s.out = s.card.list();
+        s.out.len() as u32
+    })
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn bp_sd_get(path_len: u32) -> u32 {
+    with_sim(|s| {
+        let p = String::from_utf8_lossy(&s.file[..(path_len as usize).min(s.file.len())]).into_owned();
+        match s.card.get(&p) {
+            Some(data) => {
+                s.out = data;
+                s.out.len() as u32
+            }
+            None => u32::MAX,
+        }
+    })
+    .unwrap_or(u32::MAX)
+}
+
+#[no_mangle]
+pub extern "C" fn bp_sd_delete(path_len: u32) -> u32 {
+    with_sim(|s| {
+        let p = String::from_utf8_lossy(&s.file[..(path_len as usize).min(s.file.len())]).into_owned();
+        let r = s.card.delete(&p);
+        s.app.card_changed();
+        s.serve_card();
+        r
+    })
+    .unwrap_or(card::ERR_OTHER)
+}
+
+/// Reformat the virtual card (as a computer would).
+#[no_mangle]
+pub extern "C" fn bp_sd_erase() -> u32 {
+    with_sim(|s| {
+        s.card.erase();
+        s.app.card_changed();
+        s.serve_card();
+        0
+    })
+    .unwrap_or(card::ERR_OTHER)
+}
+
+#[no_mangle]
 pub extern "C" fn bp_wants_camera() -> u32 {
     with_sim(|s| s.app.wants_camera() as u32).unwrap_or(0)
 }
@@ -168,5 +291,43 @@ mod tests {
         bp_text(addr.len() as u32);
         assert_eq!(bp_wants_camera(), 0); // result screen
         bp_frame(640, 480); // ignored outside the scan screen
+    }
+
+    #[test]
+    fn virtual_card_round_trip() {
+        bp_init();
+        let put = |name: &str, data: &[u8]| {
+            let p = bp_file_buffer((name.len() + data.len()) as u32);
+            unsafe {
+                core::ptr::copy_nonoverlapping(name.as_ptr(), p, name.len());
+                core::ptr::copy_nonoverlapping(data.as_ptr(), p.add(name.len()), data.len());
+            }
+            bp_sd_put(name.len() as u32, data.len() as u32)
+        };
+        assert_eq!(put("tx.psbt", b"psbt\xff"), 0);
+        // same name again: kept, the copy gets a number
+        assert_eq!(put("tx.psbt", b"second"), 0);
+        // characters FAT forbids become '_'
+        assert_eq!(put("a:b?.txt", b"x"), 0);
+        let n = bp_sd_list() as usize;
+        let list = unsafe { std::slice::from_raw_parts(bp_out_ptr(), n) };
+        let list = String::from_utf8(list.to_vec()).unwrap();
+        assert!(list.contains("tx.psbt\t5\n"), "{list}");
+        assert!(list.contains("tx-2.psbt\t6\n"), "{list}");
+        assert!(list.contains("a_b_.txt\t1\n"), "{list}");
+        let path = "tx-2.psbt";
+        let p = bp_file_buffer(path.len() as u32);
+        unsafe { core::ptr::copy_nonoverlapping(path.as_ptr(), p, path.len()) };
+        let n = bp_sd_get(path.len() as u32);
+        assert_eq!(n, 6);
+        assert_eq!(unsafe { std::slice::from_raw_parts(bp_out_ptr(), 6) }, b"second");
+        assert_eq!(bp_sd_delete(path.len() as u32), 0);
+        assert_eq!(bp_sd_get(path.len() as u32), u32::MAX);
+        assert_eq!(bp_sd_state() & 1, 1);
+        bp_sd_insert(0);
+        assert_eq!(bp_sd_state() & 1, 0);
+        bp_sd_insert(1);
+        assert_eq!(bp_sd_erase(), 0);
+        assert_eq!(bp_sd_list(), 0);
     }
 }

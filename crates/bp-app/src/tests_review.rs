@@ -1422,3 +1422,6 @@ mod layout;
 
 #[path = "tests_wallets.rs"]
 mod wallets_flow;
+
+#[path = "tests_sd.rs"]
+mod sd_flow;

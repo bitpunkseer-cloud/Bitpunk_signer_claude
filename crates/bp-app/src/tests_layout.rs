@@ -177,6 +177,33 @@ fn tour(lang: Lang) -> usize {
     }
     t.push_snap(&mut a, Screen::NoSeed, "no-seed");
     t.push_snap(&mut a, Screen::SlotsFull, "slots-full");
+    // microSD status: reading, a card, and every problem
+    let sd_status = Screen::Sd {
+        step: crate::sd::SdStep::Status { sel: 0 },
+    };
+    a.set_card_present(true);
+    a.sd.card = None;
+    t.push_snap(&mut a, sd_status, "sd-reading");
+    a.sd.card = Some(Ok(crate::sd::CardInfo {
+        kind: bp_fat::FatKind::Fat32,
+        bytes: 31_914_983_424,
+        cluster: 16384,
+        entries: 1234,
+    }));
+    t.push_snap(&mut a, sd_status, "sd-card");
+    for p in [
+        crate::sd::CardProblem::NoCard,
+        crate::sd::CardProblem::ReadFailed,
+        crate::sd::CardProblem::Blank,
+        crate::sd::CardProblem::Exfat,
+        crate::sd::CardProblem::Gpt,
+        crate::sd::CardProblem::OtherFs,
+        crate::sd::CardProblem::Damaged,
+    ] {
+        a.sd.card = Some(Err(p));
+        t.push_snap(&mut a, sd_status, &format!("sd-{p:?}"));
+    }
+    a.sd.job = None;
 
     // dice: intro, entry (empty, some, ready), summary, words, quiz
     let mut a = t.app();

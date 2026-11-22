@@ -304,7 +304,7 @@ fn power_off_wipes_seeds() {
         id: MenuId::Main,
         sel: 0,
     });
-    press(&mut a, Key::Char('5'));
+    press(&mut a, Key::Char('6'));
     press(&mut a, Key::Char('1'));
     assert_eq!(a.current(), Screen::PoweredOff);
     assert_eq!(a.seed_count(), 0);

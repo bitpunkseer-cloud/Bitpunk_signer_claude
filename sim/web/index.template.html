@@ -130,6 +130,13 @@
   .cam textarea { width: 100%; box-sizing: border-box; min-height: 5.5em; resize: vertical; font: .8rem/1.4 var(--mono);
     color: var(--text); background: #0b0b0d; border: 1px solid #ffffff22; border-radius: 8px; padding: 8px; }
   .cam-note { font-size: .78rem; color: var(--text-dim); margin: 0; }
+  .drop { border: 1px dashed #ffffff30; border-radius: 10px; padding: 14px; text-align: center; font-size: .84rem; color: var(--text-dim); }
+  .drop.over { border-color: var(--accent); color: var(--text); }
+  .files { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .files li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font: .8rem/1.3 var(--mono); }
+  .files .name { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; }
+  .files .size { color: var(--text-dim); }
+  .files .btn { padding: .4em .7em; font-size: .78rem; }
   [hidden] { display: none !important; }
   @media (prefers-reduced-motion: reduce) { .key { transition: none; } }
 </style>
@@ -172,6 +179,22 @@
       <div class="cam-row"><button class="btn" id="signedCopy" type="button">Copy</button></div>
     </div>
     <p class="cam-note">Simulator only. The real device reads QR codes with its own camera module; it has no webcam, radio or USB data.</p>
+  </section>
+
+  <section class="cam" aria-label="microSD card for the simulator">
+    <div class="cam-head">
+      <h2>microSD card</h2>
+      <span class="cam-state" id="sdState">Card inserted</span>
+    </div>
+    <div class="cam-row">
+      <button class="btn on" id="sdInsert" type="button">Remove card</button>
+      <label class="btn" for="sdFiles">Copy files to card…</label>
+      <input type="file" id="sdFiles" multiple hidden>
+      <button class="btn" id="sdErase" type="button">Erase card</button>
+    </div>
+    <div class="drop" id="sdDrop">Drop files here to copy them onto the card, as a computer would.</div>
+    <ul class="files" id="sdList" aria-label="Files on the card"></ul>
+    <p class="cam-note">The 32 MB card lives in this page only and is written by the same FAT code the device uses. On the device: main menu 5, SD card.</p>
   </section>
 
   <div class="info">
@@ -467,8 +490,102 @@
   });
   signedText.addEventListener("keydown", e => e.stopPropagation());
 
+  // ---------- microSD card (the page plays the computer) ----------
+  const sdState = document.getElementById("sdState");
+  const sdInsert = document.getElementById("sdInsert");
+  const sdFiles = document.getElementById("sdFiles");
+  const sdDrop = document.getElementById("sdDrop");
+  const sdList = document.getElementById("sdList");
+  const sdLed = document.querySelectorAll(".leds .led")[1];
+  const MAX_FILE = 8 << 20;
+  let sdIn = true, sdCycles = 0, sdNote = "";
+
+  function sdBytes(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
+  function sdPath(path) {
+    const enc = new TextEncoder().encode(path);
+    const ptr = wasm.bp_file_buffer(enc.length);
+    new Uint8Array(wasm.memory.buffer, ptr, enc.length).set(enc);
+    return enc.length;
+  }
+  function sdRefresh() {
+    if (!wasm) return;
+    const n = wasm.bp_sd_list();
+    const text = new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, wasm.bp_out_ptr(), n).slice());
+    const rows = text.split("\n").filter(Boolean).map(l => l.split("\t"));
+    sdList.textContent = "";
+    for (const [path, size] of rows) {
+      const li = document.createElement("li");
+      const name = document.createElement("span"); name.className = "name"; name.textContent = path;
+      const sz = document.createElement("span"); sz.className = "size"; sz.textContent = sdBytes(Number(size));
+      const get = document.createElement("button"); get.className = "btn"; get.type = "button"; get.textContent = "Download";
+      get.addEventListener("click", () => {
+        const m = wasm.bp_sd_get(sdPath(path));
+        if (m === 0xFFFFFFFF) { sdNote = "Could not read " + path; sdShow(); return; }
+        const bytes = new Uint8Array(wasm.memory.buffer, wasm.bp_out_ptr(), m).slice();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+        a.download = path.split("/").pop();
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      });
+      const del = document.createElement("button"); del.className = "btn"; del.type = "button"; del.textContent = "Delete";
+      del.addEventListener("click", () => { wasm.bp_sd_delete(sdPath(path)); if (wasm.bp_tick(0)) blit(); sdRefresh(); });
+      li.append(name, sz, get, del);
+      sdList.appendChild(li);
+    }
+    sdShow(rows.length);
+  }
+  let sdCount = 0;
+  function sdShow(count) {
+    if (count !== undefined) sdCount = count;
+    const where = sdIn ? "Card in the device" : "Card out of the device (in your computer)";
+    sdState.textContent = sdNote || where + " · " + (sdCount ? sdCount + " file" + (sdCount > 1 ? "s" : "") : "empty");
+  }
+  async function sdPut(files) {
+    sdNote = "";
+    for (const f of files) {
+      if (f.size > MAX_FILE) { sdNote = f.name + " is larger than 8 MB: not copied."; continue; }
+      const data = new Uint8Array(await f.arrayBuffer());
+      const name = new TextEncoder().encode(f.name);
+      const ptr = wasm.bp_file_buffer(name.length + data.length);
+      const buf = new Uint8Array(wasm.memory.buffer, ptr, name.length + data.length);
+      buf.set(name); buf.set(data, name.length);
+      const r = wasm.bp_sd_put(name.length, data.length);
+      if (r === 1) sdNote = "The card is full.";
+      else if (r !== 0) sdNote = "Could not copy " + f.name + ".";
+    }
+    if (wasm.bp_tick(0)) blit();
+    sdRefresh();
+  }
+  sdInsert.addEventListener("click", () => {
+    sdIn = !sdIn;
+    wasm.bp_sd_insert(sdIn ? 1 : 0);
+    sdInsert.textContent = sdIn ? "Remove card" : "Insert card";
+    sdInsert.classList.toggle("on", sdIn);
+    if (wasm.bp_tick(0)) blit();
+    sdShow();
+  });
+  sdFiles.addEventListener("change", () => { const f = [...sdFiles.files]; sdFiles.value = ""; sdPut(f); });
+  document.getElementById("sdErase").addEventListener("click", () => {
+    if (!confirm("Erase the simulator's card? Every file on it is deleted.")) return;
+    wasm.bp_sd_erase(); sdNote = ""; if (wasm.bp_tick(0)) blit(); sdRefresh();
+  });
+  sdDrop.addEventListener("dragover", e => { e.preventDefault(); sdDrop.classList.add("over"); });
+  sdDrop.addEventListener("dragleave", () => sdDrop.classList.remove("over"));
+  sdDrop.addEventListener("drop", e => { e.preventDefault(); sdDrop.classList.remove("over"); sdPut([...e.dataTransfer.files]); });
+  function sdTick() {
+    const cycles = wasm.bp_sd_state() >>> 1;
+    if (cycles !== sdCycles) {
+      sdCycles = cycles;
+      sdLed.classList.add("on");
+      setTimeout(() => sdLed.classList.remove("on"), 180);
+      sdRefresh(); // the device may have written to the card
+    }
+  }
+
   setInterval(() => {
     if (!wasm) return;
+    sdTick();
     if (scanning()) {
       if (stream && camVideo.videoWidth) sendFrame(camVideo, camVideo.videoWidth, camVideo.videoHeight);
       else if (still && performance.now() < stillUntil) sendFrame(still, still.width, still.height);
@@ -493,6 +610,8 @@
       canvas.width = W; canvas.height = H;
       img = ctx.createImageData(W, H);
       blit();
+      sdCycles = wasm.bp_sd_state() >>> 1;
+      sdRefresh();
       let last = performance.now();
       const loop = now => {
         const dt = Math.min(250, Math.round(now - last)); last = now;

@@ -23,6 +23,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 TEXT_RS = os.path.join(ROOT, "crates/bp-app/src/text.rs")
+# Further string tables live next to it as text_*.rs.
+TEXT_GLOB = os.path.join(ROOT, "crates/bp-app/src/text_*.rs")
 OUT = os.path.join(ROOT, "crates/bp-ui/src/font/hangul.rs")
 FONT_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "target/fonts")
 
@@ -97,7 +99,8 @@ def literals(src):
 
 
 def used_chars():
-    src = open(TEXT_RS, encoding="utf-8").read()
+    import glob
+    src = "".join(open(p, encoding="utf-8").read() for p in [TEXT_RS] + sorted(glob.glob(TEXT_GLOB)))
     return sorted({ch for lit in literals(src) for ch in lit if not ch.isascii()})
 
 

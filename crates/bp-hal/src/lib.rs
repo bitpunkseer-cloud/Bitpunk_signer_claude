@@ -43,9 +43,15 @@ pub trait Camera {
     fn capture(&mut self, buf: &mut [u8]) -> Option<(u16, u16)>;
 }
 
-/// microSD file storage (Phase 2).
-pub trait Storage {
-    type Error;
-    fn read(&mut self, path: &str, buf: &mut [u8]) -> Result<usize, Self::Error>;
-    fn write(&mut self, path: &str, data: &[u8]) -> Result<(), Self::Error>;
+pub use bp_fat::{BlockDevice, IoError, Sector};
+
+/// microSD slot: 512-byte block access, card detect and power control.
+///
+/// The app powers the card only for the length of one operation (mount,
+/// read or write, unmount) and treats everything on it as untrusted.
+pub trait SdCard: BlockDevice {
+    /// Card-detect switch: a card is in the slot.
+    fn present(&self) -> bool;
+    /// Power the card and its bus on or off.
+    fn set_power(&mut self, on: bool);
 }

@@ -19,6 +19,8 @@ pub struct Status<'a> {
     pub air_gapped: &'a str,
     /// "TEST ONLY" badge, shown when set.
     pub test_only: Option<&'a str>,
+    /// microSD badge, shown while a card is in the slot.
+    pub sd: Option<&'a str>,
 }
 
 pub fn status_bar(c: &mut dyn Canvas, s: &Status) {
@@ -41,6 +43,11 @@ pub fn status_bar(c: &mut dyn Canvas, s: &Status) {
     };
     x -= badge_width(s.network_badge);
     badge(c, x, STATUS_H / 2 - 12, s.network_badge, bg, fg);
+
+    if let Some(t) = s.sd {
+        x -= badge_width(t) + 10;
+        badge(c, x, STATUS_H / 2 - 12, t, LINE, TEXT);
+    }
 
     if let Some(t) = s.test_only {
         x -= badge_width(t) + 10;

@@ -413,6 +413,8 @@ pub struct Strings {
     pub rv: &'static ReviewStrings,
     // Multisig wallets
     pub wl: &'static WalletStrings,
+    // microSD
+    pub sd: &'static crate::text_sd::SdStrings,
 }
 
 /// Number of issue kinds (see `review::issue_index`).
@@ -1068,6 +1070,7 @@ pub static EN: Strings = Strings {
     d20_typing: "Typing: {}  (Space records it)",
     rv: &EN_REVIEW,
     wl: &EN_WALLET,
+    sd: &crate::text_sd::EN_SD,
 };
 
 pub static KO_REVIEW: ReviewStrings = ReviewStrings {
@@ -1652,6 +1655,7 @@ pub static KO: Strings = Strings {
     d20_typing: "입력 중: {}  (Space로 기록)",
     rv: &KO_REVIEW,
     wl: &KO_WALLET,
+    sd: &crate::text_sd::KO_SD,
 };
 
 /// Number of wallet-format error messages (see `wallets::format_error_index`).

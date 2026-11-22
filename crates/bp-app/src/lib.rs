@@ -9,10 +9,12 @@ mod qrview;
 pub mod review;
 mod review_view;
 mod scan;
+mod sd;
 mod seeds;
 mod settings;
 mod sigverify;
 mod text;
+mod text_sd;
 mod verify;
 mod view;
 mod wallets;
@@ -268,6 +270,10 @@ pub enum Screen {
     Wallets {
         step: wallets::WlStep,
     },
+    /// Main > SD card.
+    Sd {
+        step: sd::SdStep,
+    },
 }
 
 pub struct App {
@@ -314,6 +320,8 @@ pub struct App {
     wallets: bp_bitcoin::multisig::register::Registry,
     /// A scanned wallet waiting for registration, and the code typed.
     wl: wallets::WlState,
+    /// microSD presence, the queued job and its results.
+    sd: sd::SdState,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -384,6 +392,7 @@ impl App {
             import: None,
             wallets: bp_bitcoin::multisig::register::Registry::new(),
             wl: wallets::WlState::default(),
+            sd: sd::SdState::new(),
         }
     }
 
@@ -1116,6 +1125,7 @@ impl App {
                 }
             }
             Screen::Wallets { step } => self.wallets_key(step, ev),
+            Screen::Sd { step } => self.sd_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1504,6 +1514,7 @@ impl App {
             Action::SignMessage => self.start_msg_typing(None),
             Action::VerifySignature => self.start_scan(scan::Purpose::Signed),
             Action::Multisig => self.open_wallets(),
+            Action::SdCard => self.open_sd(),
             Action::SettingsQr => self.open_qr(QrKind::Settings),
             Action::VerifyAddress => {
                 if self.seed_count() == 0 {
