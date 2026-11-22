@@ -1,6 +1,6 @@
 # M8 전수조사 — microSD · FAT · BIP-85 · 개인키 가져오기
 
-레퍼런스 코드를 직접 읽고 정리했다 (M7과 같은 저장소). 외부 자료: BIP-85(본문·시험 벡터, 2.1.0), FatFs 설정(`ffconf.h`), STM32H747I-DISCO 자료.
+레퍼런스 코드를 직접 읽고 정리했다 (M7과 같은 저장소). 외부 자료: BIP-85(본문·시험 벡터, 2.1.0), FatFs 설정(`ffconf.h`), 개발 보드 자료(2026-11 기준으로 다시 조사, §7).
 목적: SD 카드를 **신뢰할 수 없는 매체**로 다루면서 PSBT·지갑 파일을 주고받는 가장 안전한 규칙을 고르고, BIP-85와 개인키 가져오기의 범위를 정하기 위함. 코드는 참고만 하고 복사하지 않는다.
 
 | 약어 | 프로젝트 | 읽은 곳 |
@@ -80,17 +80,56 @@
 - 64 GB 이상(SDXC) 카드는 보통 exFAT로 출하된다 → FAT32로 다시 포맷해야 하는 경우가 많다(기기에서 포맷하는 기능이 있으면 편하다: CC).
 - 신뢰할 수 없는 매체의 파서에서 흔한 위험: 잘못된 BPB(0 나누기·범위 밖), **클러스터 체인의 고리·교차**, 끝없는 디렉터리, LFN 체크섬 불일치·조각난 LFN, 파일 크기와 체인 길이 불일치, FSInfo 빈 공간 값 거짓.
 
-## 7. 하드웨어 (H4 보드 결정 자료)
+## 7. 하드웨어 (H4 보드 결정 자료) — v2 재조사 (2026-11)
 
-| 후보 | 무선 | 장점 | 주의 |
-|---|---|---|---|
-| **STM32H747I-DISCO** | 없음 | Cortex-M7(지금 빌드 대상 `thumbv7em`과 같은 계열), 4" MIPI-DSI 정전식 터치 LCD, SDRAM 256 Mbit, QSPI NOR 2×512 Mbit, **microSD**, **8비트 카메라 커넥터**(DCMI), 칩 내장 TRNG | 보드에 **이더넷 RJ45·USB OTG**가 있음 → 개발용으로만, 최종 보드에서는 빼야 함. LCD 해상도는 사용자 설명서로 확인 필요 |
-| i.MX RT1170 EVK | 없음 | Cortex-M7 1 GHz, MIPI-CSI/DSI, SD, TRNG | 보드 가격·러스트 지원 정도 확인 필요 |
-| Raspberry Pi Zero v1.3 | 없음 | SeedSigner와 같은 구성 | 카메라가 닫힌 펌웨어(VideoCore) 의존, 리눅스면 공격 표면이 큼 |
-| Kendryte K210 (Maix Amigo) | 없음 | Krux가 쓰는 보드: 카메라·SD·화면 일체 | RISC-V, 러스트 생태계 약함, 하드웨어 TRNG 여부 확인 필요 |
-| ESP32-P4 | 칩에 없음 | 카메라·DSI·SD | 많은 개발 보드가 **Wi-Fi 보조칩(ESP32-C6)을 함께 실음** → HW-1 위반 위험, 피하는 쪽이 안전 |
+### 7.1 선정 기준 (사용자 지정)
 
-출처: [ST STM32H747I-DISCO 제품 페이지](https://www.st.com/en/evaluation-tools/stm32h747i-disco.html), [데이터 브리프](https://st.com/resource/en/data_brief/dm00504238.pdf), [UM2411 사용자 설명서](https://www.st.com/resource/en/user_manual/um2411-discovery-kit-with-stm32h747xi-mcu-stmicroelectronics.pdf).
+1. **최근 출시** — 2024년 이후 나온 보드
+2. **앞으로 여러 해 생산** — 제조사가 공개한 장기 공급 약속이 있을 것
+3. **통신 모듈이 아예 없음** — Wi-Fi·블루투스·NFC·셀룰러 칩과 **이더넷 PHY·RJ45**가 보드에 없을 것. USB 단자는 전원용으로만 쓰고 데이터는 펌웨어에서 켜지 않는다(가능하면 칩 설정으로 영구 차단)
+4. **프로젝트 요건 전부** — 화면, 키보드(CardKB, I2C), 카메라(QR), microSD
+
+v1에서 1순위로 냈던 STM32H747I-DISCO는 1(2019년 출시)과 3(이더넷 RJ45)을 못 지켜 **탈락**.
+
+### 7.2 후보 비교
+
+| 후보 | 출시 | 장기 공급 | 통신 모듈 | 화면 | 카메라 | microSD | 키보드(I2C) | 칩·메모리 | 러스트 | 판정 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Waveshare RP2350-Touch-LCD-3.5-C** | 2026 (일본 판매점 표준판 발매일 2026-07-30) | **RP2350 칩 2045-01까지**, Pico 2 보드 2040-01까지 (Raspberry Pi 공표). 보드 자체 약속은 없음 | **없음** (칩·보드 모두 무선 없음). Waveshare 비교표의 "무선 Plus" 변형은 사면 안 됨 | 3.5" IPS 320×480, ST7796(SPI), 정전식 터치 FT6336 | **OV5640 기본 탑재**(-C판), DVP | **TF 슬롯** | 2.54 mm GPIO 헤더 | RP2350B Cortex-M33 ×2 150 MHz, SRAM 520 KB, 플래시 16 MB, PSRAM 언급 없음. 보호 케이스 포함 | embassy-rp·rp235x-hal (성숙) | **1순위** |
+| STM32U5G9J-DK2 | 2024 | ST 10년 롤링 장기 공급 | 없음 (이더넷·무선 없음) | **5" 800×480** RGB 정전식 터치 (지금 UI와 같은 해상도) | 보드에 커넥터 확인 안 됨 | 슬롯 확인 안 됨 | 아두이노 헤더 | STM32U5G9 Cortex-M33 160 MHz, SRAM 3 MB, 플래시 4 MB, OSPI 1 Gbit, TrustZone | embassy-stm32 | 대안 (카메라·SD를 확장 모듈로 붙여야 함) |
+| ALIENTEK DNESP32P4M | 2025-06 | ESP32-P4 칩 12년 (2025-01 ~ 2037-01) | 없음 (Wi-Fi·이더넷 없음) | MIPI DSI 커넥터 (5.5"/10.1" 별매) | MIPI CSI 커넥터 (별매) | 있음 | 헤더 (GPIO 48개) | ESP32-P4 RISC-V, PSRAM 32 MB, NOR 16 MB | esp-hal 1.2에 P4 대상 있음, 일부 기능 불안정 | 보류 |
+| NXP MIMXRT700-EVK | 2024 말 | NXP 장기 공급 프로그램 (기간 확인 필요) | 이더넷·무선 칩 없음, 단 **무선 카드용 M.2 슬롯** | MIPI 화면 커넥터 (별매) | FlexIO 카메라 헤더 (OV7675 별매) | SD 슬롯 | 아두이노·PMod | i.MX RT700 Cortex-M33 ×2, SRAM 7.5 MB | RT700용 HAL은 초기 단계로 보임 | 보류 |
+
+**탈락 (통신 모듈 있음):**
+
+| 보드 | 출시 | 탈락 이유 |
+|---|---|---|
+| STM32H747I-DISCO (v1 1순위) | 2019 | 오래됨 + 이더넷 RJ45 |
+| STM32N6570-DK | 2024-12 | 화면·카메라·microSD 모두 있지만 **1 Gbit 이더넷 PHY(RTL8211F)·RJ45** |
+| STM32H7S78-DK | 2024 | **Wi-Fi 모듈** + 이더넷 RJ45 |
+| Renesas EK-RA8P1 | 2025 | 이더넷 RJ45 |
+| Espressif ESP32-P4(X)-Function-EV-Board, ESP32-P4X-EYE | 2024~2026 | **ESP32-C6 Wi-Fi·블루투스 모듈** |
+| Olimex ESP32-P4-DevKit | 2025 | 이더넷 |
+
+### 7.3 1순위의 비용과 위험 (RP2350-Touch-LCD-3.5-C)
+
+| 항목 | 내용 | 대응 |
+|---|---|---|
+| 화면 해상도 | 지금 UI는 **800×480 가로**. 이 보드는 **320×480 세로** (Krux의 Maix Amigo와 같은 해상도) | H2에서 화면 배치를 320×480으로 다시 짠다. 한글 2칸 글꼴·문자열 표는 그대로. 시뮬레이터도 같이 바꾼다 |
+| RAM 520 KB | 지금 앱 상태(`App`) 크기를 재 보니 **약 245 KB** (x86-64, 2026-11). 카메라 프레임(320×240 회색조 77 KB)·스택·QR 디코더를 더하면 빠듯 | H3에서 메모리 예산표를 만들고 큰 버퍼를 겹쳐 쓴다(예: PSBT 버퍼와 카메라 버퍼). 화면은 ST7796 내부 메모리에 띠 단위로 보내므로 MCU 프레임버퍼는 필요 없음 |
+| 빌드 대상 | `thumbv7em` → `thumbv8m.main-none-eabihf` (Cortex-M33) | **지금 크레이트 6개가 수정 없이 빌드됨을 확인** (2026-11) |
+| 보안 기능 | 서명된 부팅(OTP에 키 해시), OTP 8 KB, TrustZone-M, 글리치 검출기, SHA-256 가속기, TRNG. 디버그와 USB 부트 인터페이스를 OTP로 끌 수 있음 | USB 데이터 경로·디버그를 **칩 설정으로 영구 차단** (정확한 OTP 항목은 데이터시트로 확인 후 M9 설계) |
+| 알려진 약점 | 2024 해킹 챌린지에서 A2 스테핑에 결함 주입 공격 여럿. **A4 스테핑(2025-07)**에서 부트 ROM·OTP 결함 수정. 다만 서명 부팅 우회 일부는 실리콘에 있어 아직 해결책 없음(39C3 발표) | **A4 칩만** 쓴다. 지금 설계는 시드를 저장하지 않으므로 영향은 펌웨어 바꿔치기로 제한 → 부팅 화면에 펌웨어 해시 표시 등 보완(M9) |
+| 외부 플래시 | 펌웨어가 칩 밖 QSPI 플래시에 있음 → 물리 접근 시 읽기·교체 가능 | 서명 부팅으로 교체 탐지(위 약점 주의), 비밀은 플래시에 두지 않음 |
+| 보드 공급 | Waveshare는 보드 단위 장기 공급을 약속하지 않음 | 부품이 단순(RP2350B·ST7796·OV5640·TF)하고 회로도가 공개돼 있어 H4 최종 보드는 같은 부품으로 직접 만들 수 있음. 개발용 2~3대 미리 확보 |
+| 카메라 초점 | OV5640 모듈의 초점 방식(고정·자동) 미확인 | 가까운 거리 QR 인식을 첫 시험 항목으로 |
+| 키보드 전압 | CardKB는 Grove 5 V | A4는 5 V 허용 GPIO이지만 칩 전원이 켜져 있어야 함 → I2C 풀업을 3.3 V로 두고 확인 |
+
+**2순위(STM32U5G9J-DK2)를 고르면:** UI를 그대로 쓰고(800×480) RAM이 3 MB로 넉넉하며 TrustZone 기반 보안 기능이 많다. 대신 보드에 카메라·microSD가 없어서 아두이노 헤더에 SPI 카메라와 microSD 모듈을 붙여야 하므로 "보드 하나로 요건 전부"가 아니다.
+
+**DNESP32P4M 보류 이유:** 통신 모듈은 없지만, Espressif가 2026년 PCN으로 ESP32-P4를 칩 v1.3 → v3.2로 바꾸고 있고 두 버전은 하드웨어·소프트웨어가 호환되지 않는다. 2025년에 나온 이 보드는 v1.x 칩일 가능성이 높아(확인 필요) 바뀌거나 단종될 위험이 있다. 무선 없는 v3.x 보드가 나오면 다시 본다.
+
+출처: [Waveshare RP2350-Touch-LCD-3.5](https://www.waveshare.com/RP2350-Touch-LCD-3.5.htm), [회로도 PDF](https://files.waveshare.com/wiki/RP2350-Touch-LCD-3.5/RP2350-Touch-LCD-3.5.pdf), [Switch Science 판매 페이지](https://www.switch-science.com/collections/raspberry-pi/products/11204), [Raspberry Pi Pico 2 (2040년까지 생산)](https://www.raspberrypi.com/products/raspberry-pi-pico-2/), [Raspberry Pi 마이크로컨트롤러 제품 안내(RP2350 2045년)](https://pip-assets.raspberrypi.com/categories/1358-product-guides/documents/RP-009950-MM-1-Raspberry%20Pi%20Microcontrollers%20product%20guide.pdf), [RP2350 A4 스테핑](https://www.raspberrypi.com/news/rp2350-a4/), [해킹 챌린지 결과](https://www.raspberrypi.com/news/security-through-transparency-rp2350-hacking-challenge-results-are-in/), [39C3: RP2350 서명 부팅 우회](https://media.ccc.de/v/39c3-of-boot-vectors-and-double-glitches-bypassing-rp2350-s-secure-boot), [Hackaday: RP2350 공격 정리](https://hackaday.com/2025/01/15/all-the-attacks-on-the-rp2350), [STM32U5G9J-DK2](https://st.com/en/evaluation-tools/stm32u5g9j-dk2.html), [UM3223](https://www.st.com/resource/en/user_manual/um3223-discovery-kit-with-stm32u5g9zj-mcu-stmicroelectronics.pdf), [STM32N6570-DK](https://st.com/en/evaluation-tools/stm32n6570-dk.html), [STM32H7S78-DK](https://www.st.com/en/evaluation-tools/stm32h7s78-dk.html), [CNX: ALIENTEK DNESP32P4M](https://www.cnx-software.com/2025/06/16/alientek-dnesp32p4m-an-esp32-p4-board-without-network-connectivity/), [Espressif 장기 공급 약속](https://www.espressif.com/en/products/longevity-commitment), [ESP32-P4 PCN202600801](https://documentation.espressif.com/en/PCN202600801_ESP32-P4_Chip_Revision_v3.2_Upgrade_Chip_Revision_v1.3_Demand_Collection_and_EOL_Plan_Description.html), [esp-hal ESP32-P4 문서](https://docs.espressif.com/projects/rust/esp-hal/1.2.0/esp32p4/esp_hal/index.html), [ESP32-P4X-Function-EV-Board](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32p4/esp32-p4x-function-ev-board/user_guide.html), [NXP MIMXRT700-EVK](https://www.nxp.com/design/design-center/development-boards-and-designs/MIMXRT700-EVK).
 
 ## 8. 정리 — 가져올 것과 피할 것
 
