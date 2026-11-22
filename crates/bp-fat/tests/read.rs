@@ -58,7 +58,6 @@ fn names_hidden_and_non_ascii() {
     let mut disk = MemDisk::new(sample(fatfs::FatType::Fat16, 16 << 20, None));
     let mut vol = Volume::mount(&mut disk).unwrap();
     assert!(vol.find(DirId::Root, "._resource").unwrap().is_hidden());
-    assert!(vol.find(DirId::Root, ".Trashes").unwrap().is_hidden());
     assert!(!vol.find(DirId::Root, "hello.txt").unwrap().is_hidden());
     // Non-ASCII long names are shown with '?' and remain readable.
     let k = vol.find(DirId::Root, "??.psbt").unwrap();

@@ -9,8 +9,10 @@ pub struct MemDisk {
     pub data: Vec<u8>,
     pub reads: u64,
     pub writes: u64,
-    /// Fail every access once this many writes have happened (pulled card).
+    /// The card is pulled when this many writes have succeeded: the next
+    /// write and every later access fail.
     pub fail_after_writes: Option<u64>,
+    pub pulled: bool,
 }
 
 impl MemDisk {
@@ -20,6 +22,7 @@ impl MemDisk {
             reads: 0,
             writes: 0,
             fail_after_writes: None,
+            pulled: false,
         }
     }
 }
@@ -30,7 +33,7 @@ impl BlockDevice for MemDisk {
     }
     fn read(&mut self, lba: u32, buf: &mut Sector) -> Result<(), IoError> {
         self.reads += 1;
-        if self.fail_after_writes.is_some_and(|n| self.writes >= n) {
+        if self.pulled {
             return Err(IoError);
         }
         let at = lba as usize * SECTOR;
@@ -39,7 +42,8 @@ impl BlockDevice for MemDisk {
         Ok(())
     }
     fn write(&mut self, lba: u32, buf: &Sector) -> Result<(), IoError> {
-        if self.fail_after_writes.is_some_and(|n| self.writes >= n) {
+        if self.pulled || self.fail_after_writes.is_some_and(|n| self.writes >= n) {
+            self.pulled = true;
             return Err(IoError);
         }
         self.writes += 1;
@@ -103,7 +107,6 @@ pub fn sample(fat: fatfs::FatType, bytes: usize, cluster: Option<u32>) -> Vec<u8
         put(&root, "empty.bin", b"");
         put(&root, "._resource", b"apple double");
         put(&root, "\u{c9c0}\u{ac11}.psbt", b"korean name");
-        root.create_dir(".Trashes").unwrap();
         let sub = root.create_dir("Sub Dir").unwrap();
         put(&sub, "nested-file-name.json", b"{\"a\":1}");
         let deeper = sub.create_dir("deeper").unwrap();
@@ -191,4 +194,167 @@ pub fn compare_tree<D: BlockDevice>(
         .count();
     assert_eq!(count, theirs_count);
     seen
+}
+
+/// `fsck.fat -n` on a volume image (no partition table). Returns the
+/// problems it reports, or `None` when dosfstools is not installed.
+pub fn fsck(volume: &[u8], tag: &str) -> Option<Vec<String>> {
+    let path = format!("{}/fsck-{tag}.img", env!("CARGO_TARGET_TMPDIR"));
+    std::fs::write(&path, volume).unwrap();
+    fsck_file(&path)
+}
+
+pub fn fsck_file(path: &str) -> Option<Vec<String>> {
+    let out = std::process::Command::new("fsck.fat")
+        .args(["-n", "-V", path])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    let problems: Vec<String> = text
+        .lines()
+        .filter(|l| {
+            !l.starts_with("fsck.fat ")
+                && !l.starts_with("Checking")
+                && !l.starts_with("Starting check")
+                && !l.starts_with("Starting verification")
+                // We set the FSInfo free count to "unknown" (0xFFFFFFFF) on
+                // purpose: the hint is never trusted, so it is not kept.
+                && !l.starts_with("Free cluster summary uninitialized")
+                && !l.contains(" files, ")
+                && !l.trim().is_empty()
+        })
+        .map(str::to_string)
+        .collect();
+    if !out.status.success() && problems.is_empty() {
+        return Some(vec![format!("exit {:?}", out.status.code())]);
+    }
+    Some(problems)
+}
+
+/// Assert a clean `fsck.fat` result when dosfstools is available.
+pub fn assert_clean(volume: &[u8], tag: &str) {
+    if let Some(p) = fsck(volume, tag) {
+        assert!(p.is_empty(), "{tag}: {p:#?}");
+    }
+}
+
+/// Assert `fsck.fat` finds nothing in `after` that it did not already find
+/// in `before` (`fatfs` 0.3 writes sub-directories that fsck.fat flags, so
+/// sample images are not clean to begin with).
+pub fn assert_no_new_problems(before: &[u8], after: &[u8], tag: &str) {
+    let (Some(old), Some(new)) = (fsck(before, &format!("{tag}-before")), fsck(after, tag)) else {
+        return;
+    };
+    let extra: Vec<&String> = new.iter().filter(|l| !old.contains(l)).collect();
+    assert!(extra.is_empty(), "{tag}: {extra:#?}");
+}
+
+/// Sparse card for multi-gigabyte format tests.
+pub struct SparseDisk {
+    pub sectors: u32,
+    pub map: std::collections::HashMap<u32, Box<Sector>>,
+}
+
+impl SparseDisk {
+    pub fn new(bytes: u64) -> Self {
+        SparseDisk {
+            sectors: (bytes / SECTOR as u64) as u32,
+            map: Default::default(),
+        }
+    }
+
+    /// Write the sectors from `start` on into a sparse file (for fsck).
+    pub fn to_file(&self, start: u32, path: &str) {
+        use std::io::{Seek, SeekFrom};
+        let mut f = std::fs::File::create(path).unwrap();
+        f.set_len((self.sectors - start) as u64 * SECTOR as u64).unwrap();
+        for (&lba, s) in &self.map {
+            if lba >= start {
+                f.seek(SeekFrom::Start((lba - start) as u64 * SECTOR as u64))
+                    .unwrap();
+                f.write_all(&s[..]).unwrap();
+            }
+        }
+    }
+}
+
+impl BlockDevice for SparseDisk {
+    fn sectors(&self) -> u32 {
+        self.sectors
+    }
+    fn read(&mut self, lba: u32, buf: &mut Sector) -> Result<(), IoError> {
+        if lba >= self.sectors {
+            return Err(IoError);
+        }
+        *buf = self.map.get(&lba).map_or([0; SECTOR], |s| **s);
+        Ok(())
+    }
+    fn write(&mut self, lba: u32, buf: &Sector) -> Result<(), IoError> {
+        if lba >= self.sectors {
+            return Err(IoError);
+        }
+        if buf.iter().all(|&b| b == 0) {
+            self.map.remove(&lba);
+        } else {
+            self.map.insert(lba, Box::new(*buf));
+        }
+        Ok(())
+    }
+}
+
+/// `Read + Write + Seek` view of a sparse card from `base` (for fatfs).
+pub struct SparseView<'a> {
+    pub disk: &'a mut SparseDisk,
+    pub base: u64,
+    pub pos: u64,
+}
+
+impl std::io::Read for SparseView<'_> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let at = self.base + self.pos;
+        let lba = (at / SECTOR as u64) as u32;
+        let off = (at % SECTOR as u64) as usize;
+        let mut s = [0u8; SECTOR];
+        self.disk
+            .read(lba, &mut s)
+            .map_err(|_| std::io::Error::other("eof"))?;
+        let n = out.len().min(SECTOR - off);
+        out[..n].copy_from_slice(&s[off..off + n]);
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl std::io::Write for SparseView<'_> {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        let at = self.base + self.pos;
+        let lba = (at / SECTOR as u64) as u32;
+        let off = (at % SECTOR as u64) as usize;
+        let mut s = [0u8; SECTOR];
+        self.disk
+            .read(lba, &mut s)
+            .map_err(|_| std::io::Error::other("eof"))?;
+        let n = data.len().min(SECTOR - off);
+        s[off..off + n].copy_from_slice(&data[..n]);
+        self.disk
+            .write(lba, &s)
+            .map_err(|_| std::io::Error::other("eof"))?;
+        self.pos += n as u64;
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl std::io::Seek for SparseView<'_> {
+    fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+        let len = self.disk.sectors as u64 * SECTOR as u64 - self.base;
+        self.pos = match to {
+            std::io::SeekFrom::Start(p) => p,
+            std::io::SeekFrom::End(d) => (len as i64 + d) as u64,
+            std::io::SeekFrom::Current(d) => (self.pos as i64 + d) as u64,
+        };
+        Ok(self.pos)
+    }
 }

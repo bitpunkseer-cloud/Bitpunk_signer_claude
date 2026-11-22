@@ -10,11 +10,15 @@
 #![forbid(unsafe_code)]
 
 mod dir;
+mod format;
 mod geometry;
 mod table;
+mod write;
 
 pub use dir::{DirEntry, DirId, DirIter, Name, ATTR_DIRECTORY, ATTR_HIDDEN, ATTR_READ_ONLY, ATTR_SYSTEM};
+pub use format::format;
 pub use geometry::{FatKind, Geometry};
+pub use write::valid_name;
 
 /// Bytes per sector. Only 512-byte sectors are supported (all SD cards).
 pub const SECTOR: usize = 512;
@@ -102,6 +106,16 @@ pub enum Error {
     NotADirectory,
     /// File larger than the caller's buffer.
     TooLarge,
+    /// Name not allowed (empty, too long, reserved characters, `.`/`..`).
+    BadName,
+    /// A file or directory with this name already exists.
+    Exists,
+    /// No free clusters left.
+    DiskFull,
+    /// No room for more entries (fixed FAT16 root, or 65536 slots).
+    DirFull,
+    /// Card too small to format.
+    TooSmall,
 }
 
 impl From<IoError> for Error {
@@ -122,6 +136,10 @@ pub struct Volume<D: BlockDevice> {
     /// Cached data or directory sector.
     buf: Sector,
     buf_lba: u32,
+    /// Where the next free-cluster search starts.
+    alloc_hint: u32,
+    /// FSInfo free-count hint already invalidated in this mount.
+    fsinfo_cleared: bool,
 }
 
 impl<D: BlockDevice> Volume<D> {
@@ -136,6 +154,8 @@ impl<D: BlockDevice> Volume<D> {
             fat_lba: [NO_LBA; 2],
             buf,
             buf_lba: NO_LBA,
+            alloc_hint: 2,
+            fsinfo_cleared: false,
         })
     }
 
@@ -146,6 +166,21 @@ impl<D: BlockDevice> Volume<D> {
     /// Give the device back (unmount).
     pub fn into_inner(self) -> D {
         self.dev
+    }
+
+    /// Write a sector, keeping the cache coherent.
+    fn store(&mut self, lba: u32, data: &Sector) -> Result<(), Error> {
+        if self.buf_lba == lba {
+            self.buf_lba = NO_LBA;
+        }
+        self.dev.write(lba, data)?;
+        if lba == self.fat_lba[0] {
+            self.fat_lba[0] = NO_LBA;
+        }
+        if lba == self.fat_lba[1] {
+            self.fat_lba[1] = NO_LBA;
+        }
+        Ok(())
     }
 
     fn load(&mut self, lba: u32) -> Result<(), Error> {

@@ -63,6 +63,13 @@ fn fuzz(img: Vec<u8>, iterations: u32, seed: u64) {
             mounted += 1;
             let mut budget = 2_000;
             walk(&mut v, DirId::Root, 0, &mut budget);
+            // Writing to a damaged volume must fail cleanly too.
+            if let Ok(e) = v.create(DirId::Root, "fuzz-signed.psbt", &[0x42; 1300]) {
+                let _ = v.wipe(&e);
+            }
+            if let Ok(e) = v.find(DirId::Root, "hello.txt") {
+                let _ = v.delete(&e);
+            }
         }
         assert!(d.reads < 3_000_000, "{} reads", d.reads);
         img = d.data;

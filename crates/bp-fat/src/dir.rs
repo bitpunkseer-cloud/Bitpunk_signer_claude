@@ -9,6 +9,7 @@ pub const ATTR_SYSTEM: u8 = 0x04;
 pub const ATTR_VOLUME: u8 = 0x08;
 pub const ATTR_DIRECTORY: u8 = 0x10;
 pub const ATTR_LFN: u8 = 0x0F;
+pub const ATTR_ARCHIVE: u8 = 0x20;
 
 /// Slots per sector.
 pub(crate) const SLOTS: u32 = (SECTOR / 32) as u32;
@@ -39,6 +40,28 @@ impl Name {
             buf: [0; MAX_NAME],
             len: 0,
         }
+    }
+
+    /// A name from printable ASCII, or `None` if it does not fit.
+    pub fn from_ascii(s: &str) -> Option<Self> {
+        let mut n = Name::empty();
+        if !n.push_str(s) {
+            return None;
+        }
+        Some(n)
+    }
+
+    /// Append printable ASCII; `false` (and unchanged) if it would not fit
+    /// or contains other characters.
+    pub fn push_str(&mut self, s: &str) -> bool {
+        let fits = self.len as usize + s.len() <= MAX_NAME;
+        if !fits || !s.bytes().all(|b| (0x20..0x7F).contains(&b)) {
+            return false;
+        }
+        for b in s.bytes() {
+            self.push(b as u32);
+        }
+        true
     }
 
     pub(crate) fn push(&mut self, c: u32) {
@@ -148,10 +171,10 @@ impl DirEntry {
 /// Position in a directory listing.
 #[derive(Clone, Copy, Debug)]
 pub struct DirIter {
-    dir: DirId,
-    slot: u32,
-    cluster: u32,
-    end: bool,
+    pub(crate) dir: DirId,
+    pub(crate) slot: u32,
+    pub(crate) cluster: u32,
+    pub(crate) end: bool,
 }
 
 /// Short-name checksum stored in each long-name entry.
