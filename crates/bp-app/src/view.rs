@@ -154,17 +154,38 @@ impl App {
                 widgets::message_panel(c, s.powered_off, &[s.powered_off_1, "", s.powered_off_2]);
             }
             Screen::Menu { id, sel } => self.render_menu(c, id, sel),
-            Screen::Placeholder { title, phase } => {
-                self.status(c, title);
-                widgets::message_panel(c, title, &[s.not_built, "", phase, s.see_roadmap]);
-                widgets::hint_bar(c, &[("Esc", s.h_back)]);
-            }
             Screen::About => {
                 self.status(c, s.about);
                 let mut rows = s.about_rows;
                 rows[0].1 = VERSION;
                 rows[1].1 = GIT_HASH;
                 widgets::info_rows(c, &rows);
+                // M9-4 (C2): features not built yet live here, not in the menus
+                let y = STATUS_H + 20 + rows.len() as i32 * (BODY.height as i32 + 8) + 10;
+                SMALL.draw(c, MARGIN, y, s.planned, theme::TEXT_DIM);
+                let m10: Buf<96> = fill("M10 · {}", &[&s.seed_vault]);
+                let m11: Buf<320> = fill(
+                    "M11 · {} · {} · {} · {} · {} · {}",
+                    &[
+                        &s.slip39,
+                        &s.tinyseed,
+                        &s.seed_xor,
+                        &s.encrypted_backup,
+                        &s.secure_notes,
+                        &s.totp,
+                    ],
+                );
+                SMALL.draw(c, MARGIN, y + 22, m10.as_str(), theme::TEXT);
+                SMALL.draw_wrapped(
+                    c,
+                    MARGIN,
+                    y + 44,
+                    w - 2 * MARGIN,
+                    22,
+                    2,
+                    m11.as_str(),
+                    theme::TEXT,
+                );
                 widgets::hint_bar(c, &[("Esc", s.h_back)]);
             }
             Screen::ChooseWords { kind, sel } => {

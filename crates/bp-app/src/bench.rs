@@ -332,10 +332,9 @@ impl Case {
 fn abandon_app() -> App {
     let mut a = App::new(b"bench");
     a.tick(SPLASH_MS);
+    crate::nav::go(&mut a, crate::nav::To::Start(crate::menus::Start::TypeWords));
+    crate::nav::words(&mut a, 12);
     let mut press = |k| a.on_key(KeyEvent::new(k));
-    for c in "2211".chars() {
-        press(Key::Char(c));
-    }
     for _ in 0..11 {
         for c in "aban".chars() {
             press(Key::Char(c));
@@ -366,21 +365,26 @@ fn default_cases() -> Vec<Case> {
     ];
     for (k, name) in xpub {
         let mut a = abandon_app();
-        keys(&mut a, &[Key::Char('2'), Key::Char('1'), Key::Char(k)]);
+        crate::nav::seed_opt(&mut a, crate::keys::SlotOpt::Xpub);
+        crate::nav::script(&mut a, ScriptType::NativeSegwit);
+        keys(&mut a, &[Key::Char(k)]);
         v.push(Case {
             name: name.into(),
             app: a,
         });
     }
     let mut a = abandon_app();
-    keys(&mut a, &[Key::Char('3'), Key::Char('2'), Key::Enter]);
+    crate::nav::seed_opt(&mut a, crate::keys::SlotOpt::Explorer);
+    crate::nav::script(&mut a, ScriptType::Taproot);
+    keys(&mut a, &[Key::Enter]);
     v.push(Case {
         name: "address (Taproot, upper-case)".into(),
         app: a,
     });
     for (k, name) in [('1', "SeedQR Standard"), ('2', "SeedQR Compact")] {
         let mut a = abandon_app();
-        keys(&mut a, &[Key::Char('5'), Key::Char(k), Key::Enter]);
+        crate::nav::seed_opt(&mut a, crate::keys::SlotOpt::SeedQr);
+        keys(&mut a, &[Key::Char(k), Key::Enter]);
         v.push(Case {
             name: name.into(),
             app: a,
@@ -400,7 +404,9 @@ fn option_cases() -> Vec<Case> {
     opts.iter()
         .map(|(name, ks)| {
             let mut a = abandon_app();
-            keys(&mut a, &[Key::Char('2'), Key::Char('1'), Key::Char('1')]);
+            crate::nav::seed_opt(&mut a, crate::keys::SlotOpt::Xpub);
+            crate::nav::script(&mut a, ScriptType::NativeSegwit);
+            keys(&mut a, &[Key::Char('1')]);
             keys(&mut a, ks);
             Case {
                 name: format!("crypto-account, {name}"),

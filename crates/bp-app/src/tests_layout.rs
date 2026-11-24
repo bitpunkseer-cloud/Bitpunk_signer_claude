@@ -139,10 +139,11 @@ fn tour(lang: Lang) -> usize {
     let mut a = t.app();
     for id in [
         MenuId::Main,
+        MenuId::Sign,
+        MenuId::Verify,
         MenuId::Seeds,
         MenuId::NewSeed,
         MenuId::LoadSeed,
-        MenuId::Tools,
         MenuId::Settings,
         MenuId::Power,
     ] {
@@ -153,19 +154,6 @@ fn tour(lang: Lang) -> usize {
             Screen::Menu { id, sel: last },
             &format!("menu-{id:?}-last"),
         );
-        for e in menus::table(id) {
-            if let menus::Action::Todo(label, phase) = e.action {
-                let s = a.text();
-                t.push_snap(
-                    &mut a,
-                    Screen::Placeholder {
-                        title: label(s),
-                        phase: phase(s),
-                    },
-                    "todo",
-                );
-            }
-        }
     }
     a.settings.advanced = true;
     a.settings.network = bp_bitcoin::Network::Testnet;

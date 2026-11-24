@@ -281,10 +281,7 @@ fn single_keys_do_not_offer_path_features() {
     nav::go(&mut a, To::Bip85);
     assert!(matches!(
         a.current(),
-        Screen::Menu {
-            id: MenuId::Tools,
-            ..
-        }
+        Screen::Menu { id, .. } if id == crate::nav::menu_of(To::Bip85)
     ));
     assert_eq!(a.notice, Some(a.text().key.not_for_wif));
     // the address explorer shows the key's addresses

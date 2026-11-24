@@ -132,10 +132,7 @@ pub enum Screen {
         id: MenuId,
         sel: u8,
     },
-    Placeholder {
-        title: &'static str,
-        phase: &'static str,
-    },
+
     ChooseWords {
         kind: Start,
         sel: u8,
@@ -841,7 +838,7 @@ impl App {
                 self.splash_ms = 0;
                 self.reset_to(Screen::Splash);
             }
-            Screen::Placeholder { .. } | Screen::About => {
+            Screen::About => {
                 if matches!(ev.key, Key::Esc | Key::Backspace | Key::Enter | Key::Left) {
                     self.pop();
                 }
@@ -1658,10 +1655,6 @@ impl App {
         }
         match menus::table(id)[row].action {
             Action::Open(sub) => self.push(Screen::Menu { id: sub, sel: 0 }),
-            Action::Todo(label, phase) => self.push(Screen::Placeholder {
-                title: label(self.text()),
-                phase: phase(self.text()),
-            }),
             Action::Start(kind) => {
                 if self.free_slot().is_none() {
                     self.push(Screen::SlotsFull);

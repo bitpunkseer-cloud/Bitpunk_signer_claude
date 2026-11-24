@@ -41,7 +41,8 @@ pub const FEATURES: &[To] = &[
     To::Menu(MenuId::Seeds),
     To::Menu(MenuId::NewSeed),
     To::Menu(MenuId::LoadSeed),
-    To::Menu(MenuId::Tools),
+    To::Menu(MenuId::Sign),
+    To::Menu(MenuId::Verify),
     To::Menu(MenuId::Settings),
     To::Menu(MenuId::Power),
     To::Scan(scan::Purpose::Any),
@@ -151,6 +152,11 @@ pub fn go(a: &mut App, t: To) {
     for (id, row) in route {
         activate_row(a, id, row);
     }
+}
+
+/// The menu a feature is opened from (where it returns to).
+pub fn menu_of(t: To) -> MenuId {
+    path(t).and_then(|p| p.last().map(|r| r.0)).expect("reachable")
 }
 
 /// Open a menu and stay on it.

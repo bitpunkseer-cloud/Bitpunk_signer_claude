@@ -85,10 +85,7 @@ fn no_seed_no_wallets() {
     press(&mut a, Key::Esc);
     assert!(matches!(
         a.current(),
-        Screen::Menu {
-            id: MenuId::Tools,
-            ..
-        }
+        Screen::Menu { id, .. } if id == crate::nav::menu_of(crate::nav::To::Multisig)
     ));
 }
 

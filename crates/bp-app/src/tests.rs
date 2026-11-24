@@ -952,7 +952,7 @@ fn scan_opens_from_menu_and_qr_key() {
     );
     assert!(a.wants_camera());
     press(&mut a, Key::Esc);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     assert!(!a.wants_camera());
     press(&mut a, Key::Qr);
     assert!(matches!(a.current(), Screen::Scan { .. }));
@@ -973,7 +973,7 @@ fn scanned_address_shows_and_state_is_wiped() {
     assert!(a.scan.out.iter().all(|&b| b == 0), "scan buffer wiped");
     // no seed loaded: Enter only closes it
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     assert!(a.verify.is_none());
 }
 
@@ -1288,4 +1288,10 @@ fn discarding_a_seed_needs_the_word_wipe() {
             ..
         }
     ));
+}
+
+/// Flows started from the scanner or message signing end back on the menu
+/// that holds them (M9-4: Sign; it was the main menu before).
+fn back_where_scans_start(a: &App) -> bool {
+    matches!(a.current(), Screen::Menu { id, .. } if id == nav::menu_of(To::Scan(scan::Purpose::Any)))
 }

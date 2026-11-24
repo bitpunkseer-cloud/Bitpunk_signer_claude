@@ -70,10 +70,7 @@ fn child_keys_match_embit() {
     press(&mut a, Key::Char('2'));
     assert!(matches!(
         a.current(),
-        Screen::Menu {
-            id: MenuId::Tools,
-            ..
-        }
+        Screen::Menu { id, .. } if id == crate::nav::menu_of(crate::nav::To::Bip85)
     ));
     assert!(a.b85.is_none());
 }

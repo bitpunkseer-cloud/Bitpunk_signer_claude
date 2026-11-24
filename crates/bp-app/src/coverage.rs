@@ -41,7 +41,6 @@ kinds!(
         PoweredOff,
         About,
         Menu,
-        Placeholder,
         ChooseWords,
         EntropyIntro,
         FinalIntro,
@@ -93,7 +92,7 @@ kinds!(
     menu,
     MENUS,
     MenuId,
-    [Main, Seeds, NewSeed, LoadSeed, Tools, Settings, Power]
+    [Main, Sign, Verify, Seeds, NewSeed, LoadSeed, Settings, Power]
 );
 kinds!(
     qr,

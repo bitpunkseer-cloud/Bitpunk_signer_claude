@@ -234,7 +234,7 @@ fn review_then_cancel_or_sign() {
         }
     }
     press(&mut a, Key::Enter); // Cancel
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     assert!(a.review.is_none());
     assert!(a.scan.out.iter().all(|&b| b == 0), "scan buffer wiped");
 
@@ -274,7 +274,7 @@ fn review_then_cancel_or_sign() {
         )
         .unwrap();
     press(&mut a, Key::Esc);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     assert!(
         a.scan.work().iter().all(|&b| b == 0),
         "signed PSBT wiped after leaving"
@@ -295,7 +295,7 @@ fn back_navigation() {
     press(&mut a, Key::Esc);
     assert_eq!(step(&a), Step::Overview);
     press(&mut a, Key::Esc); // leaving the first step discards the PSBT
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     assert!(a.review.is_none());
 }
 
@@ -321,7 +321,7 @@ fn wrong_seed_shows_need_and_found() {
     assert_eq!(step(&a), Step::WrongSeed);
     render(&a);
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
 }
 
 #[test]
@@ -343,7 +343,7 @@ fn attacks_end_the_review() {
         assert_eq!(step(&a), Step::Problem);
     }
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     // an error (fee of 10% or more) ends it too
     let p = psbt(
         &w,
@@ -396,7 +396,7 @@ fn unverified_amounts_need_an_explicit_override() {
     assert_eq!(step(&a), Step::Warning { idx: 0, sel: 0 });
     render(&a);
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     // choosing "sign without verifying" continues and signing works
     scan_psbt(&mut a, &p);
     press(&mut a, Key::Down);
@@ -511,7 +511,7 @@ fn signed_psbt_qr_round_trips_in_every_format() {
         press(&mut a, Key::Down);
     }
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     assert!(a.qr.is_none() && a.review.is_none());
     let _ = p;
 }
@@ -603,10 +603,7 @@ fn verify_finds_receive_and_change_addresses() {
         press(&mut a, Key::Enter);
         assert!(matches!(
             a.current(),
-            Screen::Menu {
-                id: MenuId::Tools,
-                ..
-            }
+            Screen::Menu { id, .. } if id == nav::menu_of(To::VerifyAddress)
         ));
         assert!(a.verify.is_none(), "state wiped on leaving");
         press(&mut a, Key::Esc);
@@ -685,10 +682,7 @@ fn verify_pauses_after_a_batch_and_offers_more_or_another_account() {
     press(&mut a, Key::Enter);
     assert!(matches!(
         a.current(),
-        Screen::Menu {
-            id: MenuId::Tools,
-            ..
-        }
+        Screen::Menu { id, .. } if id == nav::menu_of(To::VerifyAddress)
     ));
 }
 
@@ -719,10 +713,7 @@ fn verify_refuses_other_networks_scripts_and_non_addresses() {
         press(&mut a, Key::Enter); // Enter only closes it
         assert!(matches!(
             a.current(),
-            Screen::Menu {
-                id: MenuId::Tools,
-                ..
-            }
+            Screen::Menu { id, .. } if id == nav::menu_of(To::VerifyAddress)
         ));
         press(&mut a, Key::Esc);
     }
@@ -801,7 +792,7 @@ fn message_signing_is_off_until_the_device_turns_it_on() {
     assert_eq!(ms(&a), MsStep::Off);
     render(&a);
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     assert!(a.msg.is_none());
     nav::go(&mut a, To::SignMessage);
     assert_eq!(ms(&a), MsStep::Off);
@@ -841,7 +832,7 @@ fn signmessage_qr_signs_every_address_type() {
         press(&mut a, Key::Esc);
         press(&mut a, Key::Down);
         press(&mut a, Key::Enter);
-        assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+        assert!(back_where_scans_start(&a));
         assert!(a.msg.is_none(), "wiped");
     }
     // Taproot: BIP-322 simple with the "smp" prefix
@@ -899,7 +890,7 @@ fn bad_requests_are_refused_with_the_reason() {
         assert_eq!(ms(&a), MsStep::Problem, "{text}");
         render(&a);
         press(&mut a, Key::Enter);
-        assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+        assert!(back_where_scans_start(&a));
     }
     // cancel is the default on the final screen
     scan_text(&mut a, "signmessage m/84h/0h/0h/0/0 ascii:hello");
@@ -907,7 +898,7 @@ fn bad_requests_are_refused_with_the_reason() {
     press(&mut a, Key::Enter);
     assert_eq!(ms(&a), MsStep::Confirm { sel: 0 });
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     assert!(a.signed_psbt().is_none());
 }
 
@@ -1093,7 +1084,7 @@ fn bip322_psbts_sign_messages_for_both_address_types() {
         let st = bp_bitcoin::bip322::verify_simple(&addr, bp_bitcoin::Network::Mainnet, msg.as_bytes(), &sig);
         assert!(st.is_ok(), "{taproot}: {st:?}");
         press(&mut a, Key::Esc); // done: the review ends
-        assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+        assert!(back_where_scans_start(&a));
     }
     assert!(a.memory.is_empty(), "a message is never remembered as spent");
 }
@@ -1138,7 +1129,7 @@ fn bip322_psbts_are_refused_when_off_forged_or_against_the_rules() {
     assert_eq!(step(&a), Step::MsgRule);
     render(&a);
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
 }
 
 #[test]
@@ -1231,7 +1222,7 @@ fn armored_messages_verify_from_the_main_scanner() {
     );
     render(&a);
     press(&mut a, Key::Enter); // no seed: only "Done"
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
     assert!(a.sig.is_none());
     // a changed message is invalid
     scan_text(
@@ -1398,7 +1389,7 @@ fn settings_qr_exports_and_imports_without_weakening() {
     assert!(matches!(a.import, Some(Err(_))));
     render(&a);
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert!(back_where_scans_start(&a));
 }
 
 fn qr_text_of(a: &App) -> String {
@@ -1915,4 +1906,10 @@ fn refusal_screens_show_their_error_code() {
     nav::home(&mut a);
     render(&a);
     assert!(a.shown_error().is_none());
+}
+
+/// Flows started from the scanner or message signing end back on the menu
+/// that holds them (M9-4: Sign; it was the main menu before).
+fn back_where_scans_start(a: &App) -> bool {
+    matches!(a.current(), Screen::Menu { id, .. } if id == nav::menu_of(To::Scan(scan::Purpose::Any)))
 }

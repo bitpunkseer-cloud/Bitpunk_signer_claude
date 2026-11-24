@@ -14,6 +14,11 @@ pub struct Strings {
     // menus
     pub app_title: &'static str,
     pub scan_qr: &'static str,
+    /// M9-4 menus: Sign, Receive & verify, Seeds & keys; About's planned list.
+    pub m_sign: &'static str,
+    pub m_verify: &'static str,
+    pub m_seeds: &'static str,
+    pub planned: &'static str,
     pub seeds: &'static str,
     pub tools: &'static str,
     pub settings: &'static str,
@@ -627,6 +632,10 @@ pub static EN_REVIEW: ReviewStrings = ReviewStrings {
 pub static EN: Strings = Strings {
     app_title: "Bitpunk Signer",
     scan_qr: "Scan QR",
+    m_sign: "Sign",
+    m_verify: "Receive & verify",
+    m_seeds: "Seeds & keys",
+    planned: "Planned",
     seeds: "Seeds",
     tools: "Tools",
     settings: "Settings",
@@ -1223,6 +1232,10 @@ pub static KO_REVIEW: ReviewStrings = ReviewStrings {
 pub static KO: Strings = Strings {
     app_title: "Bitpunk Signer",
     scan_qr: "QR 스캔",
+    m_sign: "서명하기",
+    m_verify: "받기·확인",
+    m_seeds: "시드·키",
+    planned: "예정 기능",
     seeds: "시드",
     tools: "도구",
     settings: "설정",

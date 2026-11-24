@@ -308,8 +308,9 @@ mod tests {
         bp_key(1, 0, 0); // Enter: leave splash
         assert_eq!(bp_tick(16), 1);
         assert_eq!(bp_tick(16), 0);
-        // main menu 1 = Scan QR; pasted text arrives through the buffer
-        bp_key(0, '1' as u32, 0);
+        // the QR key (Fn+Q) opens the scanner from any menu; pasted text
+        // arrives through the buffer
+        bp_key(10, 0, 0);
         assert_eq!(bp_wants_camera(), 1);
         let addr = b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";
         unsafe { core::ptr::copy_nonoverlapping(addr.as_ptr(), bp_text_buffer(), addr.len()) };

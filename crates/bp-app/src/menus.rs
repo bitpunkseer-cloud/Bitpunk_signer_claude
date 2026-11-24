@@ -1,15 +1,19 @@
-//! Static menu tree. Features not built yet show the milestone that builds them.
+//! Static menu tree (M9-4: grouped by task). Features not built yet are
+//! listed under Settings > About, not in the menus.
 
 use crate::text::Strings;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuId {
     Main,
-    /// Loaded seeds are listed above the static rows (see `App`).
+    /// Sign: scan a PSBT or message QR, type a message.
+    Sign,
+    /// Receive and verify: addresses, address and signature checks.
+    Verify,
+    /// Seeds and keys. Loaded seeds are listed above the static rows (see `App`).
     Seeds,
     NewSeed,
     LoadSeed,
-    Tools,
     Settings,
     Power,
 }
@@ -39,8 +43,6 @@ pub enum Start {
 #[derive(Clone, Copy)]
 pub enum Action {
     Open(MenuId),
-    /// Not built yet: label + milestone description.
-    Todo(Label, Label),
     /// Tools > Address explorer (picks a seed first if several are loaded).
     Explorer,
     /// Tools > Verify address (scans an address, needs a loaded seed).
@@ -67,16 +69,6 @@ pub enum Action {
     Scan(crate::scan::Purpose),
 }
 
-macro_rules! todo_entry {
-    ($f:expr, $tag:literal, $desc:expr) => {
-        Entry {
-            label: $f,
-            detail: $tag,
-            action: Action::Todo($f, $desc),
-        }
-    };
-}
-
 const fn open(label: Label, id: MenuId) -> Entry {
     Entry {
         label,
@@ -101,88 +93,53 @@ const fn setting(label: Label) -> Entry {
     }
 }
 
-static MAIN: [Entry; 6] = [
+const fn action(label: Label, action: Action) -> Entry {
     Entry {
-        label: |s| s.scan_qr,
+        label,
         detail: ">",
-        action: Action::Scan(crate::scan::Purpose::Any),
-    },
-    open(|s| s.seeds, MenuId::Seeds),
-    open(|s| s.tools, MenuId::Tools),
+        action,
+    }
+}
+
+static MAIN: [Entry; 7] = [
+    open(|s| s.m_sign, MenuId::Sign),
+    open(|s| s.m_verify, MenuId::Verify),
+    open(|s| s.m_seeds, MenuId::Seeds),
+    action(|s| s.wl.menu, Action::Multisig),
+    action(|s| s.sd.menu, Action::SdCard),
     open(|s| s.settings, MenuId::Settings),
-    Entry {
-        label: |s| s.sd.menu,
-        detail: ">",
-        action: Action::SdCard,
-    },
     open(|s| s.power, MenuId::Power),
+];
+
+static SIGN: [Entry; 2] = [
+    action(|s| s.scan_qr, Action::Scan(crate::scan::Purpose::Any)),
+    action(|s| s.sign_message, Action::SignMessage),
+];
+
+static VERIFY: [Entry; 3] = [
+    action(|s| s.address_explorer, Action::Explorer),
+    action(|s| s.verify_address, Action::VerifyAddress),
+    action(|s| s.verify_sig, Action::VerifySignature),
 ];
 
 static SEEDS: [Entry; 4] = [
     open(|s| s.create_seed, MenuId::NewSeed),
     open(|s| s.load_seed, MenuId::LoadSeed),
-    Entry {
-        label: |s| s.import_key,
-        detail: ">",
-        action: Action::ImportKey,
-    },
-    todo_entry!(|s| s.seed_vault, "M10", |s| s.ms_storage),
+    action(|s| s.import_key, Action::ImportKey),
+    action(|s| s.bip85, Action::Bip85),
 ];
 
 static NEW_SEED: [Entry; 4] = [
     start(|s| s.dice_rolls, Start::Dice),
     start(|s| s.coin_flips, Start::Coin),
     start(|s| s.d20_rolls, Start::D20),
-    todo_entry!(|s| s.slip39, "M11", |s| s.ms_backup),
+    start(|s| s.final_word, Start::FinalWord),
 ];
 
-static LOAD_SEED: [Entry; 6] = [
+static LOAD_SEED: [Entry; 3] = [
     start(|s| s.type_words, Start::TypeWords),
     start(|s| s.word_numbers, Start::WordNumbers),
-    Entry {
-        label: |s| s.scan_seedqr,
-        detail: ">",
-        action: Action::Scan(crate::scan::Purpose::Seed),
-    },
-    todo_entry!(|s| s.tinyseed, "M11", |s| s.ms_backup),
-    todo_entry!(|s| s.seed_xor, "M11", |s| s.ms_backup),
-    todo_entry!(|s| s.encrypted_backup, "M11", |s| s.ms_backup),
-];
-
-static TOOLS: [Entry; 9] = [
-    start(|s| s.final_word, Start::FinalWord),
-    Entry {
-        label: |s| s.address_explorer,
-        detail: ">",
-        action: Action::Explorer,
-    },
-    Entry {
-        label: |s| s.verify_address,
-        detail: ">",
-        action: Action::VerifyAddress,
-    },
-    Entry {
-        label: |s| s.sign_message,
-        detail: ">",
-        action: Action::SignMessage,
-    },
-    Entry {
-        label: |s| s.verify_sig,
-        detail: ">",
-        action: Action::VerifySignature,
-    },
-    Entry {
-        label: |s| s.wl.menu,
-        detail: ">",
-        action: Action::Multisig,
-    },
-    Entry {
-        label: |s| s.bip85,
-        detail: ">",
-        action: Action::Bip85,
-    },
-    todo_entry!(|s| s.secure_notes, "M11", |s| s.ms_tools),
-    todo_entry!(|s| s.totp, "M11", |s| s.ms_tools),
+    action(|s| s.scan_seedqr, Action::Scan(crate::scan::Purpose::Seed)),
 ];
 
 static SETTINGS: [Entry; 13] = [
@@ -218,10 +175,11 @@ static POWER: [Entry; 1] = [Entry {
 pub fn table(id: MenuId) -> &'static [Entry] {
     match id {
         MenuId::Main => &MAIN,
+        MenuId::Sign => &SIGN,
+        MenuId::Verify => &VERIFY,
         MenuId::Seeds => &SEEDS,
         MenuId::NewSeed => &NEW_SEED,
         MenuId::LoadSeed => &LOAD_SEED,
-        MenuId::Tools => &TOOLS,
         MenuId::Settings => &SETTINGS,
         MenuId::Power => &POWER,
     }
@@ -230,10 +188,11 @@ pub fn table(id: MenuId) -> &'static [Entry] {
 pub fn title(id: MenuId, s: &Strings) -> &'static str {
     match id {
         MenuId::Main => s.app_title,
-        MenuId::Seeds => s.seeds,
+        MenuId::Sign => s.m_sign,
+        MenuId::Verify => s.m_verify,
+        MenuId::Seeds => s.m_seeds,
         MenuId::NewSeed => s.create_seed,
         MenuId::LoadSeed => s.load_seed,
-        MenuId::Tools => s.tools,
         MenuId::Settings => s.settings,
         MenuId::Power => s.power,
     }
@@ -251,10 +210,11 @@ mod tests {
     fn menus_fit_max_items() {
         for id in [
             MenuId::Main,
+            MenuId::Sign,
+            MenuId::Verify,
             MenuId::Seeds,
             MenuId::NewSeed,
             MenuId::LoadSeed,
-            MenuId::Tools,
             MenuId::Settings,
             MenuId::Power,
         ] {
