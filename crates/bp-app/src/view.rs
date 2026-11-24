@@ -119,10 +119,32 @@ impl App {
         widgets::qr_code(c, q, x, y, w, h, style)
     }
 
+    /// Show the code of the error this screen explains (drawn at the
+    /// right of the key bar once the screen is done).
+    pub(crate) fn show_error(&self, area: crate::errors::Area, index: usize) {
+        self.err_code.set(Some((area, index as u8)));
+    }
+
+    /// The error code of the last render, for tests.
+    #[cfg(test)]
+    pub(crate) fn shown_error(&self) -> Option<Buf<16>> {
+        self.err_code
+            .get()
+            .map(|(a, i)| crate::errors::code(a, i as usize))
+    }
+
     pub fn render(&self, c: &mut dyn Canvas) {
         self.qr_area.set(None);
+        self.err_code.set(None);
         #[cfg(test)]
         crate::coverage::note(&self.current());
+        self.render_screen(c);
+        if let Some((a, i)) = self.err_code.get() {
+            widgets::error_code(c, crate::errors::code(a, i as usize).as_str());
+        }
+    }
+
+    fn render_screen(&self, c: &mut dyn Canvas) {
         let (w, h) = (c.width() as i32, c.height() as i32);
         c.fill_rect(0, 0, w, h, theme::BG);
         let s = self.text();
@@ -454,6 +476,7 @@ impl App {
                     &[&addr, &bp_ui::bformat!(8, "{:08X}", id).as_str()],
                 );
                 TITLE.draw(c, MARGIN, STATUS_H + 30, s.key.comm_title, theme::DANGER);
+                self.show_error(crate::errors::Area::Hw, 0);
                 BODY.draw(c, MARGIN, STATUS_H + 90, found.as_str(), theme::TEXT);
                 let mut y = STATUS_H + 136;
                 for l in s.key.comm_lines {
@@ -1752,6 +1775,7 @@ impl App {
             Some(Err(e)) => {
                 let i = *e as usize;
                 widgets::message_at(c, STATUS_H + 70, s.si_invalid, theme::DANGER, &[s.si_errors[i]]);
+                self.show_error(crate::errors::Area::Settings, i);
             }
             None => {}
         }

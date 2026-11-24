@@ -35,7 +35,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | C5 | 되돌릴 수 없는 동작의 단어 입력 확인: 카드 포맷 `FORMAT`, 시드 지우기 `WIPE` | M9-3 | 완료 — format_asks_twice, discarding_a_seed_needs_the_word_wipe |
 | C6 | 화면 보호(1분, 비밀 화면 가림) | M9-5 | 예정 |
 | C7 | 부팅 자가 점검 화면 | M9-5 | 예정 |
-| C8 | 오류 코드 표시 | M9-3 | 예정 |
+| C8 | 오류 코드 표시 (`E-영역-번호`, [목록](ERROR_CODES.md)) | M9-3 | 완료 — error_codes_are_documented, refusal_screens_show_their_error_code |
 | C9 | 화면 효과·비(설정 3단계) | M9-2 | 효과·설정 완료(설정 > 화면 효과, 기기 전용), 비는 M9-5에서 사용 |
 | C10 | 금액 단위 표시 방식 | M9-6 | 예정 |
 

@@ -897,6 +897,7 @@ impl App {
                     Some(Err(p)) => {
                         TITLE.draw(c, MARGIN, STATUS_H + 24, t.format_failed, theme::DANGER);
                         BODY.draw(c, MARGIN, STATUS_H + 80, t.problems[p.index()][0], theme::TEXT);
+                        self.show_error(crate::errors::Area::Card, p.index());
                     }
                     None => {
                         BODY.draw(c, MARGIN, STATUS_H + 24, t.reading, theme::TEXT_DIM);
@@ -930,6 +931,7 @@ impl App {
             }
             Some(Err(p)) => {
                 let lines = t.problems[p.index()];
+                self.show_error(crate::errors::Area::Card, p.index());
                 BODY.draw(c, MARGIN, top, lines[0], theme::WARN);
                 SMALL.draw(c, MARGIN, top + 32, lines[1], theme::TEXT);
                 SMALL.draw(c, MARGIN, top + 54, lines[2], theme::TEXT);
@@ -973,6 +975,7 @@ impl App {
         } else if let Some(p) = sd.list_err {
             BODY.draw(c, MARGIN, top + 12, t.problems[p.index()][0], theme::WARN);
             SMALL.draw(c, MARGIN, top + 52, t.problems[p.index()][1], theme::TEXT);
+            self.show_error(crate::errors::Area::Card, p.index());
         } else if sd.count == 0 {
             BODY.draw(c, MARGIN, top + 12, t.psbt_none[0], theme::TEXT_DIM);
             SMALL.draw(c, MARGIN, top + 52, t.psbt_none[1], theme::TEXT_DIM);
@@ -1021,6 +1024,7 @@ impl App {
             Some(Err(p)) => {
                 TITLE.draw(c, MARGIN, STATUS_H + 24, t.save_failed, theme::DANGER);
                 BODY.draw(c, MARGIN, STATUS_H + 84, t.save_problems[p as usize], theme::TEXT);
+                self.show_error(crate::errors::Area::Save, p as usize);
                 let items = [
                     MenuItem {
                         label: t.retry,
@@ -1057,6 +1061,7 @@ impl App {
             BODY.draw(c, MARGIN, top + 12, t.problems[p.index()][0], theme::WARN);
             SMALL.draw(c, MARGIN, top + 52, t.problems[p.index()][1], theme::TEXT);
             SMALL.draw(c, MARGIN, top + 78, t.problems[p.index()][2], theme::TEXT);
+            self.show_error(crate::errors::Area::Card, p.index());
         } else if sd.count == 0 {
             BODY.draw(c, MARGIN, top + 12, t.empty_dir, theme::TEXT_DIM);
         } else {

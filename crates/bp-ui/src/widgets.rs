@@ -250,6 +250,16 @@ pub fn typed_field(c: &mut dyn Canvas, top: i32, prompt: &str, typed: &str, wron
     bottom
 }
 
+/// An error code (UX language C8) at the right of the key bar.
+pub fn error_code(c: &mut dyn Canvas, code: &str) {
+    let (w, h) = (c.width() as i32, c.height() as i32);
+    let tw = SMALL.text_width(code);
+    let x = w - MARGIN - tw;
+    let y = h - HINT_H;
+    c.fill_rect(x - 10, y + 1, tw + 10 + MARGIN, HINT_H - 1, SURFACE);
+    SMALL.draw(c, x, y + (HINT_H - SMALL.height as i32) / 2, code, TEXT_DIM);
+}
+
 /// The double red frame of danger messages, across the screen.
 pub fn danger_frame(c: &mut dyn Canvas, y: i32, h: i32) {
     let w = c.width() as i32;

@@ -547,6 +547,17 @@ impl App {
                     }
                     None => Buf::new(),
                 };
+                let code = match m.problem {
+                    Some(Problem::Request(RequestError::Format)) => Some(0),
+                    Some(Problem::Request(RequestError::Path)) => Some(1),
+                    Some(Problem::Request(RequestError::Network)) => Some(2),
+                    Some(Problem::Request(RequestError::Message(_))) => Some(3),
+                    Some(Problem::SeedMissing(_)) => Some(4),
+                    None => None,
+                };
+                if let Some(i) = code {
+                    self.show_error(crate::errors::Area::Msg, i);
+                }
                 widgets::message_at(
                     c,
                     STATUS_H + 70,

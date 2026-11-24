@@ -3,6 +3,7 @@
 #![no_std]
 
 mod b85;
+pub(crate) mod errors;
 mod flow;
 mod keys;
 mod menus;
@@ -355,6 +356,8 @@ pub struct App {
     qr_area: core::cell::Cell<Option<[i32; 4]>>,
     /// The typed word of a confirmation for an action that cannot be undone.
     typed: typed::TypedWord,
+    /// The error code the screen being drawn shows (set while rendering).
+    err_code: core::cell::Cell<Option<(errors::Area, u8)>>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -433,6 +436,7 @@ impl App {
             comm: bp_hal::CommCheck::NotRun,
             qr_area: core::cell::Cell::new(None),
             typed: typed::TypedWord::new(),
+            err_code: core::cell::Cell::new(None),
         }
     }
 

@@ -348,6 +348,7 @@ impl App {
                 TITLE.draw(c, MARGIN, top + 20, t.refused, theme::DANGER);
                 let p = self.key_problem.map_or(0, |p| p as usize);
                 BODY.draw(c, MARGIN, top + 76, t.problems[p], theme::TEXT);
+                self.show_error(crate::errors::Area::Key, p);
                 widgets::hint_bar(c, &[("Enter", s.h_back)]);
             }
             KeyStep::Addresses { slot, sel } => {

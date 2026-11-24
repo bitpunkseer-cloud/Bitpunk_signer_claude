@@ -258,6 +258,7 @@ impl App {
                     }
                 }
                 if let Some(i) = first {
+                    self.show_error(crate::errors::Area::Tx, issue_index(&i));
                     y += 8;
                     let p = self.settings.policy();
                     let text: Buf<512> = fill(
@@ -281,6 +282,7 @@ impl App {
                 let head: Buf<64> = fill(rv.check_n, &[&(idx as usize + 1), &n]);
                 widgets::label(c, MARGIN, top, head.as_str());
                 let (title, text) = rv.issues[issue_index(&w)];
+                self.show_error(crate::errors::Area::Tx, issue_index(&w));
                 TITLE.draw(c, MARGIN, top + 24, title, theme::WARN);
                 let at = self.issue_where(&w);
                 let mut y = top + 24 + TITLE.height as i32 + 8;
@@ -535,6 +537,7 @@ impl App {
                     Some(bp_bitcoin::message::MessageError::TooManySpaces) => 4,
                 };
                 let l: Buf<256> = fill(s.ms_problems[3], &[&s.ms_rules[i]]);
+                self.show_error(crate::errors::Area::Msg, 3);
                 widgets::message_at(c, STATUS_H + 70, rv.cannot_sign, theme::DANGER, &[l.as_str()]);
                 widgets::hint_bar(c, &[("Enter", s.h_done)]);
             }
@@ -701,6 +704,7 @@ impl App {
                     Some(sign::Error::Output) => 6,
                 };
                 widgets::message_at(c, STATUS_H + 90, rv.failed, theme::DANGER, &[rv.sign_errors[i]]);
+                self.show_error(crate::errors::Area::Sign, i);
                 widgets::hint_bar(c, &[("Enter", s.h_done)]);
             }
         }

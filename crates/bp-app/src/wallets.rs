@@ -1315,7 +1315,10 @@ impl App {
                     RejectKind::Network => fill("{}", &[&self.settings.network.name()]),
                     _ => fill("{}", &[&(r.key.unwrap_or(0) as usize + 1)]),
                 };
-                fill(t.rejects[reject_index(r.kind)], &[&arg.as_str()])
+                {
+                    self.show_error(crate::errors::Area::Wallet, reject_index(r.kind));
+                    fill(t.rejects[reject_index(r.kind)], &[&arg.as_str()])
+                }
             }
             None => Buf::new(),
         }

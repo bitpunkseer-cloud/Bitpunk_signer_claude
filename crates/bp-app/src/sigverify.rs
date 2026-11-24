@@ -219,6 +219,7 @@ impl App {
                             CheckError::Invalid => 5,
                         };
                         let l: Buf<256> = fill(s.sv_reasons[i], &[&net.name()]);
+                        self.show_error(crate::errors::Area::Sig, i);
                         y = BODY.draw_wrapped(c, MARGIN, y, 800 - 2 * MARGIN, 28, 3, l.as_str(), theme::TEXT);
                         if st.addr_len > 0 {
                             SMALL.draw(c, MARGIN, y + 4, st.addr(), theme::TEXT_DIM);

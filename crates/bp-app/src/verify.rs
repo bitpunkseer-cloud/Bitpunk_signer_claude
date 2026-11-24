@@ -325,6 +325,7 @@ impl App {
                             TargetError::Unsupported => 3,
                         };
                         let msg: Buf<256> = fill(s.va_errors[i], &[&net.name()]);
+                        self.show_error(crate::errors::Area::Addr, i);
                         let col = if i == 1 { theme::DANGER } else { theme::WARN };
                         BODY.draw_wrapped(c, MARGIN, y, 800 - 2 * MARGIN, 30, 3, msg.as_str(), col);
                         widgets::hint_bar(c, &[("Enter", s.h_done)]);

@@ -61,7 +61,7 @@
 - `DOUBLE`에는 한글이 없다. 한글 제목은 `TITLE`.
 - 글꼴은 모두 SIL OFL 1.1, 생성 도구 `tools/gen_font.py`(`DOUBLE`은 이름을 주어 따로 생성), `tools/gen_hangul.py`.
 
-## 4. 공통 부품 (M9-3, 일부 확정) — `bp_ui::widgets`
+## 4. 공통 부품 (확정, M9-3) — `bp_ui::widgets`
 
 | 부품 | 규칙 |
 |---|---|
@@ -73,7 +73,7 @@
 | 표 (`table_row`) | 칸 단위 고정 폭 열, 왼쪽/오른쪽 맞춤 |
 | 단어 입력 확인 (`typed_field`, `typed.rs`) | 되돌릴 수 없는 동작만: 카드 포맷 `FORMAT`, 시드 지우기 `WIPE`. 대소문자 무관, 숫자 무시, 틀린 단어는 아무것도 바꾸지 않음, Esc(또는 빈 칸에서 Del)는 취소. 큰 글씨로 입력 내용과 커서 |
 | 모서리 | 모두 직각(터미널) |
-| 오류 코드 | (M9-3d) |
+| 오류 코드 (`errors.rs`) | 거부·실패 화면은 키 막대 오른쪽에 `E-영역-번호`(예: `E-CARD-03`). 번호는 그 영역 메시지 표의 순서(01부터). 영역 11개: CARD SAVE TX SIGN WAL KEY MSG ADR SIG SET HW. 전체 목록 [ERROR_CODES.md](ERROR_CODES.md)는 시험이 메시지 표에서 만든다 — 메시지를 바꾸면 다시 기록. 새 오류 화면은 `show_error`로 코드를 단다 |
 
 ## 5. 조작 (예정, M9-3·M9-4)
 키의 공통 뜻, 키 막대 규칙, 확인 기준, 메뉴 구조.
