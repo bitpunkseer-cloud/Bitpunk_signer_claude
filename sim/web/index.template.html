@@ -503,6 +503,12 @@
   const sdLed = document.querySelectorAll(".leds .led")[1];
   const MAX_FILE = 8 << 20;
   let sdIn = true, sdCycles = 0, sdNote = "";
+  // File saves in the Claude artifact viewer go through its downloads
+  // capability; elsewhere (GitHub Pages, a local file) a plain link works.
+  let sdSaver = null;
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("downloads").then(d => { sdSaver = d; }, () => {});
+  }
 
   function sdBytes(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
   function sdPath(path) {
@@ -526,9 +532,24 @@
         const m = wasm.bp_sd_get(sdPath(path));
         if (m === 0xFFFFFFFF) { sdNote = "Could not read " + path; sdShow(); return; }
         const bytes = new Uint8Array(wasm.memory.buffer, wasm.bp_out_ptr(), m).slice();
+        const file = path.split("/").pop();
+        if (sdSaver) {
+          // Inside the Claude viewer: only some extensions may be saved, so
+          // .psbt, .sig and .bpw files get ".txt" added (wallet apps read
+          // them by content).
+          const filename = /\.(txt|json|md|csv)$/i.test(file) ? file : file + ".txt";
+          sdSaver.save({ filename, data: bytes }).then(() => {
+            sdNote = filename === file ? "" : "Saved as " + filename + ": remove .txt if your wallet app asks for " + file.slice(file.lastIndexOf(".")) + ".";
+            sdShow();
+          }, e => {
+            sdNote = e && e.code === "declined" ? "" : "This viewer cannot save files: open the simulator from GitHub Pages.";
+            sdShow();
+          });
+          return;
+        }
         const a = document.createElement("a");
         a.href = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
-        a.download = path.split("/").pop();
+        a.download = file;
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 1000);
       });
