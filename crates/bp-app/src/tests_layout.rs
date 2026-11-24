@@ -564,6 +564,22 @@ fn tour(lang: Lang) -> usize {
     );
     scan_psbt(&mut a, &p);
     t.snap(&a, "review-warning");
+    // M9-6: the confirmed warnings in the overview's log; BTC amounts (C10)
+    while matches!(
+        a.current(),
+        Screen::Review {
+            step: Step::Warning { .. }
+        }
+    ) {
+        press(&mut a, Key::Enter);
+    }
+    t.snap(&a, "review-overview-warnings");
+    a.settings.units = crate::settings::Units::Btc;
+    t.snap(&a, "review-overview-btc");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "review-output-btc");
+    press(&mut a, Key::Enter);
+    t.snap(&a, "review-fee-high");
 
     // address verification: confirm, searching, found, paused, refusals
     let mut a = t.app();

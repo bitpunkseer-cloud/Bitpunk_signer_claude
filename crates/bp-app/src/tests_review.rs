@@ -1914,3 +1914,36 @@ fn refusal_screens_show_their_error_code() {
 fn back_where_scans_start(a: &App) -> bool {
     matches!(a.current(), Screen::Menu { id, .. } if id == nav::menu_of(To::Scan(scan::Purpose::Any)))
 }
+
+/// M9 C10: BTC amounts group their eight decimals (0.01 234 567) so the
+/// sats can be read off them; sats keep the thousands commas. The review
+/// headline also shows the other unit, which is the same number of sats.
+#[test]
+fn amounts_group_the_sats_in_btc() {
+    use crate::review_view::{amount, other_unit};
+    use crate::settings::Units::{Btc, Sats};
+    let cases: &[(u64, &str, &str)] = &[
+        (0, "0 sats", "0.00 000 000 BTC"),
+        (1, "1 sats", "0.00 000 001 BTC"),
+        (60_000, "60,000 sats", "0.00 060 000 BTC"),
+        (1_234_567, "1,234,567 sats", "0.01 234 567 BTC"),
+        (123_456_789, "123,456,789 sats", "1.23 456 789 BTC"),
+        (
+            2_100_000_000_000_000,
+            "2,100,000,000,000,000 sats",
+            "21,000,000.00 000 000 BTC",
+        ),
+    ];
+    for &(v, sats, btc) in cases {
+        assert_eq!(amount(v, Sats).as_str(), sats);
+        assert_eq!(amount(v, Btc).as_str(), btc);
+        // the BTC digits, separators removed, are the sats
+        let digits: std::string::String = btc.chars().filter(|c| c.is_ascii_digit()).collect();
+        assert_eq!(digits.parse::<u64>().unwrap(), v);
+        assert_eq!(other_unit(v, Sats).as_str(), std::format!("= {btc}"));
+        assert_eq!(other_unit(v, Btc).as_str(), std::format!("= {sats}"));
+    }
+    // the largest amount still fits the double-size headline
+    let widest = amount(2_100_000_000_000_000, Sats);
+    assert!(bp_ui::font::DOUBLE.text_width(widest.as_str()) <= 800 - 2 * 16);
+}

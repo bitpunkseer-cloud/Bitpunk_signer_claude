@@ -514,6 +514,20 @@ pub struct ReviewStrings {
     /// No challenge, prevout index, to_spend mismatch, non-zero amount,
     /// previous transaction, version.
     pub forgeries: [&'static str; 6],
+    // M9-6 headline and verification log
+    /// "Sending to {} recipient(s)"
+    pub head_send: &'static str,
+    pub head_self: &'static str,
+    /// "{ours} of {total}"
+    pub log_inputs: &'static str,
+    pub log_inputs_watch: &'static str,
+    pub log_back: &'static str,
+    pub log_sighash: &'static str,
+    pub log_no_warnings: &'static str,
+    pub log_more: &'static str,
+    /// "{percent} {sat/vB}"
+    pub log_fee_ok: &'static str,
+    pub log_recipient: &'static str,
 }
 
 pub static EN_REVIEW: ReviewStrings = ReviewStrings {
@@ -645,6 +659,16 @@ pub static EN_REVIEW: ReviewStrings = ReviewStrings {
         "The previous transaction given is not the message's.",
         "The transaction version is not one BIP-322 allows.",
     ],
+    head_send: "Sending to {} recipient(s)",
+    head_self: "Moving to your own addresses",
+    log_inputs: "Inputs: {} of {} this seed's (keys re-derived)",
+    log_inputs_watch: "Inputs: {} of {} the wallet's (scripts rebuilt)",
+    log_back: "Back to you: {} output(s), addresses re-derived",
+    log_sighash: "Signature hash: ALL (signs the whole transaction)",
+    log_no_warnings: "No warnings",
+    log_more: "{} more warning(s), each checked before this",
+    log_fee_ok: "Under your limits: {}% of outputs, {} sat/vB",
+    log_recipient: "Not yours: check every group with the recipient",
 };
 
 pub static EN: Strings = Strings {
@@ -1280,6 +1304,16 @@ pub static KO_REVIEW: ReviewStrings = ReviewStrings {
         "주어진 이전 거래가 이 메시지의 것이 아닙니다.",
         "BIP-322가 허용하지 않는 거래 버전입니다.",
     ],
+    head_send: "받는 사람 {}명에게 보냄",
+    head_self: "내 주소로 옮김",
+    log_inputs: "입력: {}/{}개가 이 시드의 것 (키 재유도)",
+    log_inputs_watch: "입력: {}/{}개가 지갑의 것 (스크립트 재구성)",
+    log_back: "내게 돌아옴: 출력 {}개, 주소 재유도",
+    log_sighash: "서명 해시: ALL (거래 전체에 서명)",
+    log_no_warnings: "경고 없음",
+    log_more: "경고 {}개 더 (앞에서 하나씩 확인함)",
+    log_fee_ok: "기준 이하: 출력의 {}%, {} sat/vB",
+    log_recipient: "내 주소 아님: 받는 사람 주소와 모든 묶음을 대조하세요",
 };
 
 pub static KO: Strings = Strings {
