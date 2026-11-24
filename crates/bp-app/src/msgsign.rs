@@ -442,6 +442,7 @@ impl App {
                         .as_ref()
                         .is_some_and(|m| m.seen + 1 >= page_count(m.message()));
                     let step = if all && self.msg_sign() {
+                        self.log.push(crate::session::Event::MessageSigned, None);
                         MsStep::Done { sel: 0 }
                     } else {
                         MsStep::Failed

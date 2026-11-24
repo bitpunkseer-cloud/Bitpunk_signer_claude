@@ -27,6 +27,7 @@ const ABANDON: &str =
 fn app() -> App {
     let mut a = App::new(b"test quiz seed");
     a.tick(SPLASH_MS);
+    nav::home(&mut a); // past the first-run screen (M9-4)
     a
 }
 

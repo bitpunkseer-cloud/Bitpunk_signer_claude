@@ -154,6 +154,42 @@ impl App {
                 widgets::message_panel(c, s.powered_off, &[s.powered_off_1, "", s.powered_off_2]);
             }
             Screen::Menu { id, sel } => self.render_menu(c, id, sel),
+            Screen::Welcome { sel } => {
+                self.status(c, s.start);
+                bp_ui::font::DOUBLE.draw(c, MARGIN, STATUS_H + 10, "BITPUNK", theme::BRIGHT);
+                SMALL.draw(c, MARGIN + 200, STATUS_H + 36, s.tagline, theme::TEXT_DIM);
+                let mut y = STATUS_H + 76;
+                for l in s.welcome {
+                    widgets::log_line(c, MARGIN, y, w - 2 * MARGIN, widgets::Tag::Info, l, "");
+                    y += BODY.height as i32 + 4;
+                }
+                let value = |row| self.settings.value_label(MenuId::Settings, row, s).unwrap_or("");
+                let items = [
+                    MenuItem {
+                        label: s.start,
+                        detail: ">",
+                    },
+                    MenuItem {
+                        label: s.language,
+                        detail: value(crate::settings::ROW_LANG),
+                    },
+                    MenuItem {
+                        label: s.network,
+                        detail: value(crate::settings::ROW_NETWORK),
+                    },
+                ];
+                widgets::list(
+                    c,
+                    MARGIN,
+                    y + 12,
+                    w - 2 * MARGIN,
+                    3 * 48,
+                    &items,
+                    sel as usize,
+                    false,
+                );
+                widgets::hint_bar(c, &[("^v", s.h_move), ("<>", s.h_change), ("Enter", s.h_select)]);
+            }
             Screen::About => {
                 self.status(c, s.about);
                 let mut rows = s.about_rows;
@@ -589,13 +625,59 @@ impl App {
             };
             n += 1;
         }
-        widgets::menu_list(c, &items[..n], sel as usize);
+        if id == MenuId::Main {
+            self.render_main_menu(c, &items[..n], sel);
+        } else {
+            widgets::menu_list(c, &items[..n], sel as usize);
+        }
         if menus::is_settings(id) {
             widgets::hint_bar(c, &[("^v", s.h_move), ("<>", s.h_change), ("Esc", s.h_back)]);
         } else if id == MenuId::Main {
             widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("1-9", s.h_jump)]);
         } else {
             widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+        }
+    }
+
+    /// The main menu in compact rows, and under it the session log (M9-4,
+    /// C4): what happened since power on, newest first.
+    fn render_main_menu(&self, c: &mut dyn Canvas, items: &[MenuItem], sel: u8) {
+        let s = self.text();
+        let w = c.width() as i32;
+        let row_h = 36;
+        let top = STATUS_H + 8;
+        widgets::list_rows(
+            c,
+            MARGIN,
+            top,
+            w - 2 * MARGIN,
+            items.len() as i32 * row_h,
+            items,
+            sel as usize,
+            false,
+            row_h,
+        );
+        let mut y = top + items.len() as i32 * row_h + 8;
+        c.fill_rect(MARGIN, y, w - 2 * MARGIN, 1, theme::LINE);
+        y += 6;
+        SMALL.draw(c, MARGIN, y, s.log_title, theme::TEXT_DIM);
+        y += SMALL.height as i32 + 2;
+        if self.log.is_empty() {
+            BODY.draw(c, MARGIN, y, s.log_empty, theme::TEXT_DIM);
+            return;
+        }
+        for e in self.log.latest() {
+            let t = crate::session::clock(e.secs);
+            let what = s.log_events[e.event as usize];
+            let line: Buf<96> = match e.fingerprint {
+                Some(fp) => fill(
+                    "[{}] {} · {}",
+                    &[&t.as_str(), &what, &crate::seeds::fingerprint_hex(&fp).as_str()],
+                ),
+                None => fill("[{}] {}", &[&t.as_str(), &what]),
+            };
+            BODY.draw(c, MARGIN, y, line.as_str(), theme::TEXT);
+            y += BODY.height as i32 - 1;
         }
     }
 

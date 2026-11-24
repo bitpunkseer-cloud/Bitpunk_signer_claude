@@ -38,6 +38,7 @@ kinds!(
     Screen,
     [
         Splash,
+        Welcome,
         PoweredOff,
         About,
         Menu,

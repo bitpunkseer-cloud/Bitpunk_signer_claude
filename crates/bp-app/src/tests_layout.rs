@@ -72,6 +72,7 @@ impl Tour {
         a.settings.lang = self.lang;
         a.set_test_only(true);
         a.tick(SPLASH_MS);
+        nav::home(&mut a); // past the first-run screen (M9-4)
         a
     }
 
@@ -136,6 +137,17 @@ fn tour(lang: Lang) -> usize {
     a.settings.lang = lang;
     a.set_test_only(true);
     t.snap(&a, "splash");
+    {
+        // the first-run screen (M9-4), every row selected once
+        let mut w = App::new(b"tour");
+        w.settings.lang = t.lang;
+        w.set_test_only(true);
+        w.tick(SPLASH_MS);
+        for sel in 0..3 {
+            w.set_current(Screen::Welcome { sel });
+            t.snap(&w, "welcome");
+        }
+    }
     let mut a = t.app();
     for id in [
         MenuId::Main,

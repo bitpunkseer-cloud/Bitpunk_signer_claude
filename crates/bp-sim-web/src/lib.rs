@@ -308,8 +308,9 @@ mod tests {
         bp_key(1, 0, 0); // Enter: leave splash
         assert_eq!(bp_tick(16), 1);
         assert_eq!(bp_tick(16), 0);
-        // the QR key (Fn+Q) opens the scanner from any menu; pasted text
-        // arrives through the buffer
+        bp_key(2, 0, 0); // Esc: past the first-run screen (M9-4)
+                         // the QR key (Fn+Q) opens the scanner from any menu; pasted text
+                         // arrives through the buffer
         bp_key(10, 0, 0);
         assert_eq!(bp_wants_camera(), 1);
         let addr = b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu";

@@ -198,6 +198,15 @@ pub fn title(id: MenuId, s: &Strings) -> &'static str {
     }
 }
 
+/// The row of `parent` that opens `child` (for returning with the
+/// selection where the user left it).
+pub fn row_opening(parent: MenuId, child: MenuId) -> u8 {
+    table(parent)
+        .iter()
+        .position(|e| matches!(e.action, Action::Open(id) if id == child))
+        .unwrap_or(0) as u8
+}
+
 pub fn is_settings(id: MenuId) -> bool {
     id == MenuId::Settings
 }

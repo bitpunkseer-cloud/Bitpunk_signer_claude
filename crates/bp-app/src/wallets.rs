@@ -776,6 +776,7 @@ impl App {
                         Some(c) if Some(c) == want => {
                             if let Some(idx) = self.wallet_register() {
                                 self.wl.clear_input();
+                                self.log.push(crate::session::Event::WalletRegistered, None);
                                 set(self, WlStep::Registered { idx, sel: 0 });
                             }
                         }
@@ -1229,6 +1230,7 @@ impl App {
                 self.wl.clear_input();
                 if self.make_pending(imp.wallet, Some(imp.format), slot, false) {
                     if let Some(idx) = self.wallet_register() {
+                        self.log.push(crate::session::Event::WalletRegistered, None);
                         self.notice = Some(self.text().sd.registered_from_file);
                         self.set_current(Screen::Wallets {
                             step: WlStep::Registered { idx, sel: 0 },

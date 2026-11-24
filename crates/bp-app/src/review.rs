@@ -623,6 +623,7 @@ impl App {
         let step = match result {
             Ok(s) => {
                 r.signed = Some(s);
+                self.log.push(crate::session::Event::PsbtSigned, None);
                 Step::Signed { sel: 0 }
             }
             Err(e) => {

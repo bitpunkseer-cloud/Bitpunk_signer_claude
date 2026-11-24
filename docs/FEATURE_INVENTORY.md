@@ -30,8 +30,8 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 |---|---|---|---|
 | C1 | 주 메뉴·하위 메뉴 재편(위치·번호) — 아래 "M9 이후 위치" | M9-4 | 완료 — every_feature_is_reachable, 기존 시험은 기능 이름으로 이동해 그대로 통과 |
 | C2 | 미구현 기능 줄을 메뉴에서 빼고 설정 > 기기 정보 > 예정 기능으로 | M9-4 | 완료 (자리 표시 화면 삭제) |
-| C3 | 첫 실행 안내 | M9-4 | 예정 |
-| C4 | 세션 로그(주 메뉴 아래) | M9-4 | 예정 |
+| C3 | 첫 실행 안내: 시작 화면 뒤 원칙 3줄 + 언어·네트워크 선택 (저장이 없으니 켤 때마다) | M9-4 | 완료 — splash_times_out_to_the_first_run_screen_then_main, first_run_screen_sets_language_and_network |
+| C4 | 세션 로그: 주 메뉴 아래 최근 4건(켠 뒤 경과 시간, 종류, 시드는 지문만), RAM만·전원 끄면 지움 | M9-4 | 완료 — session_log_records_what_happened_and_power_off_wipes_it |
 | C5 | 되돌릴 수 없는 동작의 단어 입력 확인: 카드 포맷 `FORMAT`, 시드 지우기 `WIPE` | M9-3 | 완료 — format_asks_twice, discarding_a_seed_needs_the_word_wipe |
 | C6 | 화면 보호(1분, 비밀 화면 가림) | M9-5 | 예정 |
 | C7 | 부팅 자가 점검 화면 | M9-5 | 예정 |
@@ -139,6 +139,8 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-064 | 한국어·영어 전 화면 | 설정 > 언어 | every_screen_fits_in_every_language, every_issue_text_fits |
 | F-065 | 시작 화면 시간 초과 → 주 메뉴, TEST ONLY 표시 | 부팅 | splash_times_out_to_main_menu |
 | F-066 | (M9) 화면 효과 전체·약하게·끔, QR은 효과 밖 | 설정 > 화면 효과 | qr_codes_read_through_screen_effects |
+| F-067 | (M9) 첫 실행 화면: 원칙, 언어·네트워크 | 부팅 직후 | first_run_screen_sets_language_and_network |
+| F-068 | (M9) 세션 로그 | 주 메뉴 아래 | session_log_records_what_happened_and_power_off_wipes_it |
 
 ### 멀티시그 (M7)
 | # | 기능 | M8 위치 | 시험 |

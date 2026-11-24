@@ -500,6 +500,9 @@ impl App {
             Job::Format => {
                 let rng = &mut self.quiz_rng;
                 let r = bp_fat::format(&mut *card, &mut |b: &mut [u8]| rng.fill(b));
+                if r.is_ok() {
+                    self.log.push(crate::session::Event::CardFormatted, None);
+                }
                 self.sd.card = Some(match r {
                     Ok(_) => probe(card).map_err(CardProblem::from_fat),
                     Err(e) => Err(CardProblem::from_fat(e)),

@@ -11,6 +11,7 @@ use std::string::String;
 fn app() -> App {
     let mut a = App::new(b"test quiz seed");
     a.tick(SPLASH_MS);
+    nav::home(&mut a); // past the first-run screen (M9-4)
     a
 }
 
@@ -82,10 +83,13 @@ fn answer_all(a: &mut App, wrong_at: Option<usize>) {
 }
 
 #[test]
-fn splash_times_out_to_main_menu() {
+fn splash_times_out_to_the_first_run_screen_then_main() {
     let mut a = App::new(b"x");
     assert_eq!(a.current(), Screen::Splash);
     a.tick(SPLASH_MS);
+    // M9-4 (C3): principles, language and network first
+    assert_eq!(a.current(), Screen::Welcome { sel: 0 });
+    press(&mut a, Key::Enter); // Start
     assert_eq!(
         a.current(),
         Screen::Menu {
@@ -93,6 +97,69 @@ fn splash_times_out_to_main_menu() {
             sel: 0
         }
     );
+}
+
+#[test]
+fn first_run_screen_sets_language_and_network() {
+    let mut a = App::new(b"x");
+    a.tick(SPLASH_MS);
+    press(&mut a, Key::Char('2')); // language
+    assert_eq!(a.settings.lang, settings::Lang::Ko);
+    press(&mut a, Key::Left);
+    assert_eq!(a.settings.lang, settings::Lang::En);
+    press(&mut a, Key::Down); // network
+    let before = a.settings.network;
+    press(&mut a, Key::Right);
+    assert_ne!(a.settings.network, before);
+    press(&mut a, Key::Esc); // Esc also starts
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    // power off, power on: the first-run screen again (nothing is stored)
+    nav::go(&mut a, To::PowerOff);
+    press(&mut a, Key::Enter);
+    a.tick(SPLASH_MS);
+    assert_eq!(a.current(), Screen::Welcome { sel: 0 });
+}
+
+#[test]
+fn session_log_records_what_happened_and_power_off_wipes_it() {
+    use crate::session::Event;
+    let mut a = app();
+    assert!(a.log.is_empty());
+    for _ in 0..65 {
+        a.tick(1000);
+    }
+    load_abandon(&mut a);
+    nav::seed_opt(&mut a, keys::SlotOpt::Xpub);
+    nav::script(&mut a, ScriptType::NativeSegwit);
+    press(&mut a, Key::Char('1'));
+    let events: std::vec::Vec<_> = a.log.latest().map(|e| (e.event, e.fingerprint)).collect();
+    assert_eq!(
+        events,
+        [
+            (Event::XpubShown, Some([0x73, 0xc5, 0xda, 0x0a])),
+            (Event::SeedLoaded, Some([0x73, 0xc5, 0xda, 0x0a])),
+        ]
+    );
+    assert!(a.log.latest().last().unwrap().secs >= 65, "time since power on");
+    // shown under the main menu
+    nav::home(&mut a);
+    a.render(&mut layout_free::Null);
+    nav::go(&mut a, To::PowerOff);
+    assert!(a.log.is_empty());
+}
+
+mod layout_free {
+    pub struct Null;
+    impl bp_hal::Canvas for Null {
+        fn width(&self) -> u16 {
+            800
+        }
+        fn height(&self) -> u16 {
+            480
+        }
+        fn fill_rect(&mut self, _: i32, _: i32, _: i32, _: i32, _: bp_hal::Rgb) {}
+        fn blend_pixel(&mut self, _: i32, _: i32, _: bp_hal::Rgb, _: u8) {}
+    }
 }
 
 #[test]

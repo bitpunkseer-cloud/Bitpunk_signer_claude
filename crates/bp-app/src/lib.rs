@@ -15,6 +15,7 @@ mod scan;
 mod sd;
 mod sdfile;
 mod seeds;
+pub(crate) mod session;
 mod settings;
 mod sigverify;
 mod text;
@@ -126,6 +127,11 @@ impl XpubFormat {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
     Splash,
+    /// First screen after the splash (M9-4, C3): principles, language and
+    /// network, then the main menu.
+    Welcome {
+        sel: u8,
+    },
     PoweredOff,
     About,
     Menu {
@@ -355,6 +361,8 @@ pub struct App {
     typed: typed::TypedWord,
     /// The error code the screen being drawn shows (set while rendering).
     err_code: core::cell::Cell<Option<(errors::Area, u8)>>,
+    /// What happened since power on (M9-4, shown under the main menu).
+    pub(crate) log: session::Log,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -434,6 +442,7 @@ impl App {
             qr_area: core::cell::Cell::new(None),
             typed: typed::TypedWord::new(),
             err_code: core::cell::Cell::new(None),
+            log: session::Log::new(),
         }
     }
 
@@ -531,9 +540,19 @@ impl App {
     /// Return to Main > Seeds and optionally show `then` on top.
     fn go_seeds(&mut self, then: Option<Screen>) {
         self.flow = None;
+        if let Some(Screen::SeedReady { slot, created }) = then {
+            if let Some(s) = self.slot(slot as usize) {
+                let event = match (created, s.kind) {
+                    (true, _) => session::Event::SeedCreated,
+                    (false, seeds::SlotKind::Mnemonic) => session::Event::SeedLoaded,
+                    (false, _) => session::Event::KeyImported,
+                };
+                self.log.push(event, Some(s.fingerprint));
+            }
+        }
         self.reset_to(Screen::Menu {
             id: MenuId::Main,
-            sel: 1,
+            sel: menus::row_opening(MenuId::Main, MenuId::Seeds),
         });
         self.push(Screen::Menu {
             id: MenuId::Seeds,
@@ -550,16 +569,14 @@ impl App {
 
     /// Advance timers. Returns true when the screen needs redrawing.
     pub fn tick(&mut self, dt_ms: u32) -> bool {
+        self.log.tick(dt_ms);
         if self.current() == Screen::Splash {
             self.splash_ms = self.splash_ms.saturating_add(dt_ms);
             if self.splash_ms >= SPLASH_MS {
                 if matches!(self.comm, bp_hal::CommCheck::Detected(_)) {
                     self.reset_to(Screen::CommDetected);
                 } else {
-                    self.reset_to(Screen::Menu {
-                        id: MenuId::Main,
-                        sel: 0,
-                    });
+                    self.reset_to(Screen::Welcome { sel: 0 });
                 }
             }
         }
@@ -830,10 +847,39 @@ impl App {
             Screen::Splash if matches!(self.comm, bp_hal::CommCheck::Detected(_)) => {
                 self.reset_to(Screen::CommDetected)
             }
-            Screen::Splash => self.reset_to(Screen::Menu {
-                id: MenuId::Main,
-                sel: 0,
-            }),
+            Screen::Splash => self.reset_to(Screen::Welcome { sel: 0 }),
+            Screen::Welcome { sel } => match ev.key {
+                Key::Left | Key::Right if sel > 0 => {
+                    let row = if sel == 1 {
+                        settings::ROW_LANG
+                    } else {
+                        settings::ROW_NETWORK
+                    };
+                    let dir = if ev.key == Key::Left { -1 } else { 1 };
+                    if self.settings.cycle(MenuId::Settings, row, dir) {
+                        self.dirty = true;
+                    }
+                }
+                _ => match pick(ev.key, sel, 3) {
+                    Pick::Move(s) => self.set_current(Screen::Welcome { sel: s }),
+                    Pick::Choose(0) | Pick::Back => self.reset_to(Screen::Menu {
+                        id: MenuId::Main,
+                        sel: 0,
+                    }),
+                    Pick::Choose(s) => {
+                        self.set_current(Screen::Welcome { sel: s });
+                        let row = if s == 1 {
+                            settings::ROW_LANG
+                        } else {
+                            settings::ROW_NETWORK
+                        };
+                        if self.settings.cycle(MenuId::Settings, row, 1) {
+                            self.dirty = true;
+                        }
+                    }
+                    Pick::None => {}
+                },
+            },
             Screen::PoweredOff => {
                 self.splash_ms = 0;
                 self.reset_to(Screen::Splash);
@@ -1274,6 +1320,8 @@ impl App {
                 ..
             } => match self.typed.key(ev.key, typed::WIPE) {
                 typed::Typed::Confirmed => {
+                    let fp = self.slot(slot as usize).map(|s| s.fingerprint);
+                    self.log.push(session::Event::SeedDiscarded, fp);
                     self.seeds[slot as usize] = None; // Mnemonic wipes itself
                     self.wallets.forget_slot(slot);
                     self.go_seeds(None);
@@ -1341,6 +1389,10 @@ impl App {
 
     /// Build the QR session for `kind` and show it.
     fn open_qr(&mut self, kind: QrKind) {
+        if let QrKind::Xpub { slot, .. } | QrKind::MsKey { slot, .. } = kind {
+            let fp = self.slot(slot as usize).map(|s| s.fingerprint);
+            self.log.push(session::Event::XpubShown, fp);
+        }
         let net = self.settings.network;
         let session = match kind {
             QrKind::Xpub {
@@ -1681,6 +1733,7 @@ impl App {
                 }
             }
             Action::PowerOff => {
+                self.log.clear();
                 self.flow = None;
                 self.seeds = [None, None, None];
                 self.review = None;

@@ -141,7 +141,33 @@ pub fn list(
     scrollbar: bool,
 ) {
     // two grid rows per item; the selection is an inverse bar
-    let row_h = 2 * crate::grid::CELL_H;
+    list_rows(
+        c,
+        x,
+        top,
+        rw,
+        height,
+        items,
+        selected,
+        scrollbar,
+        2 * crate::grid::CELL_H,
+    );
+}
+
+/// `list` with a chosen row height (the main menu uses compact rows to
+/// leave room for the session log).
+#[allow(clippy::too_many_arguments)]
+pub fn list_rows(
+    c: &mut dyn Canvas,
+    x: i32,
+    top: i32,
+    rw: i32,
+    height: i32,
+    items: &[MenuItem],
+    selected: usize,
+    scrollbar: bool,
+    row_h: i32,
+) {
     let visible = (height / row_h).max(1) as usize;
     let first = if selected >= visible {
         selected + 1 - visible
@@ -153,7 +179,8 @@ pub fn list(
         let y = top + (i - first) as i32 * row_h;
         let sel = i == selected;
         if sel {
-            c.fill_rect(x, y + 4, rw, row_h - 8, ACCENT);
+            let pad = if row_h >= 40 { 4 } else { 2 };
+            c.fill_rect(x, y + pad, rw, row_h - 2 * pad, ACCENT);
         }
         let (fg, dim) = if sel {
             (ACCENT_TEXT, ACCENT_TEXT)

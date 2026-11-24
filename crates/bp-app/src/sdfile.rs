@@ -463,6 +463,9 @@ impl App {
             let wiped = wipe && v.wipe(&origin.entry).is_ok();
             Ok(Saved { name, wiped })
         });
+        if r.is_ok() {
+            self.log.push(crate::session::Event::FileSaved, None);
+        }
         self.sd.saved = Some(r.map_err(SaveProblem::from_fat));
         bp_crypto::secret::wipe(&mut armored);
     }
@@ -586,6 +589,9 @@ impl App {
             v.create(DirId::Root, name.as_str(), &buf[..n])?;
             Ok(Saved { name, wiped: false })
         });
+        if r.is_ok() {
+            self.log.push(crate::session::Event::FileSaved, None);
+        }
         self.sd.saved = Some(r.map_err(SaveProblem::from_fat));
     }
 
