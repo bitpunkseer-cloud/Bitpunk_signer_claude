@@ -302,7 +302,7 @@ pub enum AddError {
     Duplicate(u8),
 }
 
-/// Wallets registered this session (RAM only until M8/M9).
+/// Wallets registered this session (RAM only until secure storage, M10).
 pub struct Registry {
     entries: [Option<Entry>; MAX_WALLETS],
 }

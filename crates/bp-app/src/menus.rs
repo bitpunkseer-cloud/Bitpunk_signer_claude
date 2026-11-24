@@ -126,14 +126,14 @@ static SEEDS: [Entry; 4] = [
         detail: ">",
         action: Action::ImportKey,
     },
-    todo_entry!(|s| s.seed_vault, "M9", |s| s.ms_storage),
+    todo_entry!(|s| s.seed_vault, "M10", |s| s.ms_storage),
 ];
 
 static NEW_SEED: [Entry; 4] = [
     start(|s| s.dice_rolls, Start::Dice),
     start(|s| s.coin_flips, Start::Coin),
     start(|s| s.d20_rolls, Start::D20),
-    todo_entry!(|s| s.slip39, "M10", |s| s.ms_backup),
+    todo_entry!(|s| s.slip39, "M11", |s| s.ms_backup),
 ];
 
 static LOAD_SEED: [Entry; 6] = [
@@ -144,9 +144,9 @@ static LOAD_SEED: [Entry; 6] = [
         detail: ">",
         action: Action::Scan(crate::scan::Purpose::Seed),
     },
-    todo_entry!(|s| s.tinyseed, "M10", |s| s.ms_backup),
-    todo_entry!(|s| s.seed_xor, "M10", |s| s.ms_backup),
-    todo_entry!(|s| s.encrypted_backup, "M10", |s| s.ms_backup),
+    todo_entry!(|s| s.tinyseed, "M11", |s| s.ms_backup),
+    todo_entry!(|s| s.seed_xor, "M11", |s| s.ms_backup),
+    todo_entry!(|s| s.encrypted_backup, "M11", |s| s.ms_backup),
 ];
 
 static TOOLS: [Entry; 9] = [
@@ -181,8 +181,8 @@ static TOOLS: [Entry; 9] = [
         detail: ">",
         action: Action::Bip85,
     },
-    todo_entry!(|s| s.secure_notes, "M10", |s| s.ms_tools),
-    todo_entry!(|s| s.totp, "M10", |s| s.ms_tools),
+    todo_entry!(|s| s.secure_notes, "M11", |s| s.ms_tools),
+    todo_entry!(|s| s.totp, "M11", |s| s.ms_tools),
 ];
 
 static SETTINGS: [Entry; 12] = [

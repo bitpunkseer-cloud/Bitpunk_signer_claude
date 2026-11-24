@@ -1,4 +1,4 @@
-//! User settings (in RAM; persistence arrives with secure storage in M9,
+//! User settings (in RAM; persistence arrives with secure storage in M10,
 //! until then a SettingsQR carries them across power cycles).
 //!
 //! SettingsQR: `bitpunk-settings::v1 key=value ...` (SeedSigner's form).
