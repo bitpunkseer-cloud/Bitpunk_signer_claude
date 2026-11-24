@@ -4,6 +4,8 @@
 //! to also save each screen as a PPM image for review.
 
 use super::*;
+use crate::menus::Start;
+use crate::nav::{self, To};
 use crate::settings::Lang;
 
 /// 800 x 480 RGB framebuffer.
@@ -212,9 +214,8 @@ fn tour(lang: Lang) -> usize {
 
     // dice: intro, entry (empty, some, ready), summary, words, quiz
     let mut a = t.app();
-    for k in ['2', '1', '1', '2'] {
-        press(&mut a, Key::Char(k));
-    }
+    nav::go(&mut a, To::Start(Start::Dice));
+    nav::words(&mut a, 24);
     t.snap(&a, "dice-intro");
     press(&mut a, Key::Enter);
     t.snap(&a, "dice-entry-empty");
@@ -241,9 +242,8 @@ fn tour(lang: Lang) -> usize {
 
     // coin: intro, entry, failed pattern
     let mut a = t.app();
-    for k in ['2', '1', '2', '1'] {
-        press(&mut a, Key::Char(k));
-    }
+    nav::go(&mut a, To::Start(Start::Coin));
+    nav::words(&mut a, 12);
     t.snap(&a, "coin-intro");
     press(&mut a, Key::Enter);
     type_str(&mut a, &"HT".repeat(40));
@@ -251,9 +251,8 @@ fn tour(lang: Lang) -> usize {
 
     // final word calculator
     let mut a = t.app();
-    for k in ['3', '1', '1'] {
-        press(&mut a, Key::Char(k));
-    }
+    nav::go(&mut a, To::Start(Start::FinalWord));
+    nav::words(&mut a, 12);
     t.snap(&a, "final-intro");
     press(&mut a, Key::Enter);
     type_str(&mut a, "aban");
@@ -270,9 +269,8 @@ fn tour(lang: Lang) -> usize {
 
     // word entry: typing, numbers, checksum error, confirm cancel
     let mut a = t.app();
-    for k in ['2', '2', '1', '1'] {
-        press(&mut a, Key::Char(k));
-    }
+    nav::go(&mut a, To::Start(Start::TypeWords));
+    nav::words(&mut a, 12);
     type_str(&mut a, "zo");
     t.snap(&a, "type-words");
     press(&mut a, Key::Backspace);
@@ -282,15 +280,13 @@ fn tour(lang: Lang) -> usize {
     press(&mut a, Key::Esc);
     t.snap(&a, "confirm-cancel");
     let mut a = t.app();
-    for k in ['2', '2', '2', '1'] {
-        press(&mut a, Key::Char(k));
-    }
+    nav::go(&mut a, To::Start(Start::WordNumbers));
+    nav::words(&mut a, 12);
     type_str(&mut a, "4000");
     t.snap(&a, "word-numbers");
     let mut a = t.app();
-    for k in ['2', '2', '1', '1'] {
-        press(&mut a, Key::Char(k));
-    }
+    nav::go(&mut a, To::Start(Start::TypeWords));
+    nav::words(&mut a, 12);
     for _ in 0..12 {
         type_str(&mut a, "aban");
     }
@@ -419,9 +415,8 @@ fn tour(lang: Lang) -> usize {
     let mut b = t.app();
     load_abandon(&mut b);
     // a second seed: Seeds lists the loaded seed first, so Load seed is 3
-    for k in ['2', '3', '1', '1'] {
-        press(&mut b, Key::Char(k));
-    }
+    nav::go(&mut b, To::Start(Start::TypeWords));
+    nav::words(&mut b, 12);
     for w in [
         "lega", "winn", "than", "year", "wave", "saus", "wort", "usef", "lega", "winn", "than", "yell",
     ] {
@@ -432,7 +427,7 @@ fn tour(lang: Lang) -> usize {
 
     // scanning: waiting, results of every kind, seed found, verify, progress
     let mut a = t.app();
-    press(&mut a, Key::Char('1'));
+    nav::go(&mut a, To::Scan(scan::Purpose::Any));
     t.snap(&a, "scan-waiting");
     for (text, name) in [
         (&b"HELLO WORLD"[..], "scan-text"),
@@ -445,7 +440,7 @@ fn tour(lang: Lang) -> usize {
         a.on_qr_text(text);
         t.snap(&a, name);
         press(&mut a, Key::Enter);
-        press(&mut a, Key::Char('1'));
+        nav::go(&mut a, To::Scan(scan::Purpose::Any));
     }
     let data = [5u8; 600];
     let enc = bp_qr::ur::UrEncoder::new("bytes", &data, 50).unwrap();
@@ -454,20 +449,31 @@ fn tour(lang: Lang) -> usize {
     a.on_qr_text(&buf[..k]);
     t.snap(&a, "scan-progress");
     press(&mut a, Key::Esc);
-    press(&mut a, Key::Char('1'));
+    nav::go(&mut a, To::Scan(scan::Purpose::Any));
     a.on_qr_text(ABANDON.as_bytes());
     t.snap(&a, "scan-seed");
-    let mut a = t.app();
-    for k in ['2', '2', '3'] {
-        press(&mut a, Key::Char(k));
+    // the scanner waiting, for every purpose that opens it
+    for p in [
+        scan::Purpose::Seed,
+        scan::Purpose::Verify { slot: 0 },
+        scan::Purpose::Address,
+        scan::Purpose::PrivKey,
+        scan::Purpose::Cosigner,
+    ] {
+        let mut s = t.app();
+        load_abandon(&mut s);
+        s.start_scan(p);
+        t.snap(&s, "scan-waiting-purpose");
     }
+    let mut a = t.app();
+    nav::go(&mut a, To::Scan(scan::Purpose::Seed));
     a.on_qr_text(b"HELLO");
     t.snap(&a, "scan-not-a-seed");
     let mut a = t.app();
     load_abandon(&mut a);
-    for k in ['5', '1'] {
-        press(&mut a, Key::Char(k));
-    }
+    nav::seed(&mut a, 0);
+    nav::seed_opt(&mut a, keys::SlotOpt::SeedQr);
+    press(&mut a, Key::Char('1')); // Standard
     press(&mut a, Key::Enter);
     press(&mut a, Key::Char('t'));
     press(&mut a, Key::Char('v'));
@@ -584,7 +590,7 @@ fn tour(lang: Lang) -> usize {
         press(&mut a, Key::Esc);
     }
     let mut a = t.app();
-    press(&mut a, Key::Char('1'));
+    nav::go(&mut a, To::Scan(scan::Purpose::Any));
     a.on_qr_text(b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
     t.snap(&a, "verify-no-seed");
 
@@ -638,13 +644,13 @@ fn tour(lang: Lang) -> usize {
     press(&mut a, Key::Down);
     press(&mut a, Key::Enter);
     t.snap(&a, "msg-done");
+    t.push_snap(&mut a, Screen::MsgSign { step: MsStep::Failed }, "msg-failed");
     press(&mut a, Key::Enter);
     t.snap(&a, "msg-qr");
     press(&mut a, Key::Esc);
     press(&mut a, Key::Down);
     press(&mut a, Key::Enter);
-    press(&mut a, Key::Char('3'));
-    press(&mut a, Key::Char('4'));
+    nav::go(&mut a, To::SignMessage);
     type_str(&mut a, "I own this address");
     t.snap(&a, "msg-type");
     type_str(&mut a, "   ");
@@ -653,9 +659,8 @@ fn tour(lang: Lang) -> usize {
     let mut b = t.app();
     b.settings.msg_signing = true;
     load_abandon(&mut b);
-    for k in ['2', '3', '1', '1'] {
-        press(&mut b, Key::Char(k));
-    }
+    nav::go(&mut b, To::Start(Start::TypeWords));
+    nav::words(&mut b, 12);
     for w in [
         "lega", "winn", "than", "year", "wave", "saus", "wort", "usef", "lega", "winn", "than", "yell",
     ] {
@@ -759,8 +764,7 @@ fn tour(lang: Lang) -> usize {
     );
     t.snap(&a, "sig-wrong-network");
     press(&mut a, Key::Enter);
-    press(&mut a, Key::Char('3'));
-    press(&mut a, Key::Char('5'));
+    nav::go(&mut a, To::VerifySignature);
     t.snap(&a, "sig-scan");
     a.on_qr_text(b"mwhrUneshkXh8yUw2L2T16UYCoF3ouy4L2");
     type_str(&mut a, "aaaaaaaaaaaaaaaaaa");
@@ -771,7 +775,7 @@ fn tour(lang: Lang) -> usize {
     t.snap(&a, "sig-bad-encoding");
     press(&mut a, Key::Down);
     press(&mut a, Key::Enter);
-    press(&mut a, Key::Char('5'));
+    nav::go(&mut a, To::VerifySignature);
     a.on_qr_text(b"hello");
     t.snap(&a, "sig-not-signed");
 
@@ -803,9 +807,8 @@ fn tour(lang: Lang) -> usize {
 
     // D20: intro, entry with a number being typed, ready, summary
     let mut a = t.app();
-    for k in ['2', '1', '3', '2'] {
-        press(&mut a, Key::Char(k));
-    }
+    nav::go(&mut a, To::Start(Start::D20));
+    nav::words(&mut a, 24);
     t.snap(&a, "d20-intro");
     press(&mut a, Key::Enter);
     type_str(&mut a, "7 12 20 3 1");
@@ -838,11 +841,8 @@ fn tour(lang: Lang) -> usize {
 
 /// Seeds > Load seed > Type words > 12 words (4-letter prefixes), back to main.
 fn load_words(a: &mut App, words: &[&str]) {
-    // loaded seeds are listed above the Seeds menu's static rows
-    let load = (b'2' + a.seed_count() as u8) as char;
-    for k in ['2', load, '1', '1'] {
-        press(a, Key::Char(k));
-    }
+    nav::go(a, To::Start(Start::TypeWords));
+    nav::words(a, 12);
     for w in words {
         type_str(a, &w[..4.min(w.len())]);
     }
@@ -1196,7 +1196,7 @@ fn wallet_tour(t: &mut Tour) {
             out.truncate(n);
             out
         };
-        press(&mut r, Key::Char('1'));
+        nav::go(&mut r, To::Scan(scan::Purpose::Any));
         r.on_qr_text(&b64(&p));
         t.snap(&r, "ms-review-unregistered");
         press(&mut r, Key::Char('1'));
@@ -1207,7 +1207,7 @@ fn wallet_tour(t: &mut Tour) {
         to_main(&mut r);
         register_quick(&mut r, &w);
         to_main(&mut r);
-        press(&mut r, Key::Char('1'));
+        nav::go(&mut r, To::Scan(scan::Purpose::Any));
         r.on_qr_text(&b64(&p));
         t.snap(&r, "ms-review-overview");
         press(&mut r, Key::Enter);
@@ -1219,7 +1219,7 @@ fn wallet_tour(t: &mut Tour) {
         press(&mut r, Key::Enter);
         t.snap(&r, "ms-review-signed-complete");
         to_main(&mut r);
-        press(&mut r, Key::Char('1'));
+        nav::go(&mut r, To::Scan(scan::Purpose::Any));
         r.on_qr_text(&b64(&ms_psbt(&w, false, false)));
         for _ in 0..4 {
             press(&mut r, Key::Enter);
@@ -1237,7 +1237,7 @@ fn wallet_tour(t: &mut Tour) {
         let w = wallet_of(&v, MsScript::Wsh, 2, 3);
         register_quick(&mut v, &w);
         to_main(&mut v);
-        press(&mut v, Key::Char('1'));
+        nav::go(&mut v, To::Scan(scan::Purpose::Any));
         v.on_qr_text(address_of(&v, &w, 1, 5).as_bytes());
         t.snap(&v, "ms-verify-confirm");
         press(&mut v, Key::Enter);
@@ -1246,7 +1246,7 @@ fn wallet_tour(t: &mut Tour) {
         t.snap(&v, "ms-verify-found");
         to_main(&mut v);
         let other = wallet_of(&v, MsScript::Wsh, 1, 3);
-        press(&mut v, Key::Char('1'));
+        nav::go(&mut v, To::Scan(scan::Purpose::Any));
         v.on_qr_text(address_of(&v, &other, 0, 0).as_bytes());
         press(&mut v, Key::Enter);
         run_search(&mut v);
@@ -1273,7 +1273,7 @@ fn wallet_tour(t: &mut Tour) {
         let raw = ms_psbt(&watch, false, false).serialize();
         let mut b64 = vec![0u8; raw.len() * 4 / 3 + 8];
         let n = bp_bitcoin::base64::encode(&raw, &mut b64).unwrap();
-        press(&mut o, Key::Char('1'));
+        nav::go(&mut o, To::Scan(scan::Purpose::Any));
         o.on_qr_text(&b64[..n]);
         t.snap(&o, "ms-verify-only-overview");
         for _ in 0..4 {
@@ -1301,7 +1301,7 @@ fn wallet_tour(t: &mut Tour) {
 }
 
 #[test]
-fn every_screen_fits_in_every_language() {
+pub(crate) fn every_screen_fits_in_every_language() {
     let en = tour(Lang::En);
     let ko = tour(Lang::Ko);
     assert_eq!(en, ko);

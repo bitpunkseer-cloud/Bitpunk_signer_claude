@@ -2,6 +2,8 @@
 
 use super::*;
 extern crate std;
+use crate::menus::Start;
+use crate::nav::{self, To};
 use bp_bitcoin::bip39::WORDS;
 use bp_hal::input::Key;
 use std::string::String;
@@ -24,13 +26,22 @@ fn type_str(a: &mut App, s: &str) {
 
 /// Main > Seeds > Create new seed > (Dice|Coin) > 12 words > intro
 fn open_create(a: &mut App, coin: bool, words24: bool) {
-    press(a, Key::Char('2')); // Seeds
-    press(a, Key::Char('1')); // Create new seed
-    press(a, Key::Char(if coin { '2' } else { '1' }));
-    press(a, Key::Char(if words24 { '2' } else { '1' }));
+    nav::go(a, To::Start(if coin { Start::Coin } else { Start::Dice }));
+    nav::words(a, if words24 { 24 } else { 12 });
     assert_eq!(a.current(), Screen::EntropyIntro);
     press(a, Key::Enter);
     assert_eq!(a.current(), Screen::EntropyEntry);
+}
+
+/// Main > Scan QR.
+fn scan_any(a: &mut App) {
+    nav::go(a, To::Scan(scan::Purpose::Any));
+}
+
+/// Seeds > Load seed > Type words > `n` words.
+fn open_typed(a: &mut App, n: usize) {
+    nav::go(a, To::Start(Start::TypeWords));
+    nav::words(a, n);
 }
 
 struct XorShift(u64);
@@ -181,10 +192,7 @@ fn discard_after_failed_quiz_wipes_flow() {
 #[test]
 fn typed_words_load_with_autocomplete() {
     let mut a = app();
-    press(&mut a, Key::Char('2')); // Seeds
-    press(&mut a, Key::Char('2')); // Load seed
-    press(&mut a, Key::Char('1')); // Type words
-    press(&mut a, Key::Char('1')); // 12 words
+    open_typed(&mut a, 12);
     assert_eq!(a.current(), Screen::WordEntry);
     // "aban" auto-completes to "abandon" (unique 4-letter prefix)
     for _ in 0..11 {
@@ -198,10 +206,7 @@ fn typed_words_load_with_autocomplete() {
 #[test]
 fn full_words_and_prefixes_both_work() {
     let mut a = app();
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('1'));
-    press(&mut a, Key::Char('1'));
+    open_typed(&mut a, 12);
     // mix of full words (with spaces) and 4-letter prefixes
     for i in 0..11 {
         if i % 2 == 0 {
@@ -217,10 +222,7 @@ fn full_words_and_prefixes_both_work() {
 #[test]
 fn checksum_error_lets_user_fix_a_word() {
     let mut a = app();
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('1'));
-    press(&mut a, Key::Char('1'));
+    open_typed(&mut a, 12);
     for _ in 0..12 {
         type_str(&mut a, "aban");
     }
@@ -238,10 +240,7 @@ fn checksum_error_lets_user_fix_a_word() {
 #[test]
 fn three_letter_word_needs_enter() {
     let mut a = app();
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('1'));
-    press(&mut a, Key::Char('1'));
+    open_typed(&mut a, 12);
     type_str(&mut a, "act");
     let e = &a.flow.as_ref().unwrap().entry;
     assert!(!e.filled[0], "act is a prefix of action/actor: wait for Enter");
@@ -253,10 +252,8 @@ fn three_letter_word_needs_enter() {
 #[test]
 fn word_numbers_entry() {
     let mut a = app();
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('2')); // word numbers
-    press(&mut a, Key::Char('1'));
+    nav::go(&mut a, To::Start(Start::WordNumbers));
+    nav::words(&mut a, 12);
     for _ in 0..11 {
         type_str(&mut a, "1");
         press(&mut a, Key::Enter);
@@ -290,10 +287,7 @@ fn escape_from_entry_asks_before_wiping() {
 #[test]
 fn power_off_wipes_seeds() {
     let mut a = app();
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('1'));
-    press(&mut a, Key::Char('1'));
+    open_typed(&mut a, 12);
     for _ in 0..11 {
         type_str(&mut a, "aban");
     }
@@ -304,8 +298,7 @@ fn power_off_wipes_seeds() {
         id: MenuId::Main,
         sel: 0,
     });
-    press(&mut a, Key::Char('6'));
-    press(&mut a, Key::Char('1'));
+    nav::go(&mut a, To::PowerOff);
     assert_eq!(a.current(), Screen::PoweredOff);
     assert_eq!(a.seed_count(), 0);
 }
@@ -313,7 +306,7 @@ fn power_off_wipes_seeds() {
 #[test]
 fn network_setting_cycles() {
     let mut a = app();
-    press(&mut a, Key::Char('4'));
+    nav::select_setting(&mut a, |s| s.network);
     let before = a.settings.network;
     press(&mut a, Key::Right);
     assert_ne!(a.settings.network, before);
@@ -322,10 +315,7 @@ fn network_setting_cycles() {
 #[test]
 fn language_setting_switches_every_string() {
     let mut a = app();
-    press(&mut a, Key::Char('4')); // Settings
-    for _ in 0..4 {
-        press(&mut a, Key::Down);
-    }
+    nav::select_setting(&mut a, |s| s.language);
     assert_eq!(a.text().settings, "Settings");
     press(&mut a, Key::Right);
     assert_eq!(a.settings.lang, settings::Lang::Ko);
@@ -336,7 +326,7 @@ fn language_setting_switches_every_string() {
 }
 
 #[test]
-fn every_screen_renders_without_panicking() {
+pub(crate) fn every_screen_renders_without_panicking() {
     struct Null;
     impl bp_hal::Canvas for Null {
         fn width(&self) -> u16 {
@@ -368,9 +358,8 @@ fn every_screen_renders_without_panicking() {
 
 /// Tools > Final word calculator > 12 words
 fn open_final_word(a: &mut App) {
-    press(a, Key::Char('3')); // Tools
-    press(a, Key::Char('1')); // Final word calculator
-    press(a, Key::Char('1')); // 12 words
+    nav::go(a, To::Start(Start::FinalWord));
+    nav::words(a, 12);
     assert_eq!(a.current(), Screen::FinalIntro);
     press(a, Key::Enter);
     assert_eq!(a.current(), Screen::WordEntry);
@@ -456,10 +445,7 @@ fn qr_key_opens_scanner_from_menus_only() {
 
 /// Seeds > Load seed > Type words > 12: "abandon x11 about", then open its options.
 fn load_abandon(a: &mut App) {
-    press(a, Key::Char('2'));
-    press(a, Key::Char('2'));
-    press(a, Key::Char('1'));
-    press(a, Key::Char('1'));
+    open_typed(a, 12);
     for _ in 0..11 {
         type_str(a, "aban");
     }
@@ -525,7 +511,7 @@ fn testnet_setting_changes_prefixes() {
 fn passphrase_review_shows_new_fingerprint_and_applies() {
     let mut a = app();
     load_abandon(&mut a);
-    press(&mut a, Key::Char('4')); // Passphrase
+    nav::seed_opt(&mut a, keys::SlotOpt::Passphrase);
     assert!(matches!(a.current(), Screen::PassphraseEntry { .. }));
     type_str(&mut a, "TREZOR");
     press(&mut a, Key::Enter);
@@ -551,7 +537,7 @@ fn passphrase_review_shows_new_fingerprint_and_applies() {
 fn passphrase_edit_and_cancel_keep_old_wallet() {
     let mut a = app();
     load_abandon(&mut a);
-    press(&mut a, Key::Char('4'));
+    nav::seed_opt(&mut a, keys::SlotOpt::Passphrase);
     type_str(&mut a, "x y");
     press(&mut a, Key::Tab); // hide
     assert!(!a.pass_in.show);
@@ -575,13 +561,13 @@ fn script_types_follow_advanced_setting() {
 fn xpub_and_explorer_navigation() {
     let mut a = app();
     load_abandon(&mut a);
-    press(&mut a, Key::Char('2')); // Export xpub
-    press(&mut a, Key::Char('1')); // Native SegWit
+    nav::seed_opt(&mut a, keys::SlotOpt::Xpub);
+    nav::script(&mut a, ScriptType::NativeSegwit);
     assert!(matches!(a.current(), Screen::XpubFormat { sel: 0, .. }));
     press(&mut a, Key::Esc);
     press(&mut a, Key::Esc);
-    press(&mut a, Key::Char('3')); // Address explorer
-    press(&mut a, Key::Char('2')); // Taproot
+    nav::seed_opt(&mut a, keys::SlotOpt::Explorer);
+    nav::script(&mut a, ScriptType::Taproot);
     assert!(matches!(
         a.current(),
         Screen::AddressList {
@@ -609,8 +595,8 @@ fn xpub_and_explorer_navigation() {
 #[test]
 fn tools_explorer_needs_a_seed() {
     let mut a = app();
-    press(&mut a, Key::Char('3')); // Tools
-    press(&mut a, Key::Char('2')); // Address explorer
+    nav::go(&mut a, To::Explorer);
+    // (Tools > Address explorer)
     assert_eq!(a.current(), Screen::NoSeed);
 }
 
@@ -623,7 +609,7 @@ fn seeds_menu_shows_fingerprint_not_words() {
 }
 
 #[test]
-fn m2_screens_render() {
+pub(crate) fn m2_screens_render() {
     struct Null;
     impl bp_hal::Canvas for Null {
         fn width(&self) -> u16 {
@@ -676,8 +662,8 @@ fn qr_text(a: &App) -> String {
 
 /// Seed options > Export xpub > Native SegWit > format `n` (1-4).
 fn open_xpub_qr(a: &mut App, n: char) {
-    press(a, Key::Char('2'));
-    press(a, Key::Char('1'));
+    nav::seed_opt(a, keys::SlotOpt::Xpub);
+    nav::script(a, ScriptType::NativeSegwit);
     press(a, Key::Char(n));
     assert!(matches!(
         a.current(),
@@ -801,7 +787,7 @@ fn qr_display_controls() {
 fn seedqr_backup_and_transcribe() {
     let mut a = app();
     load_abandon(&mut a);
-    press(&mut a, Key::Char('5')); // Backup SeedQR
+    nav::seed_opt(&mut a, keys::SlotOpt::SeedQr);
     assert!(matches!(a.current(), Screen::SeedQrSelect { .. }));
     press(&mut a, Key::Char('1')); // Standard
     assert!(matches!(
@@ -881,7 +867,7 @@ fn seedqr_backup_and_transcribe() {
 }
 
 #[test]
-fn qr_screens_render() {
+pub(crate) fn qr_screens_render() {
     struct Count(usize);
     impl bp_hal::Canvas for Count {
         fn width(&self) -> u16 {
@@ -915,7 +901,7 @@ fn qr_screens_render() {
         press(&mut a, Key::Esc);
         press(&mut a, Key::Esc);
     }
-    press(&mut a, Key::Char('5'));
+    nav::seed_opt(&mut a, keys::SlotOpt::SeedQr);
     a.render(&mut c);
     press(&mut a, Key::Char('2'));
     a.render(&mut c);
@@ -957,7 +943,7 @@ fn qr_frame(q: &bp_qr::QrCode) -> (std::vec::Vec<u8>, usize, usize) {
 #[test]
 fn scan_opens_from_menu_and_qr_key() {
     let mut a = app();
-    press(&mut a, Key::Char('1'));
+    scan_any(&mut a);
     assert_eq!(
         a.current(),
         Screen::Scan {
@@ -975,7 +961,7 @@ fn scan_opens_from_menu_and_qr_key() {
 #[test]
 fn scanned_address_shows_and_state_is_wiped() {
     let mut a = app();
-    press(&mut a, Key::Char('1'));
+    scan_any(&mut a);
     a.on_qr_text(b"bitcoin:bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?amount=1");
     assert_eq!(
         a.current(),
@@ -994,9 +980,9 @@ fn scanned_address_shows_and_state_is_wiped() {
 #[test]
 fn scan_seedqr_from_camera_and_load_it() {
     let mut a = app();
-    press(&mut a, Key::Char('2')); // Seeds
-    press(&mut a, Key::Char('2')); // Load seed
-    press(&mut a, Key::Char('3')); // Scan SeedQR
+    nav::go(&mut a, To::Scan(scan::Purpose::Seed));
+    // (Seeds > Load seed > Scan SeedQR)
+
     assert_eq!(
         a.current(),
         Screen::Scan {
@@ -1019,7 +1005,7 @@ fn scan_seedqr_from_camera_and_load_it() {
 #[test]
 fn scan_seed_discard_and_not_a_seed() {
     let mut a = app();
-    press(&mut a, Key::Char('1'));
+    scan_any(&mut a);
     a.on_qr_text(ABANDON_WORDS.as_bytes());
     assert_eq!(a.current(), Screen::ScanSeed { sel: 0 });
     press(&mut a, Key::Down);
@@ -1027,9 +1013,8 @@ fn scan_seed_discard_and_not_a_seed() {
     assert!(matches!(a.current(), Screen::Menu { .. }));
     assert_eq!(a.seed_count(), 0);
     // Load seed > Scan SeedQR with an address: not a seed
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('3'));
+    nav::go(&mut a, To::Scan(scan::Purpose::Seed));
+
     a.on_qr_text(b"bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
     assert_eq!(a.scan.outcome, Some(scan::Outcome::NotASeed));
 }
@@ -1041,7 +1026,7 @@ const ABANDON_WORDS: &str =
 fn verify_copied_seedqr() {
     let mut a = app();
     load_abandon(&mut a);
-    press(&mut a, Key::Char('5')); // Backup SeedQR
+    nav::seed_opt(&mut a, keys::SlotOpt::SeedQr);
     press(&mut a, Key::Char('1')); // Standard
     press(&mut a, Key::Enter);
     press(&mut a, Key::Char('t'));
@@ -1079,7 +1064,7 @@ fn verify_copied_seedqr() {
 #[test]
 fn animated_psbt_over_ur_text_frames() {
     let mut a = app();
-    press(&mut a, Key::Char('1'));
+    scan_any(&mut a);
     // a valid PSBT (1 input, 2 outputs) padded with a large unknown field
     let mut tx = std::vec::Vec::new();
     tx.extend_from_slice(&2u32.to_le_bytes());
@@ -1142,7 +1127,7 @@ fn animated_psbt_over_ur_text_frames() {
 }
 
 #[test]
-fn scan_screens_render() {
+pub(crate) fn scan_screens_render() {
     struct Count;
     impl bp_hal::Canvas for Count {
         fn width(&self) -> u16 {
@@ -1162,7 +1147,7 @@ fn scan_screens_render() {
     let mut c = Count;
     let mut a = app();
     a.set_test_only(true);
-    press(&mut a, Key::Char('1'));
+    scan_any(&mut a);
     a.render(&mut c); // waiting for camera
     let q = bp_qr::QrCode::encode(b"HELLO WORLD", bp_qr::Ecc::Low, 1, 40, None).unwrap();
     let (img, w, h) = qr_frame(&q);
@@ -1176,17 +1161,17 @@ fn scan_screens_render() {
         &[0xFF, 0x00, 0x12][..],
     ] {
         press(&mut a, Key::Enter);
-        press(&mut a, Key::Char('1'));
+        scan_any(&mut a);
         a.on_qr_text(text);
         a.render(&mut c);
     }
     press(&mut a, Key::Enter);
-    press(&mut a, Key::Char('1'));
+    scan_any(&mut a);
     a.on_qr_text(ABANDON_WORDS.as_bytes());
     a.render(&mut c); // seed found
                       // a partial animated code: progress grid
     press(&mut a, Key::Esc);
-    press(&mut a, Key::Char('1'));
+    scan_any(&mut a);
     let data = [5u8; 600];
     let enc = bp_qr::ur::UrEncoder::new("bytes", &data, 50).unwrap();
     let mut buf = [0u8; 400];
@@ -1201,10 +1186,9 @@ fn scan_screens_render() {
 #[test]
 fn d20_rolls_are_typed_then_recorded_with_space() {
     let mut a = app();
-    press(&mut a, Key::Char('2')); // Seeds
-    press(&mut a, Key::Char('1')); // Create new seed
-    press(&mut a, Key::Char('3')); // D20
-    press(&mut a, Key::Char('1')); // 12 words
+    nav::go(&mut a, To::Start(Start::D20));
+    nav::words(&mut a, 12);
+
     assert_eq!(a.current(), Screen::EntropyIntro);
     press(&mut a, Key::Enter);
     assert_eq!(a.current(), Screen::EntropyEntry);

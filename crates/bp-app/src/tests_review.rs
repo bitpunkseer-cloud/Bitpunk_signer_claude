@@ -3,6 +3,8 @@
 
 use super::*;
 extern crate std;
+use crate::menus::Start;
+use crate::nav::{self, To};
 use crate::review::Step;
 use bitcoin::bip32::{DerivationPath, Xpriv as RefXpriv};
 use bitcoin::hashes::Hash;
@@ -40,10 +42,8 @@ fn type_str(a: &mut App, s: &str) {
 
 /// Seeds > Load seed > Type words > 12 words, then back to the main menu.
 fn load_abandon(a: &mut App) {
-    press(a, Key::Char('2'));
-    press(a, Key::Char('2'));
-    press(a, Key::Char('1'));
-    press(a, Key::Char('1'));
+    nav::go(a, To::Start(Start::TypeWords));
+    nav::words(a, 12);
     for _ in 0..11 {
         type_str(a, "aban");
     }
@@ -188,7 +188,7 @@ fn b64(raw: &[u8]) -> String {
 }
 
 fn scan_psbt(a: &mut App, p: &RefPsbt) {
-    press(a, Key::Char('1')); // Main > Scan QR
+    nav::go(a, To::Scan(scan::Purpose::Any));
     assert!(matches!(a.current(), Screen::Scan { .. }));
     a.on_qr_text(b64(&p.serialize()).as_bytes());
 }
@@ -552,8 +552,7 @@ fn va(a: &App) -> VaStep {
 
 /// Tools > Verify address, then scan `text`.
 fn verify_scan(a: &mut App, text: &str) {
-    press(a, Key::Char('3')); // Tools
-    press(a, Key::Char('3')); // Verify address
+    nav::go(a, To::VerifyAddress);
     assert_eq!(
         a.current(),
         Screen::Scan {
@@ -697,8 +696,7 @@ fn verify_pauses_after_a_batch_and_offers_more_or_another_account() {
 fn verify_refuses_other_networks_scripts_and_non_addresses() {
     let mut a = app();
     // no seed: Verify address explains first
-    press(&mut a, Key::Char('3'));
-    press(&mut a, Key::Char('3'));
+    nav::go(&mut a, To::VerifyAddress);
     assert_eq!(a.current(), Screen::NoSeed);
     press(&mut a, Key::Esc);
     press(&mut a, Key::Esc);
@@ -753,7 +751,7 @@ fn ms(a: &App) -> MsStep {
 }
 
 fn scan_text(a: &mut App, text: &str) {
-    press(a, Key::Char('1'));
+    nav::go(a, To::Scan(scan::Purpose::Any));
     a.on_qr_text(text.as_bytes());
 }
 
@@ -805,14 +803,12 @@ fn message_signing_is_off_until_the_device_turns_it_on() {
     press(&mut a, Key::Enter);
     assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
     assert!(a.msg.is_none());
-    press(&mut a, Key::Char('3')); // Tools
-    press(&mut a, Key::Char('4')); // Sign message
+    nav::go(&mut a, To::SignMessage);
     assert_eq!(ms(&a), MsStep::Off);
     press(&mut a, Key::Esc);
     press(&mut a, Key::Esc);
     // Settings > Message signing
-    press(&mut a, Key::Char('4'));
-    press(&mut a, Key::Char('6'));
+    nav::go(&mut a, To::Setting(|s| s.msg_signing));
     assert!(a.settings.msg_signing);
 }
 
@@ -921,8 +917,7 @@ fn typed_message_with_an_address_from_the_explorer() {
     let mut a = app();
     a.settings.msg_signing = true;
     load_abandon(&mut a);
-    press(&mut a, Key::Char('3')); // Tools
-    press(&mut a, Key::Char('4')); // Sign message
+    nav::go(&mut a, To::SignMessage);
     assert_eq!(ms(&a), MsStep::Type);
     type_str(&mut a, "a");
     press(&mut a, Key::Enter); // too short: stays, shows the rule
@@ -932,7 +927,7 @@ fn typed_message_with_an_address_from_the_explorer() {
     press(&mut a, Key::Enter);
     // one seed: straight to the script types, then the addresses
     assert!(matches!(a.current(), Screen::ScriptSelect { explorer: true, .. }));
-    press(&mut a, Key::Char('1')); // Native SegWit
+    nav::script(&mut a, ScriptType::NativeSegwit);
     press(&mut a, Key::Down);
     press(&mut a, Key::Down);
     press(&mut a, Key::Enter); // receive #2
@@ -1278,8 +1273,7 @@ fn verify_signature_step_by_step_then_check_the_address() {
     press(&mut a, Key::Down);
     press(&mut a, Key::Enter);
     // Tools > Verify signature: address, message, signature
-    press(&mut a, Key::Char('3'));
-    press(&mut a, Key::Char('5'));
+    nav::go(&mut a, To::VerifySignature);
     assert_eq!(
         a.current(),
         Screen::Scan {
@@ -1309,7 +1303,7 @@ fn verify_signature_step_by_step_then_check_the_address() {
     assert_eq!(found(&a).index, 5);
     // a seed QR given as the signature is not loaded
     press(&mut a, Key::Enter);
-    press(&mut a, Key::Char('5'));
+    nav::go(&mut a, To::VerifySignature);
     a.on_qr_text(addr_of(&w, false, 0, 0, 5).as_bytes());
     type_str(&mut a, "x");
     press(&mut a, Key::Enter);
@@ -1320,7 +1314,7 @@ fn verify_signature_step_by_step_then_check_the_address() {
     press(&mut a, Key::Down);
     press(&mut a, Key::Enter);
     // something else entirely
-    press(&mut a, Key::Char('5'));
+    nav::go(&mut a, To::VerifySignature);
     a.on_qr_text(b"hello");
     assert_eq!(a.scan.outcome, Some(scan::Outcome::NotSigned));
     render(&a);
@@ -1346,8 +1340,7 @@ fn fee_settings_change_the_review() {
     assert_eq!(step(&a), Step::Problem);
     press(&mut a, Key::Enter);
     // Settings > Fee limit: 25%
-    press(&mut a, Key::Char('4'));
-    press(&mut a, Key::Char('8'));
+    nav::go(&mut a, To::Setting(|s| s.fee_block_label));
     assert_eq!(a.settings.fee_block, 1);
     assert_eq!(a.settings.policy().fee_block_percent, 25);
     press(&mut a, Key::Esc);
@@ -1366,12 +1359,8 @@ fn settings_qr_exports_and_imports_without_weakening() {
     let mut a = app();
     a.settings.lang = settings::Lang::Ko;
     a.settings.fee_rate = 0;
-    // Settings > Settings as QR (row 11)
-    press(&mut a, Key::Char('4'));
-    for _ in 0..10 {
-        press(&mut a, Key::Down);
-    }
-    press(&mut a, Key::Enter);
+    // Settings > Settings as QR
+    nav::go(&mut a, To::SettingsQr);
     assert_eq!(
         a.current(),
         Screen::QrShow {
@@ -1442,4 +1431,266 @@ pub(crate) fn b85_embit(app: &str, index: u32) -> String {
         .expect("vector");
     let rest = &line.trim_start()[prefix.len()..];
     String::from(&rest[..rest.find('"').unwrap()])
+}
+
+/// Every screen kind and flow step is drawn by the screen tests (M9-0).
+#[test]
+fn every_screen_and_step_is_drawn() {
+    crate::coverage::start();
+    crate::tests::every_screen_renders_without_panicking();
+    crate::tests::m2_screens_render();
+    crate::tests::qr_screens_render();
+    crate::tests::scan_screens_render();
+    layout::every_screen_fits_in_every_language();
+    sd_flow::sd_screens_fit();
+    sd_flow::sd_signing_screens_fit();
+    sd_flow::sd_export_screens_fit();
+    b85_flow::b85_screens_fit();
+    keys_flow::key_screens_fit();
+    keys_flow::a_network_chip_locks_the_device();
+    let seen = crate::coverage::finish();
+    let all = crate::coverage::all();
+    let missing: std::vec::Vec<_> = all.iter().filter(|k| !seen.contains(*k)).collect();
+    let unknown: std::vec::Vec<_> = seen.iter().filter(|k| !all.contains(k)).collect();
+    assert!(unknown.is_empty(), "drawn but not listed: {unknown:?}");
+    assert!(
+        missing.is_empty(),
+        "{} of {} never drawn: {missing:?}",
+        missing.len(),
+        all.len()
+    );
+}
+
+// ---------- M8 output baseline (M9-0) ----------
+//
+// Every output the device produces — QR payloads and frames, files written to
+// the card, signatures, addresses, BIP-85 results, wallet codes — recorded
+// from the M8 build in `golden/m8-outputs.txt`. M9 changes screens, never
+// outputs, so this must match byte for byte. Re-record only for an intended
+// output change, and say so in the commit:
+//   BP_BLESS=1 cargo test -p bp-app outputs_match_the_m8_baseline
+
+/// Bytes as escaped text when printable, else hex.
+pub(super) fn show(b: &[u8]) -> String {
+    let printable = b
+        .iter()
+        .all(|&c| (0x20..0x7f).contains(&c) || matches!(c, b'\n' | b'\r' | b'\t'));
+    if printable {
+        String::from_utf8(b.to_vec())
+            .unwrap()
+            .replace('\\', "\\\\")
+            .replace('\r', "\\r")
+            .replace('\n', "\\n")
+            .replace('\t', "\\t")
+    } else {
+        let mut s = String::from("hex:");
+        for x in b {
+            s.push_str(&format!("{x:02x}"));
+        }
+        s
+    }
+}
+
+/// One `key = value` line.
+pub(super) fn rec(out: &mut String, key: &str, b: &[u8]) {
+    out.push_str(key);
+    out.push_str(" = ");
+    out.push_str(&show(b));
+    out.push('\n');
+}
+
+/// A QR export: payload, frame count and first frame, then close it.
+pub(super) fn rec_qr(out: &mut String, key: &str, a: &mut App, kind: QrKind) {
+    a.open_qr(kind);
+    assert!(
+        matches!(a.current(), Screen::QrShow { .. }),
+        "{key}: {:?}",
+        a.current()
+    );
+    let q = a.qr.as_ref().unwrap_or_else(|| panic!("{key}: no QR"));
+    rec(out, &format!("{key}.payload"), q.payload());
+    rec(out, &format!("{key}.frames"), q.frames().to_string().as_bytes());
+    let mut t = [0u8; qrview::TEXT_MAX];
+    let n = q.text(&mut t);
+    rec(out, &format!("{key}.frame0"), &t[..n]);
+    press(a, Key::Esc);
+}
+
+fn golden_core(out: &mut String) {
+    let mut a = app();
+    a.settings.advanced = true;
+    load_abandon(&mut a);
+    let fp = a.slot(0).unwrap().fingerprint;
+    rec(
+        out,
+        "abandon.fingerprint",
+        crate::seeds::fingerprint_hex(&fp).as_str().as_bytes(),
+    );
+    // xpubs in every format, and addresses, for every script type
+    for net in [bp_bitcoin::Network::Mainnet, bp_bitcoin::Network::Testnet] {
+        a.settings.network = net;
+        for st in a.visible_scripts().to_vec() {
+            for format in XpubFormat::ALL {
+                for account in [0, 1] {
+                    rec_qr(
+                        out,
+                        &format!("abandon.{net:?}.xpub.{st:?}.{format:?}.{account}"),
+                        &mut a,
+                        QrKind::Xpub {
+                            slot: 0,
+                            st,
+                            account,
+                            format,
+                        },
+                    );
+                }
+            }
+            for change in [false, true] {
+                for index in [0u32, 1, 2, 999] {
+                    let mut o = [0u8; bp_bitcoin::address::MAX_ADDRESS_LEN];
+                    let n = a
+                        .slot(0)
+                        .unwrap()
+                        .address(st, net, 0, change, index, &mut o)
+                        .unwrap();
+                    rec(
+                        out,
+                        &format!("abandon.{net:?}.addr.{st:?}.{change}.{index}"),
+                        &o[..n],
+                    );
+                }
+            }
+        }
+    }
+    a.settings.network = bp_bitcoin::Network::Mainnet;
+    for compact in [false, true] {
+        rec_qr(
+            out,
+            &format!("abandon.seedqr.{compact}"),
+            &mut a,
+            QrKind::SeedQr { slot: 0, compact },
+        );
+    }
+    for script in [
+        bp_bitcoin::multisig::MsScript::Wsh,
+        bp_bitcoin::multisig::MsScript::ShWsh,
+    ] {
+        for format in crate::wallets::KeyFormat::ALL {
+            rec_qr(
+                out,
+                &format!("abandon.mskey.{script:?}.{format:?}"),
+                &mut a,
+                QrKind::MsKey {
+                    slot: 0,
+                    script,
+                    account: 0,
+                    format,
+                },
+            );
+        }
+    }
+    // settings: defaults, then every value changed
+    rec_qr(out, "settings.default", &mut a, QrKind::Settings);
+    a.settings.lang = settings::Lang::Ko;
+    a.settings.fee_rate = 0;
+    a.settings.fee_block = 2;
+    a.settings.msg_signing = true;
+    rec_qr(out, "settings.changed", &mut a, QrKind::Settings);
+    // a passphrase changes the wallet
+    let m = a.slot(0).unwrap().mnemonic.clone().unwrap();
+    a.seeds[1] = crate::seeds::SeedSlot::new(m, b"TREZOR");
+    let fp = a.slot(1).unwrap().fingerprint;
+    rec(
+        out,
+        "abandon+TREZOR.fingerprint",
+        crate::seeds::fingerprint_hex(&fp).as_str().as_bytes(),
+    );
+    rec_qr(
+        out,
+        "abandon+TREZOR.xpub",
+        &mut a,
+        QrKind::Xpub {
+            slot: 1,
+            st: ScriptType::NativeSegwit,
+            account: 0,
+            format: XpubFormat::StaticText,
+        },
+    );
+
+    // a signed PSBT in every QR format
+    let (mut a, _) = signed_app();
+    let len = a.review.as_ref().unwrap().signed.unwrap().len;
+    rec(out, "psbt.signed", &a.scan.work()[..len]);
+    for format in [PsbtFormat::Ur, PsbtFormat::Bbqr, PsbtFormat::Specter] {
+        rec_qr(
+            out,
+            &format!("psbt.signed.{format:?}"),
+            &mut a,
+            QrKind::SignedPsbt { format },
+        );
+    }
+
+    // message signatures for every address type, and the signature QR
+    let mut a = app();
+    a.settings.msg_signing = true;
+    load_abandon(&mut a);
+    for path in [
+        "m/84'/0'/0'/0/3",
+        "m/49'/0'/0'/1/0",
+        "m/44'/0'/1'/0/7",
+        "73c5da0a/m/86h/0h/0h/0/0",
+    ] {
+        scan_text(&mut a, &format!("signmessage {path} ascii:Golden message 1"));
+        let sig = approve_message(&mut a);
+        rec(out, &format!("message.{path}"), sig.as_bytes());
+        rec_qr(out, &format!("message.{path}.qr"), &mut a, QrKind::MessageSig);
+        while !matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }) {
+            press(&mut a, Key::Esc);
+        }
+    }
+}
+
+#[test]
+fn outputs_match_the_m8_baseline() {
+    let mut out = String::new();
+    golden_core(&mut out);
+    sd_flow::golden(&mut out);
+    wallets_flow::golden(&mut out);
+    b85_flow::golden(&mut out);
+    keys_flow::golden(&mut out);
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/m8-outputs.txt");
+    if std::env::var_os("BP_BLESS").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &out).unwrap();
+        return;
+    }
+    let want = std::fs::read_to_string(&path).expect("golden file (BP_BLESS=1 to record)");
+    for (i, (got, want)) in out.lines().zip(want.lines()).enumerate() {
+        assert_eq!(got, want, "output line {} differs from the M8 baseline", i + 1);
+    }
+    assert_eq!(
+        out.lines().count(),
+        want.lines().count(),
+        "number of outputs differs"
+    );
+}
+
+/// Print the sizes the resource budget checks (M9-0):
+/// cargo test -p bp-app resource_budget -- --nocapture
+#[test]
+fn resource_budget() {
+    let app = core::mem::size_of::<App>();
+    let fonts: usize = [
+        &bp_ui::font::SMALL,
+        &bp_ui::font::BODY,
+        &bp_ui::font::TITLE,
+        &bp_ui::font::HUGE,
+    ]
+    .iter()
+    .map(|f| f.data.len() + f.wide.map_or(0, |w| w.data.len()))
+    .sum();
+    std::println!("App {app} bytes, fonts {fonts} bytes");
+    // M8 end: App 485 KB, fonts 417 KB. Effects and new screens must not grow RAM much.
+    assert!(app <= 560 * 1024, "App is {app} bytes (budget 560 KB)");
+    assert!(fonts <= 1024 * 1024, "fonts are {fonts} bytes (budget 1 MB)");
 }

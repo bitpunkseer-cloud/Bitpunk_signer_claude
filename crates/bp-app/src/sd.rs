@@ -272,7 +272,7 @@ const STATUS_ROWS: u8 = 4;
 
 /// File screen actions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FileAction {
+pub(crate) enum FileAction {
     Sign,
     SignMessage,
     ImportWallet,
@@ -282,7 +282,7 @@ enum FileAction {
 }
 
 /// Actions offered for a file of this kind.
-fn file_actions(kind: Option<FileKind>) -> &'static [FileAction] {
+pub(crate) fn file_actions(kind: Option<FileKind>) -> &'static [FileAction] {
     match kind {
         Some(FileKind::Psbt) => &[FileAction::Sign, FileAction::View, FileAction::Delete],
         Some(FileKind::Text) => &[FileAction::SignMessage, FileAction::View, FileAction::Delete],

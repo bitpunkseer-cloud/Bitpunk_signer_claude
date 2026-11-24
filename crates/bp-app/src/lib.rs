@@ -2077,6 +2077,10 @@ fn signed_psbt_session(psbt: &[u8], format: PsbtFormat) -> Option<qrview::QrSess
 #[cfg(test)]
 mod bench;
 #[cfg(test)]
+pub(crate) mod coverage;
+#[cfg(test)]
+pub(crate) mod nav;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_review;

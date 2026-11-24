@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::keys::{KeyProblem, KeyStep};
+use crate::nav::{self, To};
 use crate::seeds::SlotKind;
 use bitcoin::key::{CompressedPublicKey, Secp256k1};
 use bitcoin::secp256k1::SecretKey as RefSk;
@@ -30,8 +31,7 @@ fn step(a: &App) -> KeyStep {
 
 /// Seeds > Import private key > Type it.
 fn open_type(a: &mut App) {
-    press(a, Key::Char('2'));
-    press(a, Key::Char('3'));
+    nav::go(a, To::ImportKey);
     assert_eq!(step(a), KeyStep::Method { sel: 0 });
     press(a, Key::Char('2'));
     assert_eq!(step(a), KeyStep::Type);
@@ -88,8 +88,7 @@ fn xprv_scanned_loads_a_root_slot() {
     let x = bitcoin::bip32::Xpriv::new_master(bitcoin::NetworkKind::Main, &[3; 32])
         .unwrap()
         .to_string();
-    press(&mut a, Key::Char('2'));
-    press(&mut a, Key::Char('3'));
+    nav::go(&mut a, To::ImportKey);
     press(&mut a, Key::Char('1')); // Scan
     assert!(matches!(a.current(), Screen::Scan { .. }));
     a.on_qr_text(x.as_bytes());
@@ -279,8 +278,7 @@ fn single_keys_do_not_offer_path_features() {
         sel: 0,
     });
     // BIP-85
-    press(&mut a, Key::Char('3'));
-    press(&mut a, Key::Char('7'));
+    nav::go(&mut a, To::Bip85);
     assert!(matches!(
         a.current(),
         Screen::Menu {
@@ -290,12 +288,12 @@ fn single_keys_do_not_offer_path_features() {
     ));
     assert_eq!(a.notice, Some(a.text().key.not_for_wif));
     // the address explorer shows the key's addresses
-    press(&mut a, Key::Char('2'));
+    nav::go(&mut a, To::Explorer);
     assert_eq!(step(&a), KeyStep::Addresses { slot: 0, sel: 0 });
 }
 
 #[test]
-fn key_screens_fit() {
+pub(crate) fn key_screens_fit() {
     for lang in [crate::settings::Lang::En, crate::settings::Lang::Ko] {
         let dir = std::env::var_os("BP_SHOTS").map(std::path::PathBuf::from);
         let shot = |a: &App, name: &str| {
@@ -309,8 +307,7 @@ fn key_screens_fit() {
         let mut a = app();
         a.settings.lang = lang;
         a.set_test_only(true);
-        press(&mut a, Key::Char('2'));
-        press(&mut a, Key::Char('3'));
+        nav::go(&mut a, To::ImportKey);
         shot(&a, "method");
         press(&mut a, Key::Char('2'));
         let x = bitcoin::bip32::Xpriv::new_master(bitcoin::NetworkKind::Main, &[3; 32])
@@ -340,7 +337,7 @@ fn key_screens_fit() {
 }
 
 #[test]
-fn a_network_chip_locks_the_device() {
+pub(crate) fn a_network_chip_locks_the_device() {
     use bp_hal::mdio::PhyFound;
     use bp_hal::CommCheck;
     let mut a = app();
@@ -393,4 +390,39 @@ fn a_network_chip_locks_the_device() {
         c.render(&mut shot);
         assert!(shot.has_colour(bar, bp_ui::theme::OK));
     }
+}
+
+/// M8 output baseline: imported keys' fingerprints, xpubs and addresses.
+pub(super) fn golden(out: &mut String) {
+    let mut a = app();
+    import_typed(&mut a, &wif(bitcoin::NetworkKind::Main, true));
+    press(&mut a, Key::Enter);
+    for st in crate::keys::KEY_SCRIPTS {
+        let mut o = [0u8; bp_bitcoin::address::MAX_ADDRESS_LEN];
+        let n = a.key_address(0, st, &mut o);
+        super::rec(out, &format!("key.wif.addr.{st:?}"), &o[..n]);
+    }
+    let x = bitcoin::bip32::Xpriv::new_master(bitcoin::NetworkKind::Main, &[3; 32])
+        .unwrap()
+        .to_string();
+    let mut b = app();
+    import_typed(&mut b, &x);
+    press(&mut b, Key::Enter);
+    let fp = b.slot(0).unwrap().fingerprint;
+    super::rec(
+        out,
+        "key.xprv.fingerprint",
+        crate::seeds::fingerprint_hex(&fp).as_str().as_bytes(),
+    );
+    super::rec_qr(
+        out,
+        "key.xprv.xpub",
+        &mut b,
+        QrKind::Xpub {
+            slot: 0,
+            st: ScriptType::NativeSegwit,
+            account: 0,
+            format: XpubFormat::StaticText,
+        },
+    );
 }

@@ -3,6 +3,8 @@
 //! manager (folders, pages, kinds, text view, delete, format).
 
 use super::*;
+use crate::nav::{self, SdRow, To};
+use crate::sd::FileAction;
 use crate::sd::{sniff, CardProblem, FileKind, SdStep, PAGE};
 use bp_hal::{BlockDevice, IoError, SdCard, Sector};
 use std::format;
@@ -171,16 +173,30 @@ pub(super) fn sd_press(a: &mut App, card: &mut MemCard, k: Key) {
     render(a);
 }
 
+/// Pick an action on the open file, by meaning.
+fn sd_file(a: &mut App, card: &mut MemCard, f: FileAction) {
+    let k = nav::file_action(a, f);
+    sd_press(a, card, k);
+}
+
+/// The open file's main action (sign, import, or view).
+fn sd_file_main(a: &mut App, card: &mut MemCard) {
+    let k = nav::file_main(a);
+    sd_press(a, card, k);
+}
+
 /// Main > SD card.
 pub(super) fn open_sd(a: &mut App, card: &mut MemCard) {
     a.set_card_present(card.present);
-    sd_press(a, card, Key::Char('5'));
+    nav::go(a, To::SdCard);
+    serve(a, card);
+    render(a);
 }
 
 /// Main > SD card > Browse files.
 fn open_browse(a: &mut App, card: &mut MemCard) {
     open_sd(a, card);
-    sd_press(a, card, Key::Char('2'));
+    sd_press(a, card, nav::sd_row(SdRow::Browse));
     assert!(matches!(
         a.current(),
         Screen::Sd {
@@ -227,7 +243,7 @@ fn probes_a_formatted_card() {
     assert!(info.bytes > 60_000_000);
     assert_eq!(card.cycles, 1);
     // Read again: one more power cycle.
-    sd_press(&mut a, &mut card, Key::Char('4'));
+    sd_press(&mut a, &mut card, nav::sd_row(SdRow::ReadAgain));
     assert_eq!(card.cycles, 2);
     sd_press(&mut a, &mut card, Key::Esc);
     assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
@@ -242,11 +258,11 @@ fn explains_unusable_cards() {
     assert_eq!(a.sd.card, Some(Err(CardProblem::NoCard)));
     assert_eq!(none.cycles, 0, "no power without a card");
     // nothing to sign, browse or format
-    sd_press(&mut a, &mut none, Key::Char('1'));
+    sd_press(&mut a, &mut none, nav::sd_row(SdRow::SignPsbt));
     assert_eq!(a.notice, Some(a.text().sd.not_ready));
-    sd_press(&mut a, &mut none, Key::Char('2'));
+    sd_press(&mut a, &mut none, nav::sd_row(SdRow::Browse));
     assert_eq!(a.notice, Some(a.text().sd.not_ready));
-    sd_press(&mut a, &mut none, Key::Char('3'));
+    sd_press(&mut a, &mut none, nav::sd_row(SdRow::Format));
     assert_eq!(step(&a), SdStep::Status { sel: 2 });
     press(&mut a, Key::Esc);
 
@@ -378,7 +394,7 @@ fn text_view_is_wiped_on_close() {
     open_browse(&mut a, &mut card);
     select(&mut a, &mut card, "notes.txt");
     sd_press(&mut a, &mut card, Key::Enter);
-    sd_press(&mut a, &mut card, Key::Char('2'));
+    sd_file(&mut a, &mut card, FileAction::View);
     assert_eq!(step(&a), SdStep::Text { top: 0 });
     assert_eq!(&a.sd.view[..a.sd.view_len], b"first line\nsecond line\n");
     sd_press(&mut a, &mut card, Key::Down);
@@ -395,13 +411,13 @@ fn delete_asks_then_removes() {
     open_browse(&mut a, &mut card);
     select(&mut a, &mut card, "notes.txt");
     sd_press(&mut a, &mut card, Key::Enter);
-    sd_press(&mut a, &mut card, Key::Char('3'));
+    sd_file(&mut a, &mut card, FileAction::Delete);
     assert_eq!(step(&a), SdStep::Delete { sel: 0 });
     // Cancel keeps the file
     sd_press(&mut a, &mut card, Key::Enter);
     assert_eq!(step(&a), SdStep::File { sel: 2 });
     assert!(card.file("notes.txt").is_some());
-    sd_press(&mut a, &mut card, Key::Char('3'));
+    sd_file(&mut a, &mut card, FileAction::Delete);
     sd_press(&mut a, &mut card, Key::Char('2'));
     assert!(matches!(step(&a), SdStep::Browse { .. }));
     assert_eq!(a.notice, Some(a.text().sd.deleted));
@@ -468,18 +484,18 @@ fn format_asks_twice() {
     card.data[0] = 0x5A; // old junk
     open_sd(&mut a, &mut card);
     assert_eq!(a.sd.card, Some(Err(CardProblem::Blank)));
-    sd_press(&mut a, &mut card, Key::Char('3'));
+    sd_press(&mut a, &mut card, nav::sd_row(SdRow::Format));
     assert_eq!(step(&a), SdStep::Format { stage: 0, sel: 0 });
     // cancel at either question changes nothing
     sd_press(&mut a, &mut card, Key::Char('1'));
     assert!(matches!(step(&a), SdStep::Status { .. }));
-    sd_press(&mut a, &mut card, Key::Char('3'));
+    sd_press(&mut a, &mut card, nav::sd_row(SdRow::Format));
     sd_press(&mut a, &mut card, Key::Char('2'));
     assert_eq!(step(&a), SdStep::Format { stage: 1, sel: 0 });
     sd_press(&mut a, &mut card, Key::Esc);
     assert_eq!(card.data[0], 0x5A);
     // both confirmed
-    sd_press(&mut a, &mut card, Key::Char('3'));
+    sd_press(&mut a, &mut card, nav::sd_row(SdRow::Format));
     sd_press(&mut a, &mut card, Key::Char('2'));
     sd_press(&mut a, &mut card, Key::Char('2'));
     assert_eq!(step(&a), SdStep::Formatted);
@@ -497,7 +513,7 @@ fn card_changes_close_open_files() {
     open_browse(&mut a, &mut card);
     select(&mut a, &mut card, "notes.txt");
     sd_press(&mut a, &mut card, Key::Enter);
-    sd_press(&mut a, &mut card, Key::Char('2'));
+    sd_file(&mut a, &mut card, FileAction::View);
     assert!(a.sd.view_len > 0);
     card.present = false;
     a.set_card_present(false);
@@ -511,7 +527,7 @@ fn card_changes_close_open_files() {
 /// Every SD screen in both languages (layout check), saved as pictures
 /// when `BP_SHOTS` is set.
 #[test]
-fn sd_screens_fit() {
+pub(crate) fn sd_screens_fit() {
     for lang in [crate::settings::Lang::En, crate::settings::Lang::Ko] {
         let dir = std::env::var_os("BP_SHOTS").map(std::path::PathBuf::from);
         let shot = |a: &App, name: &str| {
@@ -539,13 +555,13 @@ fn sd_screens_fit() {
         );
         sd_press(&mut a, &mut card, Key::Enter);
         shot(&a, "file-long-name");
-        sd_press(&mut a, &mut card, Key::Char('3'));
+        sd_file(&mut a, &mut card, FileAction::Delete);
         shot(&a, "delete");
         sd_press(&mut a, &mut card, Key::Esc);
         sd_press(&mut a, &mut card, Key::Esc);
         select(&mut a, &mut card, "wallet.txt");
         sd_press(&mut a, &mut card, Key::Enter);
-        sd_press(&mut a, &mut card, Key::Char('1'));
+        sd_file(&mut a, &mut card, FileAction::View);
         shot(&a, "text");
         sd_press(&mut a, &mut card, Key::Esc);
         sd_press(&mut a, &mut card, Key::Esc);
@@ -559,17 +575,17 @@ fn sd_screens_fit() {
             sd_press(&mut a, &mut card, Key::Esc);
         }
         shot(&a, "status");
-        sd_press(&mut a, &mut card, Key::Char('1'));
+        sd_press(&mut a, &mut card, nav::sd_row(SdRow::SignPsbt));
         shot(&a, "psbt-list-empty");
         sd_press(&mut a, &mut card, Key::Esc);
-        sd_press(&mut a, &mut card, Key::Char('3'));
+        sd_press(&mut a, &mut card, nav::sd_row(SdRow::Format));
         shot(&a, "format-1");
         sd_press(&mut a, &mut card, Key::Char('2'));
         shot(&a, "format-2");
         sd_press(&mut a, &mut card, Key::Char('2'));
         shot(&a, "formatted");
         sd_press(&mut a, &mut card, Key::Enter);
-        sd_press(&mut a, &mut card, Key::Char('2'));
+        sd_press(&mut a, &mut card, nav::sd_row(SdRow::Browse));
         shot(&a, "empty");
     }
 }
@@ -617,7 +633,7 @@ fn psbt_card(p: &RefPsbt) -> MemCard {
 /// Main > SD card > Sign PSBT.
 fn open_psbt_list(a: &mut App, card: &mut MemCard) {
     open_sd(a, card);
-    sd_press(a, card, Key::Char('1'));
+    sd_press(a, card, nav::sd_row(SdRow::SignPsbt));
     assert!(matches!(step(a), SdStep::PsbtList { .. }));
 }
 
@@ -746,11 +762,11 @@ fn refuses_large_and_broken_psbt_files() {
     assert!(a.scan.out.iter().all(|&b| b == 0));
     // a broken one opened from the file manager
     sd_press(&mut a, &mut card, Key::Esc);
-    sd_press(&mut a, &mut card, Key::Char('2'));
+    sd_press(&mut a, &mut card, nav::sd_row(SdRow::Browse));
     select(&mut a, &mut card, "bad.txt");
     sd_press(&mut a, &mut card, Key::Enter);
     assert_eq!(a.sd.kind, Some(FileKind::Psbt));
-    sd_press(&mut a, &mut card, Key::Char('1'));
+    sd_file_main(&mut a, &mut card);
     assert_eq!(a.notice, Some(a.text().sd.bad_encoding));
     assert!(matches!(step(&a), SdStep::File { .. }));
 }
@@ -822,7 +838,7 @@ fn signs_message_files_and_saves_the_signature() {
     select(&mut a, &mut card, "message.txt");
     sd_press(&mut a, &mut card, Key::Enter);
     assert_eq!(a.sd.kind, Some(FileKind::Text));
-    sd_press(&mut a, &mut card, Key::Char('1')); // Sign message
+    sd_file_main(&mut a, &mut card); // Sign message
     assert!(matches!(a.current(), Screen::MsgSign { .. }), "{:?}", a.current());
     sd_press(&mut a, &mut card, Key::Enter); // message page
     sd_press(&mut a, &mut card, Key::Enter); // address
@@ -910,7 +926,7 @@ fn psbt_file_helpers() {
 /// The signing screens of SD files in both languages (layout check, and
 /// pictures when `BP_SHOTS` is set).
 #[test]
-fn sd_signing_screens_fit() {
+pub(crate) fn sd_signing_screens_fit() {
     let w = W::from_phrase(ABANDON);
     let p = standard(&w);
     for lang in [crate::settings::Lang::En, crate::settings::Lang::Ko] {
@@ -953,11 +969,11 @@ fn sd_signing_screens_fit() {
         shot(&a, "saved-wiped");
         sd_press(&mut a, &mut card, Key::Enter);
         sd_press(&mut a, &mut card, Key::Esc);
-        sd_press(&mut a, &mut card, Key::Char('2'));
+        sd_press(&mut a, &mut card, nav::sd_row(SdRow::Browse));
         select(&mut a, &mut card, "message.txt");
         sd_press(&mut a, &mut card, Key::Enter);
         shot(&a, "file-text");
-        sd_press(&mut a, &mut card, Key::Char('1'));
+        sd_file_main(&mut a, &mut card);
         sd_press(&mut a, &mut card, Key::Enter);
         sd_press(&mut a, &mut card, Key::Enter);
         sd_press(&mut a, &mut card, Key::Char('2'));
@@ -1108,7 +1124,7 @@ fn wallet_files_round_trip_and_tags_register() {
     select(&mut b, &mut card, &bpw);
     sd_press(&mut b, &mut card, Key::Enter);
     assert_eq!(b.sd.kind, Some(FileKind::Wallet));
-    sd_press(&mut b, &mut card, Key::Char('1')); // Import wallet
+    sd_file_main(&mut b, &mut card); // Import wallet
     assert!(
         matches!(
             b.current(),
@@ -1133,7 +1149,7 @@ fn wallet_files_round_trip_and_tags_register() {
     open_browse(&mut c, &mut card);
     select(&mut c, &mut card, &desc);
     sd_press(&mut c, &mut card, Key::Enter);
-    sd_press(&mut c, &mut card, Key::Char('1'));
+    sd_file_main(&mut c, &mut card);
     assert!(matches!(
         c.current(),
         Screen::Wallets {
@@ -1207,7 +1223,7 @@ fn settings_files_never_weaken() {
     select(&mut b, &mut card, &name);
     sd_press(&mut b, &mut card, Key::Enter);
     assert_eq!(b.sd.kind, Some(FileKind::Settings));
-    sd_press(&mut b, &mut card, Key::Char('1')); // Import settings
+    sd_file_main(&mut b, &mut card); // Import settings
     assert_eq!(b.current(), Screen::SettingsImport { sel: 0 });
     render(&b);
     let imp = b.import.as_ref().unwrap().as_ref().unwrap();
@@ -1223,7 +1239,7 @@ fn settings_files_never_weaken() {
 /// Export and import screens in both languages (layout check, pictures
 /// with `BP_SHOTS`).
 #[test]
-fn sd_export_screens_fit() {
+pub(crate) fn sd_export_screens_fit() {
     use bp_bitcoin::multisig::MsScript;
     for lang in [crate::settings::Lang::En, crate::settings::Lang::Ko] {
         let dir = std::env::var_os("BP_SHOTS").map(std::path::PathBuf::from);
@@ -1267,7 +1283,7 @@ fn sd_export_screens_fit() {
         select(&mut b, &mut card, &bpw);
         sd_press(&mut b, &mut card, Key::Enter);
         shot(&b, "file-wallet");
-        sd_press(&mut b, &mut card, Key::Char('1'));
+        sd_file_main(&mut b, &mut card);
         shot(&b, "registered-from-file");
     }
 }
@@ -1300,7 +1316,7 @@ fn seed_words_in_a_file_are_never_loaded() {
     sd_press(&mut a, &mut card, Key::Enter);
     assert_eq!(a.sd.kind, Some(FileKind::Text));
     // every action: sign message (refused: message signing is off), view, delete
-    sd_press(&mut a, &mut card, Key::Char('1'));
+    sd_file_main(&mut a, &mut card);
     sd_press(&mut a, &mut card, Key::Esc);
     assert_eq!(a.seed_count(), 0, "never a seed from the card");
 }
@@ -1339,8 +1355,9 @@ fn fuzz_damaged_cards_through_the_app() {
             sel: 0,
         });
         a.set_card_present(true);
-        sd_press(&mut a, &mut card, Key::Char('5'));
-        sd_press(&mut a, &mut card, Key::Char('1')); // PSBT list
+        nav::go(&mut a, To::SdCard);
+        serve(&mut a, &mut card);
+        sd_press(&mut a, &mut card, nav::sd_row(SdRow::SignPsbt)); // PSBT list
         if matches!(
             a.current(),
             Screen::Sd {
@@ -1357,8 +1374,9 @@ fn fuzz_damaged_cards_through_the_app() {
             id: MenuId::Main,
             sel: 0,
         });
-        sd_press(&mut a, &mut card, Key::Char('5'));
-        sd_press(&mut a, &mut card, Key::Char('2')); // browse
+        nav::go(&mut a, To::SdCard);
+        serve(&mut a, &mut card);
+        sd_press(&mut a, &mut card, nav::sd_row(SdRow::Browse)); // browse
         for i in 0..4u8 {
             if !matches!(
                 a.current(),
@@ -1375,7 +1393,7 @@ fn fuzz_damaged_cards_through_the_app() {
                 },
             });
             sd_press(&mut a, &mut card, Key::Enter);
-            sd_press(&mut a, &mut card, Key::Char('2'));
+            sd_file(&mut a, &mut card, FileAction::View);
             sd_press(&mut a, &mut card, Key::Esc);
             sd_press(&mut a, &mut card, Key::Esc);
         }
@@ -1418,4 +1436,84 @@ fn fuzz_file_decoders() {
         let _ = crate::sd::sniff(&data);
         let _ = crate::sdfile::message_request(&data, bp_bitcoin::Network::Mainnet, &mut [0u8; 300]);
     }
+}
+
+/// M8 output baseline: every file the device writes to the card.
+pub(super) fn golden(out: &mut String) {
+    use super::rec;
+    let file = |out: &mut String, card: &mut MemCard, key: &str, name: &str| {
+        rec(out, &format!("{key}.name"), name.as_bytes());
+        rec(out, &format!("{key}.file"), &card.file(name).unwrap());
+    };
+    // a signed PSBT file
+    let w = W::from_phrase(ABANDON);
+    let mut card = psbt_card(&standard(&w));
+    let mut a = app();
+    load_abandon(&mut a);
+    a.settings.msg_signing = true;
+    open_psbt_list(&mut a, &mut card);
+    a.set_current(Screen::Sd {
+        step: SdStep::PsbtList {
+            sel: names(&a).iter().position(|n| n == "tx.psbt").unwrap() as u8,
+        },
+    });
+    sd_press(&mut a, &mut card, Key::Enter);
+    approve(&mut a, &mut card);
+    sd_press(&mut a, &mut card, Key::Enter); // Save to SD card
+    let name = String::from(a.sd.saved.unwrap().unwrap().name.as_str());
+    file(out, &mut card, "sd.psbt", &name);
+    sd_press(&mut a, &mut card, Key::Enter);
+    // a signed message file
+    open_browse(&mut a, &mut card);
+    select(&mut a, &mut card, "message.txt");
+    sd_press(&mut a, &mut card, Key::Enter);
+    sd_file_main(&mut a, &mut card);
+    sd_press(&mut a, &mut card, Key::Enter); // message page
+    sd_press(&mut a, &mut card, Key::Enter); // address
+    sd_press(&mut a, &mut card, Key::Char('2')); // sign
+    sd_press(&mut a, &mut card, Key::Char('1')); // Save to SD card
+    let name = String::from(a.sd.saved.unwrap().unwrap().name.as_str());
+    file(out, &mut card, "sd.message", &name);
+    // QR exports saved as files, and the wallet files
+    let (mut a, mut card) = export_setup();
+    for (key, kind) in [
+        (
+            "sd.xpub",
+            QrKind::Xpub {
+                slot: 0,
+                st: ScriptType::NativeSegwit,
+                account: 0,
+                format: XpubFormat::UrAccount,
+            },
+        ),
+        (
+            "sd.mskey",
+            QrKind::MsKey {
+                slot: 0,
+                script: bp_bitcoin::multisig::MsScript::Wsh,
+                account: 0,
+                format: crate::wallets::KeyFormat::ColdcardJson,
+            },
+        ),
+        ("sd.settings", QrKind::Settings),
+    ] {
+        let name = save_qr(&mut a, &mut card, kind);
+        file(out, &mut card, key, &name);
+    }
+    let wl = super::wallets_flow::wallet_of(&a, bp_bitcoin::multisig::MsScript::Wsh, 2, 3);
+    super::wallets_flow::register_quick(&mut a, &wl);
+    let idx = a.wallets.iter().next().map(|(i, _)| i as u8).unwrap();
+    for format in [
+        crate::wallets::WalletFormat::Descriptor,
+        crate::wallets::WalletFormat::ColdcardUr,
+    ] {
+        let name = save_qr(&mut a, &mut card, QrKind::Wallet { idx, format });
+        file(out, &mut card, &format!("sd.wallet.{format:?}"), &name);
+    }
+    a.push(Screen::Wallets {
+        step: crate::wallets::WlStep::Export { idx, sel: 0 },
+    });
+    sd_press(&mut a, &mut card, Key::Char('5')); // Bitpunk wallet file
+    let name = String::from(a.sd.saved.unwrap().unwrap().name.as_str());
+    file(out, &mut card, "sd.bpw", &name);
 }

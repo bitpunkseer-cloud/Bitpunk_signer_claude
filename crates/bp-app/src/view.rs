@@ -76,6 +76,8 @@ impl App {
     }
 
     pub fn render(&self, c: &mut dyn Canvas) {
+        #[cfg(test)]
+        crate::coverage::note(&self.current());
         let (w, h) = (c.width() as i32, c.height() as i32);
         c.fill_rect(0, 0, w, h, theme::BG);
         let s = self.text();

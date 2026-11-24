@@ -43,8 +43,7 @@ pub(super) fn descriptor_of(w: &Wallet) -> String {
 
 /// Main > Tools > Multisig wallets.
 pub(super) fn open_wallets(a: &mut App) {
-    press(a, Key::Char('3'));
-    press(a, Key::Char('6'));
+    crate::nav::go(a, crate::nav::To::Multisig);
 }
 
 fn step(a: &App) -> WlStep {
@@ -254,7 +253,7 @@ fn main_menu_scan_opens_wallet_import() {
     let mut a = app();
     load_abandon(&mut a);
     let w = wallet_of(&a, MsScript::Wsh, 2, 3);
-    press(&mut a, Key::Char('1')); // Scan QR
+    crate::nav::go(&mut a, crate::nav::To::Scan(scan::Purpose::Any)); // Scan QR
     a.on_qr_text(descriptor_of(&w).as_bytes());
     assert_eq!(step(&a), WlStep::Summary { sel: 0 });
 }
@@ -999,7 +998,7 @@ fn multisig_address_is_verified() {
     register_quick(&mut a, &w);
     to_main(&mut a);
     // change #5 of the wallet, scanned from the main menu
-    press(&mut a, Key::Char('1'));
+    crate::nav::go(&mut a, crate::nav::To::Scan(scan::Purpose::Any));
     a.on_qr_text(address_of(&a, &w, 1, 5).as_bytes());
     assert!(matches!(a.current(), Screen::VerifyAddr { .. }));
     render(&a);
@@ -1022,7 +1021,7 @@ fn multisig_address_is_verified() {
     // a P2WSH address of no registered wallet: not found in the batch
     to_main(&mut a);
     let other = wallet_of(&a, MsScript::Wsh, 1, 3);
-    press(&mut a, Key::Char('1'));
+    crate::nav::go(&mut a, crate::nav::To::Scan(scan::Purpose::Any));
     a.on_qr_text(address_of(&a, &other, 0, 0).as_bytes());
     press(&mut a, Key::Enter);
     run_search(&mut a);
@@ -1069,4 +1068,49 @@ fn verify_only_review_never_signs() {
     assert_eq!(review_step(&a), Step::VerifiedOnly);
     press(&mut a, Key::Enter);
     assert!(a.review.is_none());
+}
+
+/// M8 output baseline: wallet codes, wallet exports, multisig signatures.
+pub(super) fn golden(out: &mut String) {
+    use super::{rec, rec_qr};
+    let mut a = app();
+    load_abandon(&mut a);
+    for (script, name) in [(MsScript::Wsh, "wsh"), (MsScript::ShWsh, "shwsh")] {
+        let w = wallet_of(&a, script, 2, 3);
+        import(&mut a, &descriptor_of(&w));
+        let code = code_of(&a);
+        rec(out, &format!("wallet.{name}.code"), &code.0);
+        rec(out, &format!("wallet.{name}.code.display"), &code.display());
+        press(&mut a, Key::Char('2'));
+        type_str(&mut a, std::str::from_utf8(&code.0).unwrap());
+        press(&mut a, Key::Enter);
+        assert!(matches!(step(&a), WlStep::Registered { .. }));
+        let idx = a.wallets.iter().last().map(|(i, _)| i as u8).unwrap();
+        to_main(&mut a);
+        for format in crate::wallets::WalletFormat::ALL {
+            rec_qr(
+                out,
+                &format!("wallet.{name}.{format:?}"),
+                &mut a,
+                QrKind::Wallet { idx, format },
+            );
+        }
+        for i in [0u32, 1, 7] {
+            for b in [0u32, 1] {
+                rec(
+                    out,
+                    &format!("wallet.{name}.addr.{b}.{i}"),
+                    address_of(&a, &w, b, i).as_bytes(),
+                );
+            }
+        }
+        if script == MsScript::Wsh {
+            let p = ms_psbt(&w, false, false);
+            scan_psbt(&mut a, &p);
+            sign_through(&mut a);
+            let len = a.review.as_ref().unwrap().signed.unwrap().len;
+            rec(out, &format!("wallet.{name}.signed"), &a.scan.work()[..len]);
+            to_main(&mut a);
+        }
+    }
 }

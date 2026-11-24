@@ -7,8 +7,7 @@ use crate::b85::B85Step;
 use std::string::String;
 
 fn open(a: &mut App) {
-    press(a, Key::Char('3')); // Tools
-    press(a, Key::Char('7')); // BIP-85
+    crate::nav::go(a, crate::nav::To::Bip85);
 }
 
 fn step(a: &App) -> B85Step {
@@ -194,7 +193,7 @@ fn needs_a_seed() {
 }
 
 #[test]
-fn b85_screens_fit() {
+pub(crate) fn b85_screens_fit() {
     for lang in [crate::settings::Lang::En, crate::settings::Lang::Ko] {
         let dir = std::env::var_os("BP_SHOTS").map(std::path::PathBuf::from);
         let shot = |a: &App, name: &str| {
@@ -228,6 +227,9 @@ fn b85_screens_fit() {
         press(&mut a, Key::Enter);
         press(&mut a, Key::Enter);
         shot(&a, "result-12");
+        press(&mut a, Key::Char('1')); // SeedQR
+        shot(&a, "result-12-qr");
+        press(&mut a, Key::Esc);
         press(&mut a, Key::Esc);
         press(&mut a, Key::Esc);
         for (row, name) in [('5', "xprv"), ('6', "hex"), ('7', "pwd64")] {
@@ -255,5 +257,48 @@ fn b85_screens_fit() {
         press(&mut b, Key::Enter);
         press(&mut b, Key::Enter);
         shot(&b, "result-passphrase");
+        // two seeds: pick one first
+        let mut c = app();
+        load_abandon(&mut c);
+        c.settings.lang = lang;
+        let m = c.slot(0).unwrap().mnemonic.clone().unwrap();
+        c.seeds[1] = crate::seeds::SeedSlot::new(m, b"other");
+        open(&mut c);
+        shot(&c, "pick-seed");
+    }
+}
+
+/// M8 output baseline: every BIP-85 application's result and QR.
+pub(super) fn golden(out: &mut String) {
+    let mut a = app();
+    load_abandon(&mut a);
+    open(&mut a);
+    for (row, name) in [
+        ('1', "words12"),
+        ('2', "words18"),
+        ('3', "words24"),
+        ('4', "wif"),
+        ('5', "xprv"),
+        ('6', "hex"),
+        ('7', "pwd64"),
+        ('8', "pwd85"),
+    ] {
+        for index in ["0", "2147483647"] {
+            derive(&mut a, row, index);
+            super::rec(out, &format!("bip85.{name}.{index}"), result_text(&a).as_bytes());
+            if row == '1' && index == "0" {
+                for compact in [false, true] {
+                    super::rec_qr(
+                        out,
+                        &format!("bip85.{name}.qr.{compact}"),
+                        &mut a,
+                        QrKind::Bip85 { compact },
+                    );
+                }
+            }
+            press(&mut a, Key::Esc);
+            press(&mut a, Key::Esc);
+            assert!(matches!(step(&a), B85Step::App { .. }));
+        }
     }
 }
