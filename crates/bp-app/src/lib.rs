@@ -20,6 +20,7 @@ mod text;
 mod text_b85;
 mod text_key;
 mod text_sd;
+pub(crate) mod typed;
 mod verify;
 mod view;
 mod wallets;
@@ -352,6 +353,8 @@ pub struct App {
     /// Where the QR code on screen was drawn in the last render (screen
     /// effects leave it untouched).
     qr_area: core::cell::Cell<Option<[i32; 4]>>,
+    /// The typed word of a confirmation for an action that cannot be undone.
+    typed: typed::TypedWord,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -429,6 +432,7 @@ impl App {
             key_problem: None,
             comm: bp_hal::CommCheck::NotRun,
             qr_area: core::cell::Cell::new(None),
+            typed: typed::TypedWord::new(),
         }
     }
 
@@ -963,10 +967,13 @@ impl App {
                     Pick::Choose(o) if o == keys::SlotOpt::SeedQr as u8 => {
                         self.push(Screen::SeedQrSelect { slot, sel: 0 })
                     }
-                    Pick::Choose(_) => self.push(Screen::Confirm {
-                        what: Confirm::DiscardSeed(slot),
-                        sel: 0,
-                    }),
+                    Pick::Choose(_) => {
+                        self.typed.clear();
+                        self.push(Screen::Confirm {
+                            what: Confirm::DiscardSeed(slot),
+                            sel: 0,
+                        })
+                    }
                     Pick::Back => self.pop(),
                     Pick::None => {}
                 }
@@ -1260,6 +1267,18 @@ impl App {
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
+            },
+            Screen::Confirm {
+                what: Confirm::DiscardSeed(slot),
+                ..
+            } => match self.typed.key(ev.key, typed::WIPE) {
+                typed::Typed::Confirmed => {
+                    self.seeds[slot as usize] = None; // Mnemonic wipes itself
+                    self.wallets.forget_slot(slot);
+                    self.go_seeds(None);
+                }
+                typed::Typed::Cancelled => self.pop(),
+                typed::Typed::Pending => {}
             },
             Screen::Confirm { what, sel } => match pick(ev.key, sel, 2) {
                 Pick::Move(s) => self.set_current(Screen::Confirm { what, sel: s }),

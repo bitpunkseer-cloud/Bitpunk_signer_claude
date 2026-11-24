@@ -667,13 +667,21 @@ impl App {
                 Pick::Choose(_) | Pick::Back => self.pop(),
                 Pick::None => {}
             },
-            SdStep::Format { stage, sel } => match crate::pick(ev.key, sel, 2) {
-                Pick::Move(s) => self.sd_set(SdStep::Format { stage, sel: s }),
-                Pick::Choose(1) if stage == 0 => self.sd_set(SdStep::Format { stage: 1, sel: 0 }),
-                Pick::Choose(1) => {
+            // the last question: type FORMAT (cannot be undone)
+            SdStep::Format { stage: 1, .. } => match self.typed.key(ev.key, crate::typed::FORMAT) {
+                crate::typed::Typed::Confirmed => {
                     self.sd.card = None;
                     self.sd.job = Some(Job::Format);
                     self.sd_set(SdStep::Formatted);
+                }
+                crate::typed::Typed::Cancelled => self.pop(),
+                crate::typed::Typed::Pending => {}
+            },
+            SdStep::Format { stage, sel } => match crate::pick(ev.key, sel, 2) {
+                Pick::Move(s) => self.sd_set(SdStep::Format { stage, sel: s }),
+                Pick::Choose(1) => {
+                    self.typed.clear();
+                    self.sd_set(SdStep::Format { stage: 1, sel: 0 })
                 }
                 Pick::Choose(_) | Pick::Back => self.pop(),
                 Pick::None => {}
@@ -849,8 +857,18 @@ impl App {
                     BODY.draw(c, MARGIN, STATUS_H + 80, t.format_warn[1], theme::TEXT);
                     BODY.draw(c, MARGIN, STATUS_H + 116, t.format_warn[2], theme::TEXT);
                 } else {
-                    TITLE.draw(c, MARGIN, STATUS_H + 24, t.format_final[0], theme::DANGER);
-                    BODY.draw(c, MARGIN, STATUS_H + 80, t.format_final[1], theme::TEXT);
+                    let y = widgets::message_at(
+                        c,
+                        STATUS_H + 40,
+                        t.format_final[0],
+                        theme::DANGER,
+                        &[t.format_final[1]],
+                    );
+                    let prompt: Buf<96> = fill(s.typed_prompt, &[&crate::typed::FORMAT]);
+                    let wrong = self.typed.wrong.then_some(s.typed_wrong);
+                    widgets::typed_field(c, y + 40, prompt.as_str(), self.typed.text(), wrong);
+                    widgets::hint_bar(c, &[("A-Z", s.h_type), ("Enter", t.format_go), ("Esc", t.cancel)]);
+                    return;
                 }
                 let go = if stage == 0 { t.proceed } else { t.format_go };
                 let items = [

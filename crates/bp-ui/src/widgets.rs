@@ -228,6 +228,28 @@ pub fn message_at(c: &mut dyn Canvas, top: i32, heading: &str, heading_color: Rg
     y
 }
 
+/// The field of a typed-word confirmation (UX language): the prompt that
+/// names the word, then what is typed so far in large letters and a cursor
+/// block; `wrong` after Enter with another word. Returns the bottom.
+pub fn typed_field(c: &mut dyn Canvas, top: i32, prompt: &str, typed: &str, wrong: Option<&str>) -> i32 {
+    use crate::font::DOUBLE;
+    let w = c.width() as i32;
+    BODY.draw_centered(c, 0, w, top, prompt, TEXT);
+    let y = top + BODY.height as i32 + 10;
+    let cw = DOUBLE.width as i32;
+    let tw = DOUBLE.text_width("> ") + DOUBLE.text_width(typed) + cw;
+    let mut x = (w - tw) / 2;
+    x = DOUBLE.draw(c, x, y, "> ", TEXT_DIM);
+    x = DOUBLE.draw(c, x, y, typed, DANGER);
+    c.fill_rect(x + 2, y + 8, cw - 4, DOUBLE.height as i32 - 14, DANGER);
+    let mut bottom = y + DOUBLE.height as i32;
+    if let Some(m) = wrong {
+        BODY.draw_centered(c, 0, w, bottom + 6, m, WARN);
+        bottom += BODY.height as i32 + 6;
+    }
+    bottom
+}
+
 /// The double red frame of danger messages, across the screen.
 pub fn danger_frame(c: &mut dyn Canvas, y: i32, h: i32) {
     let w = c.width() as i32;

@@ -466,6 +466,23 @@ impl App {
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
                 widgets::hint_bar(c, &[("Esc", s.h_back)]);
             }
+            Screen::Confirm {
+                what: Confirm::DiscardSeed(_),
+                ..
+            } => {
+                self.status(c, s.seeds);
+                let y = widgets::message_at(
+                    c,
+                    STATUS_H + 40,
+                    s.confirm_discard_title,
+                    theme::DANGER,
+                    &[s.confirm_discard_1],
+                );
+                let prompt: Buf<96> = fill(s.typed_prompt, &[&crate::typed::WIPE]);
+                let wrong = self.typed.wrong.then_some(s.typed_wrong);
+                widgets::typed_field(c, y + 40, prompt.as_str(), self.typed.text(), wrong);
+                widgets::hint_bar(c, &[("A-Z", s.h_type), ("Enter", s.discard), ("Esc", s.keep)]);
+            }
             Screen::Confirm { what, sel } => {
                 self.status(c, s.seeds);
                 let (t, l) = match what {

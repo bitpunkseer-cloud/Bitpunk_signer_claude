@@ -1250,3 +1250,42 @@ fn d20_rolls_are_typed_then_recorded_with_space() {
         want.indices()
     );
 }
+
+// ---------- M9: typed-word confirmation (intended change C5) ----------
+
+#[test]
+fn discarding_a_seed_needs_the_word_wipe() {
+    let mut a = app();
+    load_abandon(&mut a);
+    nav::seed_opt(&mut a, keys::SlotOpt::Discard);
+    assert!(matches!(
+        a.current(),
+        Screen::Confirm {
+            what: Confirm::DiscardSeed(0),
+            ..
+        }
+    ));
+    // the old "2 = discard" no longer discards; a wrong word changes nothing
+    press(&mut a, Key::Char('2'));
+    type_str(&mut a, "wip");
+    press(&mut a, Key::Enter);
+    assert_eq!(a.seed_count(), 1);
+    assert!(a.typed.wrong);
+    // Esc keeps the seed
+    press(&mut a, Key::Esc);
+    assert!(matches!(a.current(), Screen::SeedOptions { .. }));
+    assert_eq!(a.seed_count(), 1);
+    // the word discards it
+    nav::seed_opt(&mut a, keys::SlotOpt::Discard);
+    assert_eq!(a.typed.text(), "", "the field starts empty");
+    type_str(&mut a, "WIPE");
+    press(&mut a, Key::Enter);
+    assert_eq!(a.seed_count(), 0);
+    assert!(matches!(
+        a.current(),
+        Screen::Menu {
+            id: MenuId::Seeds,
+            ..
+        }
+    ));
+}

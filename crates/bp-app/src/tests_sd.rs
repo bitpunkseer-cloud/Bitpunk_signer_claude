@@ -494,10 +494,27 @@ fn format_asks_twice() {
     assert_eq!(step(&a), SdStep::Format { stage: 1, sel: 0 });
     sd_press(&mut a, &mut card, Key::Esc);
     assert_eq!(card.data[0], 0x5A);
-    // both confirmed
+    // M9 (C5): the last question needs the word FORMAT typed; a wrong word
+    // or a digit changes nothing
     sd_press(&mut a, &mut card, nav::sd_row(SdRow::Format));
     sd_press(&mut a, &mut card, Key::Char('2'));
     sd_press(&mut a, &mut card, Key::Char('2'));
+    assert_eq!(
+        step(&a),
+        SdStep::Format { stage: 1, sel: 0 },
+        "a digit does not format"
+    );
+    for k in "FORMA".chars() {
+        sd_press(&mut a, &mut card, Key::Char(k));
+    }
+    sd_press(&mut a, &mut card, Key::Enter);
+    assert_eq!(step(&a), SdStep::Format { stage: 1, sel: 0 });
+    assert!(a.typed.wrong);
+    assert_eq!(card.data[0], 0x5A);
+    for k in "t".chars() {
+        sd_press(&mut a, &mut card, Key::Char(k));
+    }
+    sd_press(&mut a, &mut card, Key::Enter);
     assert_eq!(step(&a), SdStep::Formatted);
     let info = a.sd.card.unwrap().unwrap();
     assert_eq!(info.kind, bp_fat::FatKind::Fat16);
@@ -581,8 +598,16 @@ pub(crate) fn sd_screens_fit() {
         sd_press(&mut a, &mut card, nav::sd_row(SdRow::Format));
         shot(&a, "format-1");
         sd_press(&mut a, &mut card, Key::Char('2'));
+        for k in "FORM".chars() {
+            sd_press(&mut a, &mut card, Key::Char(k));
+        }
         shot(&a, "format-2");
-        sd_press(&mut a, &mut card, Key::Char('2'));
+        sd_press(&mut a, &mut card, Key::Enter);
+        shot(&a, "format-2-wrong");
+        for k in "AT".chars() {
+            sd_press(&mut a, &mut card, Key::Char(k));
+        }
+        sd_press(&mut a, &mut card, Key::Enter);
         shot(&a, "formatted");
         sd_press(&mut a, &mut card, Key::Enter);
         sd_press(&mut a, &mut card, nav::sd_row(SdRow::Browse));

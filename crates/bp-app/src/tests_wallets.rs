@@ -373,6 +373,7 @@ fn discarding_the_seed_forgets_its_wallets() {
         what: Confirm::DiscardSeed(0),
         sel: 1,
     });
+    type_str(&mut a, "wipe"); // M9 (C5): typed, any case
     press(&mut a, Key::Enter);
     assert!(a.wallets.is_empty());
 }
