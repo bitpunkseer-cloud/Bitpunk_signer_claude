@@ -64,7 +64,11 @@ impl App {
                 title,
                 network_badge: net.badge(),
                 mainnet: net == bp_bitcoin::Network::Mainnet,
-                air_gapped: self.text().air_gapped,
+                air_gapped: match self.comm {
+                    bp_hal::CommCheck::Detected(_) => self.text().key.comm_badge,
+                    _ => self.text().air_gapped,
+                },
+                air_gap_ok: !matches!(self.comm, bp_hal::CommCheck::Detected(_)),
                 test_only: self.test_only.then_some(self.text().test_only),
                 sd: self.sd.present.then_some(self.text().sd.badge),
             },

@@ -384,5 +384,13 @@ fn a_network_chip_locks_the_device() {
             let l = ["en", "ko"][lang as usize];
             shot.save(&d.join(format!("key-{l}-comm.ppm")));
         }
+        // the status bar no longer shows the green air-gap mark
+        let bar = bp_ui::widgets::STATUS_H as usize;
+        assert!(!shot.has_colour(bar, bp_ui::theme::OK));
+        assert!(shot.has_colour(bar, bp_ui::theme::DANGER));
+        c.set_comm_check(CommCheck::Clean);
+        let mut shot = super::layout::Shot::new();
+        c.render(&mut shot);
+        assert!(shot.has_colour(bar, bp_ui::theme::OK));
     }
 }

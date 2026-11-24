@@ -100,12 +100,12 @@ PSBT v2·BSMS는 보류(결정 6·7).
 
 **결과:** 저장 공간 없이 등록을 묶는 시드 HMAC 지갑 코드, 공동서명자 xpub을 직접 스캔하는 에어갭 생성, 입력·거스름을 등록 지갑으로만 재구성(거스름 위장·M 낮추기·xpub 바꿔치기·poisoned input 등 공격 시나리오 전부 거부), 기존 공동서명자 서명 검증과 서명 현황, PSBT 전역 xpub 재구성 + 코드 입력 재등록. 주소·체크섬·디스크립터 문자열이 rust-miniscript·embit 고정 벡터와 일치, PSBT·서명은 rust-bitcoin으로 독립 검증. 상세: [M7_PLAN.md](milestones/M7_PLAN.md) 16장, 2-of-3 구성 안내 17장, 조사: [M7_SURVEY.md](M7_SURVEY.md).
 
-## M8 — microSD
+## M8 — microSD · BIP-85 · 개인키 가져오기 ✅ 구현 완료
 
 FAT 파일시스템, PSBT 파일 읽기/쓰기, 파일 관리자, 서명된 tx 저장, SD 제거 알림, BIP-85(니모닉·WIF·XPRV·HEX·패스워드),
 WIF / XPRV 개인키 가져오기 및 단일 키 서명.
 
-**계획(제안, 승인 대기):** [M8_PLAN.md](milestones/M8_PLAN.md) — SD는 신뢰할 수 없는 매체(엄격한 FAT 검사·퍼징, 비밀은 쓰지 않음, 읽고 바로 뗌, 덮어쓰지 않음), 서명 결과는 전체 PSBT, M7 지갑 파일은 시드 태그로 자동 등록, BIP-85 6종, WIF·XPRV 가져오기, 시뮬레이터 가상 SD, H1 보드 비교. 조사: [M8_SURVEY.md](M8_SURVEY.md).
+**결과:** 직접 작성한 FAT16/FAT32 드라이버 `bp-fat`(두 FAT 비교·체인 길이 제한·긴 이름 검사, 새 파일만 쓰기, 포맷, rust-fatfs·fsck.fat 교차 시험과 퍼징), 작업마다 카드 전원을 켜고 끄는 SD 수명 주기, 파일 관리자, PSBT 파일 서명 → 전체 PSBT `-signed(-지문).psbt` 저장, 메시지 `.sig`, 지갑·xpub·설정 파일(`.bpw`는 시드 태그로 자동 등록, 설정은 약화 금지), BIP-85 6종(본문·embit 벡터), XPRV·WIF 가져오기와 단일 키 서명(rust-bitcoin 검증), 시뮬레이터 가상 SD, 통신 칩 부팅 탐지 잠금. 비밀은 카드에 쓰지 않는다. 상세: [M8_PLAN.md](milestones/M8_PLAN.md) 14장, Sparrow SD 왕복 안내 15장, 조사: [M8_SURVEY.md](M8_SURVEY.md).
 
 ## H — 하드웨어 트랙 (M3부터 병행)
 

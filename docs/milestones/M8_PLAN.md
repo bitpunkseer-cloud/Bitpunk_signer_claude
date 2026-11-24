@@ -1,6 +1,6 @@
 # M8 구현 계획 (v1) — microSD · BIP-85 · 개인키 가져오기
 
-상태: **승인 (2026-11, 결정 1~9 전부 권장안)** — 구현 중 · 근거: [M8_SURVEY.md](../M8_SURVEY.md) (Coldcard·Krux·Specter DIY·Passport·Keystone·OneKey·Jade 조사, BIP-85 2.1.0)
+상태: **구현 완료 (2026-11)** — 결정 1~9 전부 권장안으로 승인, 결과는 14장, Sparrow SD 왕복 안내는 15장 · 근거: [M8_SURVEY.md](../M8_SURVEY.md) (Coldcard·Krux·Specter DIY·Passport·Keystone·OneKey·Jade 조사, BIP-85 2.1.0)
 
 ## 0. 원칙 — SD 카드는 신뢰할 수 없는 매체
 
@@ -144,3 +144,61 @@
 - **BIP-85:** 본문 벡터 + embit 고정 벡터.
 - **서명:** SD에서 읽은 PSBT의 서명을 rust-bitcoin으로 검증, 전체 PSBT 출력이 원본 + 우리 서명과 같음.
 - **화면:** 배치 검사 영·한.
+
+## 14. 구현 결과
+
+| 커밋 | 내용 |
+|---|---|
+| M8-1 `0c0ea89` | `bp-fat`(no_std, 할당 없음): MBR 첫 FAT 파티션·파티션 없는 카드, 엄격한 BPB 검사, 클러스터 수로 FAT16/32 판정(FAT12·exFAT·GPT·섹터 ≠ 512는 거부), **FAT 두 벌을 매번 비교**(다르면 거부), 길이 제한 체인(고리·범위 밖·짧은 체인 거부), 긴 이름 순서·체크섬 검사, 경로 열기, 파일 읽기 |
+| M8-2 `97825a6` | 새 파일만 쓰기(데이터 → FAT 두 벌 → 마지막에 디렉터리 항목), 긴 이름 + 겹치지 않는 8.3 이름, `이름-2`… 번호, 지우기, 0으로 덮어 지우기, 포맷(MBR + 정렬된 파티션, 2 GiB 미만 FAT16·이상 FAT32, 앞부분 난수) |
+| M8-3 `ddba00f` | `SdCard` HAL(감지·전원), 작업 큐(전원 켬 → 마운트 → 작업 → 전원 끔), 상태 표시줄 SD 표시, 카드 교체 감지 시 열린 파일 닫기, 시뮬레이터 32 MB 가상 카드(넣기/빼기·복사·끌어다 놓기·내려받기·지우기) |
+| M8-4 `abd4d7f` | 파일 관리자: 폴더(깊이 4) 페이지 탐색, 숨김·`._` 파일 숨김, 내용으로 종류 판별(PSBT·서명 메시지·지갑·설정·텍스트·바이너리), 텍스트 보기(닫으면 지움), 지우기·포맷 각각 확인 |
+| M8-5 `55fda68` | PSBT 파일(바이너리·hex·base64, BOM·공백 허용, 디코딩하며 128 KB 상한) → 같은 검토·서명 → **전체 PSBT** `-signed(-지문).psbt` 저장, 원본 지우기 설정(기본 꺼짐), 메시지 `.txt` → armored `.sig` |
+| M8-6 `f10ec89` | `.bpw` 지갑 파일(태그가 불러온 시드와 맞으면 규칙 재검사 후 자동 등록), 디스크립터·Coldcard 파일, `ccxp-<지문>.json`, `bitpunk-<지문>.json`(Generic JSON 모양), `bitpunk-settings.txt`(약화 금지), QR 화면에서 <kbd>S</kbd>로 저장 |
+| M8-7 `cca7aaa` | BIP-85 6종(니모닉 12/18/24·WIF·XPRV·HEX·BASE64·BASE85), 번호·길이 입력, 결과 QR(Compact SeedQR 포함), 자식 시드를 빈 슬롯에 불러오기, 본문 벡터 + embit 고정 벡터 24개 |
+| M8-8 `12315e5` | 개인키 가져오기(QR·키보드): XPRV(SLIP-132 포함, 네트워크 일치) 슬롯, WIF 단일 키 슬롯(스크립트 일치로 소유 판정, 주소 4종 보기), 다른 네트워크·비압축·범위 밖·중복 거부 |
+| M8-9 `2e163a8` | 보드 준비: `thumbv8m.main-none-eabihf` 빌드(CI), MDIO clause-22 비트뱅 PHY 탐지(`bp_hal::mdio`), 통신 칩이 응답하면 **시드·지갑·버퍼를 지우고 잠금**, [STM32N6570-DK 준비 문서](../hardware/STM32N6570-DK.md) |
+| M8-10 | 공격·퍼징 추가(손상 카드로 앱 전체 흐름, 파일 디코더 퍼징, 시드 단어 텍스트 파일), 통신 칩 잠금 중에는 상태 표시줄의 초록 "에어갭" 대신 빨간 "통신 칩", 시뮬레이터 안내, 이 문서 |
+
+**시험:** 전체 502개(M7 끝 416개 → +86: `bp-fat` 31, SD 흐름 27, BIP-85 앱 6·본문/embit 5, 개인키 7·단일 키 서명 3, MDIO 3 등). 독립 기준: rust-fatfs(우리가 쓴 이미지를 읽고, 그것이 만든 이미지를 우리가 읽어 내용 비교), `fsck.fat`(dosfstools — 우리가 쓰거나 포맷한 이미지에 새 오류가 없음, 4 MB~40 GB), rust-bitcoin(SD에서 읽어 서명한 PSBT의 서명 검증, 전체 PSBT = 원본 + 우리 서명), embit(BIP-85 고정 벡터).
+
+**공격 시나리오(모두 거부·패닉 없음):** 고리 체인, 교차 체인, 범위 밖 클러스터, 0·512 아닌 섹터 크기, 거짓 파일 크기, 끝없는 디렉터리, 깨진 긴 이름 조각, FAT 두 벌 불일치, exFAT·GPT·FAT12 위장, 쓰는 도중 카드 뽑기(기존 파일은 그대로, 다시 넣어 저장 가능), 128 KB를 넘는 PSBT·깨진 인코딩, 태그를 바꾼 지갑 파일(자동 등록 안 됨, 일반 가져오기로), 보호를 약하게 하는 설정 파일, 시드 단어가 든 텍스트 파일(텍스트로만 보임, 불러오는 동작 없음), 무작위로 손상한 카드로 PSBT 목록·열기·탐색 150회, 파일 디코더 무작위 입력 3,000회, 파일시스템 퍼징 1,500회(읽기·쓰기).
+
+### 계획과 달라진 점
+
+- FAT 두 벌 중 첫 벌만 쓰는 대신 **읽을 때마다 두 벌을 비교**한다(엄격). FAT 미러링을 끈 카드는 지원하지 않는다.
+- 통신 칩 탐지는 "서명 거부"보다 강하게 **기기 잠금**: 시드·지갑·버퍼를 지우고 잠금 화면만 남는다.
+- WIF 슬롯은 내부적으로 체인코드 0인 XPRV로 담고, 단일 키 표시로 xpub·멀티시그·BIP-85·경로 유도를 막는다.
+- 원본 지우기 설정은 기기에서만 바꾼다(SettingsQR·설정 파일에 넣지 않음).
+- QR 버퍼와 SD 버퍼를 나눴다: 스캔 수집 32 KB, SD PSBT 128 KB(작업 버퍼 144 KB). 실기기는 PSRAM에 둔다(H2).
+- Sparrow 실제 왕복(아래 15장)은 사용자 확인 항목. 자동 시험은 rust-bitcoin 독립 검증으로 대신했다.
+
+## 15. Sparrow SD 왕복 안내 (Signet)
+
+메뉴 이름은 Sparrow 버전에 따라 조금 다를 수 있다. 시뮬레이터에서는 화면 옆 **microSD card** 패널이 컴퓨터 역할을 한다(파일 복사 = "Copy files to card…" 또는 끌어다 놓기, 꺼내기 = 목록의 내려받기).
+
+**준비**
+1. Sparrow: Settings > Network = Signet. Bitpunk: 설정 > 네트워크 = Signet, 시험용 시드를 주사위·동전으로 만들거나 불러온다.
+2. SD 카드가 FAT32/FAT16이 아니면 Bitpunk에서 주 메뉴 > SD 카드 > 카드 포맷(확인 두 번).
+
+**단일 서명 지갑 등록**
+3. Bitpunk: 시드 > 시드 선택 > xpub 내보내기 → 형식을 고르고 QR 화면에서 <kbd>S</kbd> → 카드에 `bitpunk-<지문>.json`(네 가지 스크립트의 계정 xpub, Coldcard Generic JSON 모양) 저장.
+4. Sparrow: File > New Wallet → Policy Single Signature, Script Native SegWit → Keystores: Airgapped Hardware Wallet > Coldcard > Import File… → `bitpunk-<지문>.json`.
+5. Sparrow 받기 탭 #0과 Bitpunk 주소 화면(받기 #0)이 같은지 대조.
+
+**지출**
+6. Signet 수도꼭지에서 받기 #0으로 코인을 받는다.
+7. Sparrow Send → Create Transaction → Finalize Transaction for Signing → **Save Transaction** → 카드에 `이름.psbt` 저장.
+8. Bitpunk: 주 메뉴 > SD 카드 > PSBT 서명 → 파일 선택 → 검토(받는 사람·거스름·수수료) → 서명 → **SD 카드에 저장** → `이름-signed.psbt`. 화면 안내대로 카드를 뺀다.
+9. Sparrow: File > Open Transaction > File… → `이름-signed.psbt` → 서명 완료 확인 → Broadcast Transaction.
+
+**2-of-3 (M7 지갑)**
+10. 멀티시그 키: Bitpunk 도구 > 멀티시그 지갑 > 내 멀티시그 키 내보내기 → QR 화면에서 <kbd>S</kbd> → `ccxp-<지문>.json` → Sparrow 멀티시그 지갑(Policy Multi Signature)의 Keystore에서 Airgapped Hardware Wallet > Coldcard > Import File…
+11. 지갑 등록 후 Bitpunk 지갑 > 지갑 QR 내보내기 > "디스크립터 (QR 한 장)" QR 화면에서 <kbd>S</kbd>(디스크립터 `.txt`, Sparrow File > Import Wallet에서 읽음), 같은 목록의 "Bitpunk 지갑 파일"로 `.bpw`를 카드에 저장한다. `.bpw`는 다음 세션에 파일 관리자에서 열면 같은 시드가 불러와져 있을 때 **코드 입력 없이** 등록된다(태그를 시드로 확인하고 등록 규칙을 다시 검사).
+12. 서명 순서는 7~9와 같다. 멀티시그 결과 이름은 `이름-signed-<지문>.psbt`라서 다른 서명자의 파일과 겹치지 않는다. 결과는 전체 PSBT이므로 다음 서명자가 그 파일로 바로 이어 서명할 수 있다.
+
+**지키면 좋은 습관**
+- 카드에는 PSBT·xpub·지갑 파일만. 시드 단어·개인키·BIP-85 결과는 Bitpunk가 카드에 쓰지 않으며, 텍스트 파일로 넣어도 불러오지 않는다.
+- 서명이 끝난 PSBT 원본은 거래 기록이 남으므로 필요하면 설정 > "SD: 원본 PSBT 지우기"를 켠다(플래시 메모리는 지운 내용이 남을 수 있다).
+- 카드를 오래 꽂아 두지 않는다: Bitpunk는 작업마다 카드 전원을 켜고 끈다.
+

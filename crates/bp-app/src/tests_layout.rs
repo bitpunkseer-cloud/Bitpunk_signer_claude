@@ -18,6 +18,11 @@ impl Shot {
         }
     }
 
+    /// Whether any pixel in the top `rows` rows has exactly this colour.
+    pub(super) fn has_colour(&self, rows: usize, c: bp_hal::Rgb) -> bool {
+        self.px[..rows * 800 * 3].chunks(3).any(|p| p == [c.0, c.1, c.2])
+    }
+
     pub(super) fn save(&self, path: &std::path::Path) {
         let mut out = b"P6\n800 480\n255\n".to_vec();
         out.extend_from_slice(&self.px);

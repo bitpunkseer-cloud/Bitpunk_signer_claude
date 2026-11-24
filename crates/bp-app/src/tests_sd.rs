@@ -1271,3 +1271,151 @@ fn sd_export_screens_fit() {
         shot(&b, "registered-from-file");
     }
 }
+
+// ---------- attacks and fuzzing (M8-10) ----------
+
+/// Seed words in a text file are only text: no action loads them.
+#[test]
+fn seed_words_in_a_file_are_never_loaded() {
+    let mut img = Cursor::new(vec![0u8; 16 << 20]);
+    fatfs::format_volume(
+        &mut img,
+        fatfs::FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat16),
+    )
+    .unwrap();
+    {
+        let fs = fatfs::FileSystem::new(&mut img, fatfs::FsOptions::new()).unwrap();
+        let words =
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\n";
+        fs.root_dir()
+            .create_file("my seed.txt")
+            .unwrap()
+            .write_all(words.as_bytes())
+            .unwrap();
+    }
+    let mut card = MemCard::image(img.into_inner());
+    let mut a = app();
+    open_browse(&mut a, &mut card);
+    select(&mut a, &mut card, "my seed.txt");
+    sd_press(&mut a, &mut card, Key::Enter);
+    assert_eq!(a.sd.kind, Some(FileKind::Text));
+    // every action: sign message (refused: message signing is off), view, delete
+    sd_press(&mut a, &mut card, Key::Char('1'));
+    sd_press(&mut a, &mut card, Key::Esc);
+    assert_eq!(a.seed_count(), 0, "never a seed from the card");
+}
+
+/// Random damage to a card with every kind of file: browsing, telling
+/// kinds, listing PSBTs and opening them never panic.
+#[test]
+fn fuzz_damaged_cards_through_the_app() {
+    let w = W::from_phrase(ABANDON);
+    let base = psbt_card(&standard(&w)).data;
+    let meta_end = {
+        let mut c = MemCard::image(base.clone());
+        c.powered = true;
+        let v = bp_fat::Volume::mount(&mut c).unwrap();
+        let g = *v.geometry();
+        (g.data_start as usize + 64 * g.sectors_per_cluster as usize) * 512
+    };
+    let mut x = 0x5eed_1234_u64;
+    let mut next = || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let mut a = app();
+    load_abandon(&mut a);
+    for _ in 0..150 {
+        let mut data = base.clone();
+        for _ in 0..1 + next() % 6 {
+            let at = (next() % meta_end as u64) as usize;
+            data[at] = next() as u8;
+        }
+        let mut card = MemCard::image(data);
+        a.reset_to(Screen::Menu {
+            id: MenuId::Main,
+            sel: 0,
+        });
+        a.set_card_present(true);
+        sd_press(&mut a, &mut card, Key::Char('5'));
+        sd_press(&mut a, &mut card, Key::Char('1')); // PSBT list
+        if matches!(
+            a.current(),
+            Screen::Sd {
+                step: SdStep::PsbtList { .. }
+            }
+        ) && a.sd.count > 0
+        {
+            sd_press(&mut a, &mut card, Key::Enter);
+            for _ in 0..8 {
+                sd_press(&mut a, &mut card, Key::Esc);
+            }
+        }
+        a.reset_to(Screen::Menu {
+            id: MenuId::Main,
+            sel: 0,
+        });
+        sd_press(&mut a, &mut card, Key::Char('5'));
+        sd_press(&mut a, &mut card, Key::Char('2')); // browse
+        for i in 0..4u8 {
+            if !matches!(
+                a.current(),
+                Screen::Sd {
+                    step: SdStep::Browse { .. }
+                }
+            ) || a.sd.count == 0
+            {
+                break;
+            }
+            a.set_current(Screen::Sd {
+                step: SdStep::Browse {
+                    sel: i % a.sd.count as u8,
+                },
+            });
+            sd_press(&mut a, &mut card, Key::Enter);
+            sd_press(&mut a, &mut card, Key::Char('2'));
+            sd_press(&mut a, &mut card, Key::Esc);
+            sd_press(&mut a, &mut card, Key::Esc);
+        }
+    }
+}
+
+/// The streaming PSBT decoder and the .bpw parser on random input.
+#[test]
+fn fuzz_file_decoders() {
+    use crate::sdfile::Decoder;
+    let mut x = 0xdec0_de42_u64;
+    let mut next = || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let alphabet = b"cHNidP8BAAI=+/ \r\n70736274ffABCDEFabcdef0123456789\xEF\xBB\xBF";
+    let mut out = vec![0u8; 512];
+    for _ in 0..3000 {
+        let n = (next() % 200) as usize;
+        let mut data: Vec<u8> = (0..n)
+            .map(|_| alphabet[(next() % alphabet.len() as u64) as usize])
+            .collect();
+        if next() % 3 == 0 {
+            data.splice(0..0, *b"cHNidP");
+        }
+        if let Ok(mut d) = Decoder::detect(&data) {
+            for chunk in data.chunks(1 + (next() % 17) as usize) {
+                if d.feed(chunk, &mut out).is_err() {
+                    break;
+                }
+            }
+            let _ = d.finish();
+        }
+        let _ = bp_bitcoin::multisig::formats::parse_bpw(&data);
+        let mut bpw = b"# Bitpunk wallet v1\nname: x\ncode: ".to_vec();
+        bpw.extend_from_slice(&data);
+        let _ = bp_bitcoin::multisig::formats::parse_bpw(&bpw);
+        let _ = crate::sd::sniff(&data);
+        let _ = crate::sdfile::message_request(&data, bp_bitcoin::Network::Mainnet, &mut [0u8; 300]);
+    }
+}

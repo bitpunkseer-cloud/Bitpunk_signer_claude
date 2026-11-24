@@ -23,6 +23,8 @@ pub struct KeyStrings {
     pub not_for_wif: &'static str,
     pub fingerprint: &'static str,
     pub comm_title: &'static str,
+    /// Status bar badge in place of "AIR-GAPPED" while a chip answers.
+    pub comm_badge: &'static str,
     /// "An Ethernet PHY answered at MDIO address {} (ID {})."
     pub comm_found: &'static str,
     pub comm_lines: [&'static str; 3],
@@ -58,6 +60,7 @@ pub static EN_KEY: KeyStrings = KeyStrings {
     not_for_wif: "Not available for a single key (WIF).",
     fingerprint: "Fingerprint",
     comm_title: "Network chip detected",
+    comm_badge: "NETWORK CHIP",
     comm_found: "A PHY answered at MDIO address {} (ID {}).",
     comm_lines: [
         "Seeds cannot be loaded and nothing is signed on this board.",
@@ -96,6 +99,7 @@ pub static KO_KEY: KeyStrings = KeyStrings {
     not_for_wif: "단일 키(WIF)에는 없는 기능입니다.",
     fingerprint: "지문",
     comm_title: "통신 칩 감지",
+    comm_badge: "통신 칩",
     comm_found: "MDIO 주소 {}에서 PHY가 응답했습니다 (ID {}).",
     comm_lines: [
         "이 보드에서는 시드를 불러오거나 서명할 수 없습니다.",

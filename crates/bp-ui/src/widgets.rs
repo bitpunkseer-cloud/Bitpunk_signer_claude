@@ -17,6 +17,9 @@ pub struct Status<'a> {
     pub mainnet: bool,
     /// "AIR-GAPPED" label.
     pub air_gapped: &'a str,
+    /// False when the boot check found a network chip: the label is then
+    /// drawn as a warning instead of the green air-gap mark.
+    pub air_gap_ok: bool,
     /// "TEST ONLY" badge, shown when set.
     pub test_only: Option<&'a str>,
     /// microSD badge, shown while a card is in the slot.
@@ -32,8 +35,9 @@ pub fn status_bar(c: &mut dyn Canvas, s: &Status) {
     let mut x = w - MARGIN;
     let tag = s.air_gapped;
     x -= SMALL.text_width(tag);
-    SMALL.draw(c, x, (STATUS_H - SMALL.height as i32) / 2, tag, OK);
-    round_rect(c, x - 14, STATUS_H / 2 - 4, 8, 8, 4, OK);
+    let mark = if s.air_gap_ok { OK } else { DANGER };
+    SMALL.draw(c, x, (STATUS_H - SMALL.height as i32) / 2, tag, mark);
+    round_rect(c, x - 14, STATUS_H / 2 - 4, 8, 8, 4, mark);
     x -= 30;
 
     let (bg, fg) = if s.mainnet {
