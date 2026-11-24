@@ -130,7 +130,9 @@ fn child_mnemonic_loads_into_a_free_slot() {
         .flatten()
         .find(|s| s.fingerprint != a.slot(0).unwrap().fingerprint)
         .unwrap();
-    let got: std::vec::Vec<&str> = (0..12).map(|i| loaded.mnemonic.word(i)).collect();
+    let got: std::vec::Vec<&str> = (0..12)
+        .map(|i| loaded.mnemonic.as_ref().unwrap().word(i))
+        .collect();
     assert_eq!(got.join(" "), words);
     // with two seeds the first screen asks which one
     for _ in 0..6 {
@@ -246,7 +248,7 @@ fn b85_screens_fit() {
         let mut b = app();
         load_abandon(&mut b);
         b.settings.lang = lang;
-        let m = b.slot(0).unwrap().mnemonic.clone();
+        let m = b.slot(0).unwrap().mnemonic.clone().unwrap();
         b.seeds[0] = crate::seeds::SeedSlot::new(m, b"secret");
         open(&mut b);
         press(&mut b, Key::Char('4'));

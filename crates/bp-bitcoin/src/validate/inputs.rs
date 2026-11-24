@@ -252,6 +252,10 @@ fn check_one(
         }
     }
 
+    if ms.ctx.single_key {
+        return single_key_input(idx, map, prev, ms, report, r);
+    }
+
     // claims with this seed's fingerprint, each re-derived
     let mut ours: Option<OurKey> = None;
     let mut distinct = 0;
@@ -466,6 +470,75 @@ fn check_one(
         amount: prev.value,
         source,
         ms: multi.map(|(m, _)| m),
+    }));
+    r
+}
+
+/// Single-key mode (an imported WIF): the input is ours when its UTXO
+/// script is built from the key. Claims are not needed and not used.
+fn single_key_input(
+    idx: u16,
+    map: &InputMap,
+    prev: Option<(TxOut, AmountSource)>,
+    ms: &mut Ms,
+    report: &mut Report,
+    mut r: InputReport,
+) -> InputReport {
+    let Some((prev, source)) = prev else {
+        return r; // without the UTXO the script cannot be checked
+    };
+    let pk = ms.ctx.master.public_key();
+    let h = hash160(&pk.serialize());
+    let kind = match classify(prev.script_pubkey) {
+        ScriptKind::P2wpkh(sh) if sh == h => SpendKind::P2wpkh,
+        ScriptKind::P2pkh(sh) if sh == h => {
+            if source != AmountSource::PrevTx {
+                report.push(Issue::MissingPrevTx(idx));
+                return r;
+            }
+            SpendKind::P2pkh
+        }
+        ScriptKind::P2sh(sh) if sh[..] == script::p2sh(&script::p2wpkh(&pk))[2..22] => {
+            if map.redeem_script() != Some(&script::p2wpkh(&pk)[..]) {
+                report.push(Issue::MissingRedeemScript(idx));
+                return r;
+            }
+            SpendKind::P2shP2wpkh
+        }
+        ScriptKind::P2tr(q) if q[..] == script::p2tr(&pk)[2..] => {
+            if map.tap_merkle_root().is_some() {
+                report.push(Issue::UnsupportedInput(idx));
+                return r;
+            }
+            if map.tap_internal_key().is_some_and(|k| k != pk.x_only()) {
+                report.push(Issue::InconsistentInput(idx));
+                return r;
+            }
+            SpendKind::P2trKey
+        }
+        _ => return r, // not this key's input
+    };
+    let wrapped = kind == SpendKind::P2shP2wpkh;
+    if (!wrapped && map.redeem_script().is_some()) || map.witness_script().is_some() {
+        report.push(Issue::UnneededScript(idx));
+        return r;
+    }
+    let source = match (kind, source) {
+        (SpendKind::P2trKey, AmountSource::WitnessUtxo) => AmountSource::TaprootCommitted,
+        (_, s) => s,
+    };
+    r.source = Some(source);
+    r.signed = match kind {
+        SpendKind::P2trKey => map.tap_key_sig().is_some(),
+        _ => map.partial_sigs().any(|(k, _)| PublicKey::parse(k) == Some(pk)),
+    };
+    r.owned = Some(Verified(OwnedInput {
+        kind,
+        path: crate::bip32::DerivationPath::new(),
+        pubkey: pk,
+        amount: prev.value,
+        source,
+        ms: None,
     }));
     r
 }

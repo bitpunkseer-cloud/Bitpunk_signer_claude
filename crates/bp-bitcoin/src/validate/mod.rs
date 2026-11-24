@@ -569,6 +569,10 @@ pub struct Context<'a> {
     /// hold no key of this seed (rebuilt from a cosigner's claim). The
     /// report is then marked `watch_only` and cannot be signed.
     pub watch: bool,
+    /// `master` is a single imported key (WIF), not a BIP-32 root: inputs
+    /// and change are recognised by rebuilding that key's scripts
+    /// (P2WPKH, P2SH-P2WPKH, P2PKH, P2TR key path), never by path claims.
+    pub single_key: bool,
 }
 
 impl<'a> Context<'a> {
@@ -580,6 +584,7 @@ impl<'a> Context<'a> {
             memory: None,
             multisig: &[],
             watch: false,
+            single_key: false,
         }
     }
 }
@@ -701,6 +706,9 @@ fn spending_wallet(psbt: &Psbt, ctx: &Context, report: &mut Report) {
 
 /// Global xpubs naming this seed must be what the seed derives there.
 fn check_global_xpubs(psbt: &Psbt, ctx: &Context, d: &mut Deriver, report: &mut Report) {
+    if ctx.single_key {
+        return; // a single key has no extended keys to compare
+    }
     for (x, src) in psbt.xpubs() {
         if src.fingerprint != d.fingerprint {
             report.note_fingerprint(src.fingerprint);

@@ -1057,7 +1057,7 @@ fn verify_copied_seedqr() {
     a.on_qr_text(digits.as_bytes());
     assert_eq!(a.current(), Screen::ScanVerify { slot: 0 });
     let (copy, orig) = (a.scan.seed.as_ref().unwrap(), a.slot(0).unwrap());
-    assert_eq!(copy.indices(), orig.mnemonic.indices());
+    assert_eq!(copy.indices(), orig.mnemonic.as_ref().unwrap().indices());
     press(&mut a, Key::Enter);
     assert!(matches!(a.current(), Screen::Transcribe { .. }));
     // a copy with one wrong word
@@ -1066,7 +1066,10 @@ fn verify_copied_seedqr() {
     a.on_qr_text(bad.as_bytes());
     if a.current() == (Screen::ScanVerify { slot: 0 }) {
         let copy = a.scan.seed.as_ref().unwrap();
-        assert_ne!(copy.indices(), a.slot(0).unwrap().mnemonic.indices());
+        assert_ne!(
+            copy.indices(),
+            a.slot(0).unwrap().mnemonic.as_ref().unwrap().indices()
+        );
     } else {
         // the BIP-39 checksum rejected the copy: not a seed
         assert_eq!(a.scan.outcome, Some(scan::Outcome::NotASeed));

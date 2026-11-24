@@ -250,6 +250,14 @@ impl App {
             }
         };
         target.slot = slot as u8;
+        if self.slot(slot).is_some_and(|s| s.single_key()) {
+            // a request names a derivation path; a single key has none
+            self.msg_state().problem = Some(Problem::Request(message::RequestError::Path));
+            self.set_current(Screen::MsgSign {
+                step: MsStep::Problem,
+            });
+            return;
+        }
         self.msg_set_target(target);
         self.set_current(Screen::MsgSign {
             step: MsStep::Message { page: 0 },

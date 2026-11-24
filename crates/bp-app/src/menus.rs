@@ -55,6 +55,8 @@ pub enum Action {
     SdCard,
     /// Tools > BIP-85 child keys.
     Bip85,
+    /// Seeds > Import private key.
+    ImportKey,
     /// Settings > Settings as QR.
     SettingsQr,
     Start(Start),
@@ -119,7 +121,11 @@ static MAIN: [Entry; 6] = [
 static SEEDS: [Entry; 4] = [
     open(|s| s.create_seed, MenuId::NewSeed),
     open(|s| s.load_seed, MenuId::LoadSeed),
-    todo_entry!(|s| s.import_key, "M8", |s| s.ms_keys),
+    Entry {
+        label: |s| s.import_key,
+        detail: ">",
+        action: Action::ImportKey,
+    },
     todo_entry!(|s| s.seed_vault, "M9", |s| s.ms_storage),
 ];
 

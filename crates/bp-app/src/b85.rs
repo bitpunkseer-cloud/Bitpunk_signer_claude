@@ -86,9 +86,11 @@ impl App {
             1 => {
                 let slot = self.seed_row_slot(0).unwrap_or(0) as u8;
                 self.b85_start(slot);
-                self.push(Screen::Bip85 {
-                    step: B85Step::App { sel: 0 },
-                });
+                if self.b85.is_some() {
+                    self.push(Screen::Bip85 {
+                        step: B85Step::App { sel: 0 },
+                    });
+                }
             }
             _ => self.push(Screen::Bip85 {
                 step: B85Step::PickSeed { sel: 0 },
@@ -97,6 +99,11 @@ impl App {
     }
 
     fn b85_start(&mut self, slot: u8) {
+        if self.slot(slot as usize).is_some_and(|s| s.single_key()) {
+            self.b85 = None;
+            self.notice = Some(self.text().key.not_for_wif);
+            return;
+        }
         self.b85 = Some(B85State {
             slot,
             app: B85App::Bip39 { words: 12 },
@@ -118,9 +125,11 @@ impl App {
                 Pick::Choose(s) => {
                     if let Some(slot) = self.seed_row_slot(s as usize) {
                         self.b85_start(slot as u8);
-                        self.push(Screen::Bip85 {
-                            step: B85Step::App { sel: 0 },
-                        });
+                        if self.b85.is_some() {
+                            self.push(Screen::Bip85 {
+                                step: B85Step::App { sel: 0 },
+                            });
+                        }
                     }
                 }
                 Pick::Back => self.pop(),

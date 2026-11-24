@@ -377,7 +377,17 @@ impl App {
                 }
             }
         }
-        let slot = slot.unwrap_or_else(|| self.seeds.iter().position(|s| s.is_some()).unwrap_or(0));
+        // verify-only falls back to a seed with extended keys (never a WIF)
+        let Some(slot) = slot.or_else(|| {
+            self.seeds
+                .iter()
+                .position(|s| s.as_ref().is_some_and(|s| !s.single_key()))
+        }) else {
+            self.set_current(Screen::Wallets {
+                step: WlStep::NeedSeed,
+            });
+            return;
+        };
         if self.make_pending(w, Some(imported.format), slot, two) {
             self.set_current(Screen::Wallets {
                 step: WlStep::Summary { sel: 0 },
@@ -652,6 +662,10 @@ impl App {
     }
 
     fn seed_chosen(&mut self, slot: u8, export: bool) {
+        if self.slot(slot as usize).is_some_and(|s| s.single_key()) {
+            self.notice = Some(self.text().key.not_for_wif);
+            return;
+        }
         if export {
             self.wl.key_account = 0;
             self.push(Screen::Wallets {

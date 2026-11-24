@@ -46,6 +46,26 @@ pub(super) fn check(psbt: &Psbt, ctx: &Context, d: &mut Deriver, cache: &mut Cac
         if out.value == 0 && kind != ScriptKind::OpReturn {
             report.push(Issue::ZeroValue(idx));
         }
+        // single-key mode: an output to the key's own scripts is change
+        if ctx.single_key {
+            if kind != ScriptKind::OpReturn {
+                let pk = ctx.master.public_key();
+                match spend_for(&pk, kind, &map, idx) {
+                    Ok(Some(spend)) => {
+                        rep.kind = OutputKind::Change(Verified(OwnedOutput {
+                            kind: spend,
+                            path: crate::bip32::DerivationPath::new(),
+                            pubkey: pk,
+                            ms: None,
+                        }));
+                    }
+                    Ok(None) => {}
+                    Err(issue) => report.push(issue),
+                }
+            }
+            report.outputs[j] = rep;
+            continue;
+        }
         // a registered multisig wallet's address?
         if matches!(kind, ScriptKind::P2wsh(_) | ScriptKind::P2sh(_)) {
             match multisig_output(idx, out.script_pubkey, &map, ctx, d, cache, report) {

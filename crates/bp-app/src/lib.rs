@@ -4,6 +4,7 @@
 
 mod b85;
 mod flow;
+mod keys;
 mod menus;
 mod msgsign;
 mod qrview;
@@ -17,6 +18,7 @@ mod settings;
 mod sigverify;
 mod text;
 mod text_b85;
+mod text_key;
 mod text_sd;
 mod verify;
 mod view;
@@ -285,6 +287,10 @@ pub enum Screen {
     Bip85 {
         step: b85::B85Step,
     },
+    /// Seeds > Import private key, and a single key's addresses.
+    Key {
+        step: keys::KeyStep,
+    },
 }
 
 pub struct App {
@@ -335,6 +341,10 @@ pub struct App {
     sd: sd::SdState,
     /// BIP-85 derivation in progress (wiped when its screens close).
     b85: Option<b85::B85State>,
+    /// A private key being typed, and one checked and waiting for "Load".
+    key_in: keys::KeyInput,
+    key_pending: Option<seeds::SeedSlot>,
+    key_problem: Option<keys::KeyProblem>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -407,6 +417,9 @@ impl App {
             wl: wallets::WlState::default(),
             sd: sd::SdState::new(),
             b85: None,
+            key_in: keys::KeyInput::new(),
+            key_pending: None,
+            key_problem: None,
         }
     }
 
@@ -428,7 +441,7 @@ impl App {
     }
 
     pub fn seed(&self, slot: usize) -> Option<&Mnemonic> {
-        self.slot(slot).map(|s| &s.mnemonic)
+        self.slot(slot).and_then(|s| s.mnemonic.as_ref())
     }
 
     pub fn slot(&self, slot: usize) -> Option<&seeds::SeedSlot> {
@@ -553,6 +566,13 @@ impl App {
         {
             self.b85 = None;
         }
+        if !self.stack[..self.depth]
+            .iter()
+            .any(|s| matches!(s, Screen::Key { .. }))
+        {
+            self.key_in.clear();
+            self.key_pending = None;
+        }
         // a file's origin lives while its review or message signing does
         if !self.stack[..self.depth].iter().any(|s| {
             matches!(
@@ -667,6 +687,16 @@ impl App {
             }
         } else if let Some(scan::Outcome::Psbt { len, .. }) = self.scan.outcome {
             self.start_review(len);
+        } else if purpose == scan::Purpose::PrivKey {
+            let mut text = [0u8; keys::KEY_INPUT];
+            let n = match self.scan.outcome {
+                Some(scan::Outcome::Text { len }) => len.min(text.len()),
+                _ => 0,
+            };
+            text[..n].copy_from_slice(&self.scan.out[..n]);
+            self.key_text(core::str::from_utf8(&text[..n]).unwrap_or(""));
+            bp_crypto::secret::wipe(&mut text);
+            self.end_scan_if_left();
         } else if purpose == scan::Purpose::SigText {
             let mut text = [0u8; 256];
             let n = match self.scan.outcome {
@@ -838,40 +868,59 @@ impl App {
             },
             Screen::WordEntry => self.word_entry_key(ev),
             Screen::ChecksumError { sel } => self.checksum_key(sel, ev),
-            Screen::SeedOptions { slot, sel } => match pick(ev.key, sel, 6) {
-                Pick::Move(s) => self.set_current(Screen::SeedOptions { slot, sel: s }),
-                Pick::Choose(0) => self.push(Screen::WordsWarning { view: Some(slot) }),
-                Pick::Choose(1) => self.push(Screen::ScriptSelect {
-                    slot,
-                    explorer: false,
-                    sel: 0,
-                }),
-                Pick::Choose(2) => self.push(Screen::ScriptSelect {
-                    slot,
-                    explorer: true,
-                    sel: 0,
-                }),
-                Pick::Choose(3) => {
-                    let current = self.slot(slot as usize).map(|s| {
-                        let mut b = [0u8; seeds::MAX_PASSPHRASE];
-                        let p = s.passphrase();
-                        b[..p.len()].copy_from_slice(p);
-                        (b, p.len())
-                    });
-                    if let Some((mut b, n)) = current {
-                        self.pass_in.set(&b[..n]);
-                        bp_crypto::secret::wipe(&mut b);
+            Screen::SeedOptions { slot, sel } => {
+                let kind = self
+                    .slot(slot as usize)
+                    .map_or(seeds::SlotKind::Mnemonic, |s| s.kind);
+                let opts = keys::slot_opts(kind);
+                let pick_opt = |p: Pick| match p {
+                    Pick::Choose(i) => Pick::Choose(opts[i as usize] as u8),
+                    other => other,
+                };
+                match pick_opt(pick(ev.key, sel, opts.len() as u8)) {
+                    Pick::Move(s) => self.set_current(Screen::SeedOptions { slot, sel: s }),
+                    Pick::Choose(o) if o == keys::SlotOpt::Words as u8 => {
+                        self.push(Screen::WordsWarning { view: Some(slot) })
                     }
-                    self.push(Screen::PassphraseEntry { slot });
+                    Pick::Choose(o) if o == keys::SlotOpt::Xpub as u8 => self.push(Screen::ScriptSelect {
+                        slot,
+                        explorer: false,
+                        sel: 0,
+                    }),
+                    Pick::Choose(o) if o == keys::SlotOpt::Explorer as u8 => {
+                        self.push(Screen::ScriptSelect {
+                            slot,
+                            explorer: true,
+                            sel: 0,
+                        })
+                    }
+                    Pick::Choose(o) if o == keys::SlotOpt::Addresses as u8 => self.push(Screen::Key {
+                        step: keys::KeyStep::Addresses { slot, sel: 0 },
+                    }),
+                    Pick::Choose(o) if o == keys::SlotOpt::Passphrase as u8 => {
+                        let current = self.slot(slot as usize).map(|s| {
+                            let mut b = [0u8; seeds::MAX_PASSPHRASE];
+                            let p = s.passphrase();
+                            b[..p.len()].copy_from_slice(p);
+                            (b, p.len())
+                        });
+                        if let Some((mut b, n)) = current {
+                            self.pass_in.set(&b[..n]);
+                            bp_crypto::secret::wipe(&mut b);
+                        }
+                        self.push(Screen::PassphraseEntry { slot });
+                    }
+                    Pick::Choose(o) if o == keys::SlotOpt::SeedQr as u8 => {
+                        self.push(Screen::SeedQrSelect { slot, sel: 0 })
+                    }
+                    Pick::Choose(_) => self.push(Screen::Confirm {
+                        what: Confirm::DiscardSeed(slot),
+                        sel: 0,
+                    }),
+                    Pick::Back => self.pop(),
+                    Pick::None => {}
                 }
-                Pick::Choose(4) => self.push(Screen::SeedQrSelect { slot, sel: 0 }),
-                Pick::Choose(_) => self.push(Screen::Confirm {
-                    what: Confirm::DiscardSeed(slot),
-                    sel: 0,
-                }),
-                Pick::Back => self.pop(),
-                Pick::None => {}
-            },
+            }
             Screen::PassphraseEntry { slot } => self.passphrase_key(slot, ev),
             Screen::PassphraseReview { slot, sel } => match pick(ev.key, sel, 2) {
                 Pick::Move(s) => self.set_current(Screen::PassphraseReview { slot, sel: s }),
@@ -1067,11 +1116,7 @@ impl App {
                     Pick::Move(s) => self.set_current(Screen::PickSeed { sel: s }),
                     Pick::Choose(s) => {
                         if let Some(slot) = self.seed_row_slot(s as usize) {
-                            self.push(Screen::ScriptSelect {
-                                slot: slot as u8,
-                                explorer: true,
-                                sel: 0,
-                            });
+                            self.explore(slot as u8);
                         }
                     }
                     Pick::Back => self.pop(),
@@ -1161,6 +1206,7 @@ impl App {
             Screen::Wallets { step } => self.wallets_key(step, ev),
             Screen::Sd { step } => self.sd_key(step, ev),
             Screen::Bip85 { step } => self.b85_key(step, ev),
+            Screen::Key { step } => self.key_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1559,6 +1605,7 @@ impl App {
             Action::Multisig => self.open_wallets(),
             Action::SdCard => self.open_sd(),
             Action::Bip85 => self.open_b85(),
+            Action::ImportKey => self.open_key_import(),
             Action::SettingsQr => self.open_qr(QrKind::Settings),
             Action::VerifyAddress => {
                 if self.seed_count() == 0 {
@@ -1588,13 +1635,24 @@ impl App {
             0 => self.push(Screen::NoSeed),
             1 => {
                 let slot = self.seed_row_slot(0).unwrap_or(0) as u8;
-                self.push(Screen::ScriptSelect {
-                    slot,
-                    explorer: true,
-                    sel: 0,
-                });
+                self.explore(slot);
             }
             _ => self.push(Screen::PickSeed { sel: 0 }),
+        }
+    }
+
+    /// The address explorer for a slot (a single key's four addresses).
+    fn explore(&mut self, slot: u8) {
+        if self.slot(slot as usize).is_some_and(|s| s.single_key()) {
+            self.push(Screen::Key {
+                step: keys::KeyStep::Addresses { slot, sel: 0 },
+            });
+        } else {
+            self.push(Screen::ScriptSelect {
+                slot,
+                explorer: true,
+                sel: 0,
+            });
         }
     }
 

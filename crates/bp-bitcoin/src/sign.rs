@@ -53,6 +53,8 @@ pub struct Signer<'a> {
     pub policy: Policy,
     /// Registered multisig wallets, by registry slot.
     pub multisig: &'a [Option<&'a crate::multisig::Wallet>],
+    /// `master` is a single imported key (see `Context::single_key`).
+    pub single_key: bool,
 }
 
 /// Summary of a successful signing.
@@ -159,6 +161,7 @@ fn sign_into(
         memory: Some(&*memory),
         multisig: signer.multisig,
         watch: false,
+        single_key: signer.single_key,
     };
     let (psbt, report) = validate(raw, &ctx);
     if report.digest() != *approved {

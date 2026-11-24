@@ -583,6 +583,7 @@ fn signing_uses_the_rebuilt_script() {
             network: Network::Signet,
             policy: Policy::default(),
             multisig: &wallets,
+            single_key: false,
         };
         let mut mem = UtxoMemory::new();
         let mut out = vec![0u8; 8192];
@@ -611,6 +612,7 @@ fn signing_uses_the_rebuilt_script() {
             network: Network::Signet,
             policy: Policy::default(),
             multisig: &none,
+            single_key: false,
         };
         let mut out = vec![0u8; 8192];
         assert!(sign_psbt(&raw, &signer, &mut mem, &report.digest(), false, &mut out).is_err());

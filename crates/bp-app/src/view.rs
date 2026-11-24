@@ -47,7 +47,12 @@ pub fn seed_label(slot: &crate::seeds::SeedSlot) -> Buf<40> {
     } else {
         ""
     };
-    fill(crate::text::EN.seed_label, &[&fp, &slot.mnemonic.len(), &pp])
+    let what: Buf<8> = match (slot.kind, slot.mnemonic.as_ref()) {
+        (crate::seeds::SlotKind::Xprv, _) => fill("XPRV", &[]),
+        (crate::seeds::SlotKind::Wif, _) => fill("WIF", &[]),
+        (_, m) => fill("{}", &[&m.map_or(0, |m| m.len())]),
+    };
+    fill(crate::text::EN.seed_label, &[&fp, &what.as_str(), &pp])
 }
 
 impl App {
@@ -220,33 +225,30 @@ impl App {
             Screen::SeedOptions { slot, sel } => {
                 let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
                 self.status(c, label.as_str());
-                let items = [
-                    MenuItem {
-                        label: s.show_words,
-                        detail: ">",
-                    },
-                    MenuItem {
-                        label: s.export_xpub,
-                        detail: ">",
-                    },
-                    MenuItem {
-                        label: s.address_explorer,
-                        detail: ">",
-                    },
-                    MenuItem {
-                        label: s.passphrase,
-                        detail: ">",
-                    },
-                    MenuItem {
-                        label: s.backup_seedqr,
-                        detail: ">",
-                    },
-                    MenuItem {
-                        label: s.discard_seed,
-                        detail: "",
-                    },
-                ];
-                widgets::menu_list(c, &items, sel as usize);
+                let kind = self
+                    .slot(slot as usize)
+                    .map_or(crate::seeds::SlotKind::Mnemonic, |s| s.kind);
+                let opts = crate::keys::slot_opts(kind);
+                let mut items: [MenuItem; 6] = core::array::from_fn(|_| MenuItem {
+                    label: "",
+                    detail: ">",
+                });
+                for (it, o) in items.iter_mut().zip(opts) {
+                    use crate::keys::SlotOpt::*;
+                    it.label = match o {
+                        Words => s.show_words,
+                        Xpub => s.export_xpub,
+                        Explorer => s.address_explorer,
+                        Passphrase => s.passphrase,
+                        SeedQr => s.backup_seedqr,
+                        Addresses => s.key.addresses,
+                        Discard => s.discard_seed,
+                    };
+                    if *o == Discard {
+                        it.detail = "";
+                    }
+                }
+                widgets::menu_list(c, &items[..opts.len()], sel as usize);
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
             }
             Screen::PassphraseEntry { slot } => self.render_passphrase(c, slot),
@@ -389,6 +391,7 @@ impl App {
             Screen::Wallets { step } => self.render_wallets(c, step),
             Screen::Sd { step } => self.render_sd(c, step),
             Screen::Bip85 { step } => self.render_b85(c, step),
+            Screen::Key { step } => self.render_key(c, step),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
@@ -1335,6 +1338,7 @@ impl App {
             Purpose::SigText => s.sv_scan_sig,
             Purpose::Wallet => s.wl.scan_title,
             Purpose::Cosigner => s.wl.key_scan_title,
+            Purpose::PrivKey => s.key.scan_title,
         };
         self.status(c, title);
         let (bx, by) = (MARGIN, STATUS_H + 20);
@@ -1436,7 +1440,10 @@ impl App {
         };
         let info: Buf<128> = fill(
             s.words_count,
-            &[&src, &fill::<48>(s.n_words, &[&seed.mnemonic.len()])],
+            &[
+                &src,
+                &fill::<48>(s.n_words, &[&seed.mnemonic.as_ref().map_or(0, |m| m.len())]),
+            ],
         );
         BODY.draw(c, MARGIN, STATUS_H + 130, info.as_str(), theme::TEXT);
         SMALL.draw(c, MARGIN, STATUS_H + 166, s.scan_seed_check, theme::WARN);
@@ -1466,10 +1473,13 @@ impl App {
     fn render_scan_verify(&self, c: &mut dyn Canvas, slot: u8) {
         let s = self.text();
         self.status(c, s.verify_seedqr);
-        let (Some(copy), Some(orig)) = (self.scan.seed.as_ref(), self.slot(slot as usize)) else {
+        let (Some(copy), Some(orig)) = (
+            self.scan.seed.as_ref(),
+            self.slot(slot as usize).and_then(|s| s.mnemonic.as_ref()),
+        ) else {
             return;
         };
-        let (a, b) = (copy.indices(), orig.mnemonic.indices());
+        let (a, b) = (copy.indices(), orig.indices());
         if a == b {
             widgets::message_at(c, STATUS_H + 90, s.verify_ok, theme::OK, &[s.verify_ok_1]);
         } else if a.len() != b.len() {

@@ -417,6 +417,8 @@ pub struct Strings {
     pub sd: &'static crate::text_sd::SdStrings,
     // BIP-85
     pub b85: &'static crate::text_b85::B85Strings,
+    // Private key import
+    pub key: &'static crate::text_key::KeyStrings,
 }
 
 /// Number of issue kinds (see `review::issue_index`).
@@ -1074,6 +1076,7 @@ pub static EN: Strings = Strings {
     wl: &EN_WALLET,
     sd: &crate::text_sd::EN_SD,
     b85: &crate::text_b85::EN_B85,
+    key: &crate::text_key::EN_KEY,
 };
 
 pub static KO_REVIEW: ReviewStrings = ReviewStrings {
@@ -1660,6 +1663,7 @@ pub static KO: Strings = Strings {
     wl: &KO_WALLET,
     sd: &crate::text_sd::KO_SD,
     b85: &crate::text_b85::KO_B85,
+    key: &crate::text_key::KO_KEY,
 };
 
 /// Number of wallet-format error messages (see `wallets::format_error_index`).

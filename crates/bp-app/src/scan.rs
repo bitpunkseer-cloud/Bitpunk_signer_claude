@@ -38,6 +38,8 @@ pub enum Purpose {
     /// Tools > Multisig wallets > Import: a wallet (descriptor, Coldcard
     /// file, JSON, UR crypto-output).
     Wallet,
+    /// Seeds > Import private key: a WIF or an extended private key (text).
+    PrivKey,
     /// Multisig > Create: a cosigner's key (text, Coldcard JSON, UR
     /// crypto-account / crypto-hdkey). Never a seed.
     Cosigner,
@@ -281,6 +283,11 @@ impl ScanState {
                     kind: UrKey::Output,
                 },
                 _ => Outcome::NotAWallet,
+            }),
+            // a private key arrives as text; nothing else is taken
+            Ok((c, _)) if purpose == Purpose::PrivKey => Some(match c {
+                Content::Text { len } => Outcome::Text { len },
+                _ => Outcome::Text { len: 0 },
             }),
             Ok((c, _)) if purpose == Purpose::Cosigner => Some(match c {
                 Content::Xpub { len, network, depth } => Outcome::Xpub { len, network, depth },

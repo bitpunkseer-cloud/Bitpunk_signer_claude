@@ -269,13 +269,15 @@ impl App {
                 continue;
             };
             let wallets = self.multisig_wallets();
+            let none: [Option<&bp_bitcoin::multisig::Wallet>; 0] = [];
             let ctx = Context {
                 master: seed.master(),
                 network: self.settings.network,
                 policy,
                 memory: Some(&self.memory),
-                multisig: &wallets,
+                multisig: if seed.single_key() { &none } else { &wallets },
                 watch: false,
+                single_key: seed.single_key(),
             };
             let (_, report) = validate(raw, &ctx);
             if !report.has(Issue::NoInputsForSeed) {
@@ -295,7 +297,7 @@ impl App {
                 .seeds
                 .iter()
                 .enumerate()
-                .find_map(|(i, s)| s.as_ref().map(|s| (i, s)))
+                .find_map(|(i, s)| s.as_ref().filter(|s| !s.single_key()).map(|s| (i, s)))
             {
                 let wallets = self.multisig_wallets();
                 let ctx = Context {
@@ -305,6 +307,7 @@ impl App {
                     memory: Some(&self.memory),
                     multisig: &wallets,
                     watch: true,
+                    single_key: false,
                 };
                 let (_, report) = validate(raw, &ctx);
                 if report.watch_only && !report.has(Issue::NoInputsForSeed) {
@@ -590,6 +593,8 @@ impl App {
         };
         let wallets: [Option<&bp_bitcoin::multisig::Wallet>; bp_bitcoin::multisig::register::MAX_WALLETS] =
             core::array::from_fn(|i| self.wallets.get(i as u8).map(|e| &e.wallet));
+        // a single imported key has no multisig wallets
+        let none: [Option<&bp_bitcoin::multisig::Wallet>; 0] = [];
         let signer = Signer {
             master: seed.master(),
             network: self.settings.network,
@@ -597,7 +602,8 @@ impl App {
                 message: r.message.is_some(),
                 ..self.settings.policy()
             },
-            multisig: &wallets,
+            multisig: if seed.single_key() { &none } else { &wallets },
+            single_key: seed.single_key(),
         };
         let (psbt, out) = self.scan.buffers();
         // a file gets the whole PSBT back; a QR only the signatures
