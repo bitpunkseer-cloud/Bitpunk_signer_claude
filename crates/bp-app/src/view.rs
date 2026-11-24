@@ -75,7 +75,30 @@ impl App {
         );
     }
 
+    /// The QR code drawn by the last `render`, quiet zone included, for
+    /// `bp_ui::fx::FxCanvas::finish`.
+    pub fn qr_area(&self) -> Option<[i32; 4]> {
+        self.qr_area.get()
+    }
+
+    /// Draw a QR code and remember where (screen effects skip it).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn draw_qr(
+        &self,
+        c: &mut dyn Canvas,
+        q: &bp_qr::QrCode,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        style: widgets::QrStyle,
+    ) -> i32 {
+        self.qr_area.set(Some(widgets::qr_box(q, x, y, w, h)));
+        widgets::qr_code(c, q, x, y, w, h, style)
+    }
+
     pub fn render(&self, c: &mut dyn Canvas) {
+        self.qr_area.set(None);
         #[cfg(test)]
         crate::coverage::note(&self.current());
         let (w, h) = (c.width() as i32, c.height() as i32);
@@ -1055,7 +1078,7 @@ impl App {
                 light: 255,
                 invert: false,
             };
-            widgets::qr_code(c, &q, MARGIN - 8, STATUS_H + 40, 330, 330, style);
+            self.draw_qr(c, &q, MARGIN - 8, STATUS_H + 40, 330, 330, style);
         }
         // groups of four, four groups per line (Coldcard-style readability)
         let tx = MARGIN + 340;
@@ -1123,7 +1146,7 @@ impl App {
         let (w, h) = (c.width() as i32, c.height() as i32);
         if q.fullscreen {
             c.fill_rect(0, 0, w, h, theme::QR_DARK);
-            widgets::qr_code(c, &sym, 0, 0, w, h, style);
+            self.draw_qr(c, &sym, 0, 0, w, h, style);
             return;
         }
         let title = self.qr_title(kind);
@@ -1131,7 +1154,7 @@ impl App {
         // No hint bar here: the keys are listed in the side panel so the
         // symbol gets every pixel of height (bigger modules scan better).
         let bx = crate::qrview::QR_BOX_PX;
-        let px = widgets::qr_code(c, &sym, 8, STATUS_H + 4, bx, bx, style);
+        let px = self.draw_qr(c, &sym, 8, STATUS_H + 4, bx, bx, style);
 
         // information panel
         let x = 8 + bx + 20;

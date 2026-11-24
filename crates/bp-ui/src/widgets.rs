@@ -395,14 +395,20 @@ pub struct QrStyle {
     pub invert: bool,
 }
 
+/// The square `qr_code` fills for `q` in the box (x, y, w, h), quiet zone
+/// included: [x, y, side, side].
+pub fn qr_box(q: &bp_qr::QrCode, x: i32, y: i32, w: i32, h: i32) -> [i32; 4] {
+    let modules = q.size() as i32 + 8;
+    let side = (w.min(h) / modules).max(1) * modules;
+    [x + (w - side) / 2, y + (h - side) / 2, side, side]
+}
+
 /// Draw `q` centred in the box (x, y, w, h) at the largest integer module
 /// size, with a 4-module quiet zone. Returns the module size in pixels.
 pub fn qr_code(c: &mut dyn Canvas, q: &bp_qr::QrCode, x: i32, y: i32, w: i32, h: i32, style: QrStyle) -> i32 {
     let modules = q.size() as i32 + 8;
     let px = (w.min(h) / modules).max(1);
-    let side = px * modules;
-    let ox = x + (w - side) / 2;
-    let oy = y + (h - side) / 2;
+    let [ox, oy, side, _] = qr_box(q, x, y, w, h);
     // a pale phosphor panel, dimmed by the user's glare setting
     let dim = |v: u8| (v as u16 * style.light as u16 / 255) as u8;
     let light = Rgb(dim(QR_LIGHT.0), dim(QR_LIGHT.1), dim(QR_LIGHT.2)); // palette: QR_LIGHT dimmed

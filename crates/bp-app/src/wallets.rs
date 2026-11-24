@@ -1501,7 +1501,7 @@ impl App {
                     q[..n].make_ascii_uppercase();
                 }
                 if let Ok(code) = bp_qr::QrCode::encode(&q[..n], bp_qr::qr::Ecc::Medium, 1, 40, None) {
-                    widgets::qr_code(
+                    self.draw_qr(
                         c,
                         &code,
                         800 - MARGIN - 300,

@@ -349,6 +349,9 @@ pub struct App {
     key_problem: Option<keys::KeyProblem>,
     /// Boot-time network chip check (M8 decision 9-2).
     comm: bp_hal::CommCheck,
+    /// Where the QR code on screen was drawn in the last render (screen
+    /// effects leave it untouched).
+    qr_area: core::cell::Cell<Option<[i32; 4]>>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -425,6 +428,7 @@ impl App {
             key_pending: None,
             key_problem: None,
             comm: bp_hal::CommCheck::NotRun,
+            qr_area: core::cell::Cell::new(None),
         }
     }
 

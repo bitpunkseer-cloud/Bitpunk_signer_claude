@@ -35,6 +35,14 @@ const FRAME_W: usize = 1024;
 const FRAME_H: usize = 768;
 const TEXT_MAX: usize = 48 * 1024;
 
+/// Render the app with the screen effects of its settings (M9-2).
+fn draw(s: &mut Sim) {
+    let fx = s.app.settings.fx;
+    let mut c = bp_ui::fx::FxCanvas::new(&mut s.fb, fx);
+    s.app.render(&mut c);
+    c.finish(s.app.qr_area());
+}
+
 struct Sim {
     app: App,
     fb: Framebuffer,
@@ -86,7 +94,7 @@ pub extern "C" fn bp_init() {
     sim.app.set_test_only(true); // a web page is not air-gapped
     sim.app.set_card_present(true);
     sim.app.tick(0);
-    sim.app.render(&mut sim.fb);
+    draw(&mut sim);
     SIM.with(|s| *s.borrow_mut() = Some(sim));
 }
 
@@ -120,7 +128,7 @@ pub extern "C" fn bp_tick(ms: u32) -> u32 {
     with_sim(|s| {
         s.serve_card();
         if s.app.tick(ms) {
-            s.app.render(&mut s.fb);
+            draw(s);
             1
         } else {
             0

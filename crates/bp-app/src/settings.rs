@@ -54,8 +54,9 @@ pub const ROW_FEE_WARN: u8 = 6;
 pub const ROW_FEE_BLOCK: u8 = 7;
 pub const ROW_FEE_RATE: u8 = 8;
 pub const ROW_SD_WIPE: u8 = 9;
+pub const ROW_FX: u8 = 10;
 /// Rows that hold a value (the rest are actions).
-pub const VALUE_ROWS: u8 = 10;
+pub const VALUE_ROWS: u8 = 11;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
@@ -74,6 +75,8 @@ pub struct Settings {
     /// name, delete). Off by default; set on the device only (not in
     /// SettingsQR or the settings file).
     pub sd_wipe_original: bool,
+    /// Screen effects (M9): device only, like `sd_wipe_original`.
+    pub fx: bp_ui::fx::Fx,
 }
 
 impl Default for Settings {
@@ -89,6 +92,7 @@ impl Default for Settings {
             fee_block: 0,
             fee_rate: 1,
             sd_wipe_original: false,
+            fx: bp_ui::fx::Fx::Reduced,
         }
     }
 }
@@ -132,6 +136,7 @@ impl Settings {
             ROW_FEE_BLOCK => self.fee_block = step(&[0, 1, 2], self.fee_block, dir),
             ROW_FEE_RATE => self.fee_rate = step(&[0, 1, 2], self.fee_rate, dir),
             ROW_SD_WIPE => self.sd_wipe_original = !self.sd_wipe_original,
+            ROW_FX => self.fx = step(&bp_ui::fx::Fx::ALL, self.fx, dir),
             _ => return false,
         }
         true
@@ -156,6 +161,7 @@ impl Settings {
             ROW_FEE_BLOCK => FEE_BLOCK_LABELS[self.fee_block as usize % 3],
             ROW_FEE_RATE => FEE_RATE_LABELS[self.fee_rate as usize % 3],
             ROW_SD_WIPE => s.on_off[self.sd_wipe_original as usize],
+            ROW_FX => s.fx_values[self.fx as usize],
             _ => return None,
         })
     }
@@ -336,6 +342,7 @@ mod tests {
             fee_block: 0,
             fee_rate: 0,
             sd_wipe_original: false,
+            fx: bp_ui::fx::Fx::Reduced,
         };
         let mut b = [0u8; 256];
         let n = s.to_qr(&mut b);

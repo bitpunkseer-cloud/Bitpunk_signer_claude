@@ -1728,3 +1728,106 @@ fn screens_use_theme_colours_only() {
     }
     assert!(bad.is_empty(), "colours outside the theme:\n{}", bad.join("\n"));
 }
+
+/// M9-2: with the strongest screen effects, every QR code on screen still
+/// reads back with our own scanner (effects skip the QR box), and the
+/// effects setting stays on the device (not in the settings QR).
+#[test]
+fn qr_codes_read_through_screen_effects() {
+    struct Rgba {
+        px: Vec<u8>,
+    }
+    impl bp_hal::Canvas for Rgba {
+        fn width(&self) -> u16 {
+            800
+        }
+        fn height(&self) -> u16 {
+            480
+        }
+        fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, c: bp_hal::Rgb) {
+            for yy in y.max(0)..(y + h).min(480) {
+                for xx in x.max(0)..(x + w).min(800) {
+                    let i = (yy * 800 + xx) as usize * 3;
+                    self.px[i..i + 3].copy_from_slice(&[c.0, c.1, c.2]);
+                }
+            }
+        }
+        fn blend_pixel(&mut self, x: i32, y: i32, c: bp_hal::Rgb, a: u8) {
+            if !(0..800).contains(&x) || !(0..480).contains(&y) {
+                return;
+            }
+            let i = (y * 800 + x) as usize * 3;
+            for (k, v) in [c.0, c.1, c.2].into_iter().enumerate() {
+                let d = self.px[i + k] as u16;
+                self.px[i + k] = ((v as u16 * a as u16 + d * (255 - a as u16) + 127) / 255) as u8;
+            }
+        }
+    }
+    let mut a = app();
+    a.settings.advanced = true;
+    load_abandon(&mut a);
+    a.settings.fx = bp_ui::fx::Fx::Full;
+    let kinds = [
+        QrKind::Settings,
+        QrKind::SeedQr {
+            slot: 0,
+            compact: false,
+        },
+        QrKind::Xpub {
+            slot: 0,
+            st: ScriptType::NativeSegwit,
+            account: 0,
+            format: XpubFormat::StaticText,
+        },
+        QrKind::Xpub {
+            slot: 0,
+            st: ScriptType::Taproot,
+            account: 0,
+            format: XpubFormat::UrAccount,
+        },
+    ];
+    for kind in kinds {
+        a.open_qr(kind);
+        for fullscreen in [false, true] {
+            a.qr.as_mut().unwrap().fullscreen = fullscreen;
+            let mut b = Rgba {
+                px: vec![0; 800 * 480 * 3],
+            };
+            let mut fx = bp_ui::fx::FxCanvas::new(&mut b, a.settings.fx);
+            a.render(&mut fx);
+            let keep = a.qr_area();
+            assert!(keep.is_some(), "{kind:?}: QR area recorded");
+            fx.finish(keep);
+            let gray: Vec<u8> =
+                b.px.chunks(3)
+                    .map(|p| ((p[0] as u16 * 77 + p[1] as u16 * 150 + p[2] as u16 * 29) >> 8) as u8)
+                    .collect();
+            let img = bp_qr::scan::Image::new(&gray, 800, 480).unwrap();
+            let mut out = vec![0u8; 4096];
+            let found = bp_qr::scan::Scanner::default()
+                .scan(img, &mut out)
+                .unwrap_or_else(|| panic!("{kind:?} fullscreen={fullscreen}: not read"));
+            let mut t = [0u8; qrview::TEXT_MAX];
+            let n = a.qr.as_ref().unwrap().text(&mut t);
+            assert_eq!(&out[..found.decoded.len], &t[..n], "{kind:?}");
+        }
+        // Esc leaves full screen first, then the QR
+        while matches!(a.current(), Screen::QrShow { .. }) {
+            press(&mut a, Key::Esc);
+        }
+    }
+    // not a QR screen: nothing to keep
+    let mut b = Rgba {
+        px: vec![0; 800 * 480 * 3],
+    };
+    a.render(&mut b);
+    assert_eq!(a.qr_area(), None);
+    // the setting cycles on the device and never goes into the settings QR
+    let mut q1 = [0u8; 256];
+    let n1 = a.settings.to_qr(&mut q1);
+    nav::go(&mut a, To::Setting(|s| s.fx_label));
+    assert_eq!(a.settings.fx, bp_ui::fx::Fx::Reduced);
+    let mut q2 = [0u8; 256];
+    let n2 = a.settings.to_qr(&mut q2);
+    assert_eq!(&q1[..n1], &q2[..n2]);
+}

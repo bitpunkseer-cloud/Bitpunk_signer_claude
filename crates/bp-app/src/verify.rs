@@ -466,7 +466,7 @@ impl App {
                 light: 255,
                 invert: false,
             };
-            widgets::qr_code(c, &q, MARGIN - 8, STATUS_H + 30, 300, 300, style);
+            self.draw_qr(c, &q, MARGIN - 8, STATUS_H + 30, 300, 300, style);
         }
         let x = MARGIN + 310;
         TITLE.draw(c, x, STATUS_H + 24, s.va_found, theme::OK);
