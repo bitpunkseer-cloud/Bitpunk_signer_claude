@@ -367,6 +367,27 @@ pub fn parse_armored(text: &[u8]) -> Option<Armored<'_>> {
     })
 }
 
+/// Write the armored form [`parse_armored`] reads (lines end in `\n`).
+/// Returns the length, or `None` if `out` is too small.
+pub fn write_armored(message: &[u8], address: &str, signature: &str, out: &mut [u8]) -> Option<usize> {
+    let parts: [&[u8]; 6] = [
+        BEGIN_MSG,
+        message,
+        BEGIN_SIG,
+        address.as_bytes(),
+        signature.as_bytes(),
+        END_SIG,
+    ];
+    let mut n = 0;
+    for p in parts {
+        out.get_mut(n..n + p.len())?.copy_from_slice(p);
+        n += p.len();
+        *out.get_mut(n)? = b'\n';
+        n += 1;
+    }
+    Some(n)
+}
+
 fn trim(b: &[u8]) -> &[u8] {
     let s = b.iter().position(|c| !c.is_ascii_whitespace()).unwrap_or(b.len());
     let e = b
@@ -485,5 +506,13 @@ mod tests {
         .is_none());
         let extra = b"-----BEGIN BITCOIN SIGNED MESSAGE-----\nhi\n-----BEGIN BITCOIN SIGNATURE-----\na b c\n-----END BITCOIN SIGNATURE-----";
         assert!(parse_armored(extra).is_none());
+        let mut out = [0u8; 256];
+        let n = write_armored(b"two\nlines", "1Addr", "SIG=", &mut out).unwrap();
+        let a = parse_armored(&out[..n]).unwrap();
+        assert_eq!(
+            (a.message, a.address, a.signature),
+            (b"two\nlines".as_slice(), "1Addr", "SIG=")
+        );
+        assert!(write_armored(b"two\nlines", "1Addr", "SIG=", &mut out[..n - 1]).is_none());
     }
 }

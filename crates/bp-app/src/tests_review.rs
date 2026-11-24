@@ -1366,9 +1366,9 @@ fn settings_qr_exports_and_imports_without_weakening() {
     let mut a = app();
     a.settings.lang = settings::Lang::Ko;
     a.settings.fee_rate = 0;
-    // Settings > Settings as QR (row 10)
+    // Settings > Settings as QR (row 11)
     press(&mut a, Key::Char('4'));
-    for _ in 0..9 {
+    for _ in 0..10 {
         press(&mut a, Key::Down);
     }
     press(&mut a, Key::Enter);

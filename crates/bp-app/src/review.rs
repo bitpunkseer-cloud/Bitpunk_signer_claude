@@ -96,6 +96,8 @@ pub struct Review {
     pub code_len: usize,
     /// 0 none, 1 not this wallet's code, 2 not a code, 3 breaks a rule, 4 full.
     pub code_bad: u8,
+    /// Read from a microSD file: the full PSBT is produced and saved.
+    pub from_sd: bool,
 }
 
 impl Review {
@@ -117,6 +119,7 @@ impl Review {
             code_in: [0; 16],
             code_len: 0,
             code_bad: 0,
+            from_sd: false,
         }
     }
 
@@ -445,6 +448,14 @@ impl App {
                 }
                 _ => {}
             },
+            Step::Signed { sel } if r.from_sd => match crate::pick(ev.key, sel, 2) {
+                crate::Pick::Move(s) => self.set_current(Screen::Review {
+                    step: Step::Signed { sel: s },
+                }),
+                crate::Pick::Choose(0) => self.start_save(crate::sd::Job::SavePsbt),
+                crate::Pick::Choose(_) | crate::Pick::Back => self.end_review(),
+                crate::Pick::None => {}
+            },
             Step::Signed { sel } => match ev.key {
                 Key::Up => self.set_current(Screen::Review {
                     step: Step::Signed {
@@ -589,7 +600,13 @@ impl App {
             multisig: &wallets,
         };
         let (psbt, out) = self.scan.buffers();
-        let result = sign::sign_psbt(
+        // a file gets the whole PSBT back; a QR only the signatures
+        let sign = if r.from_sd {
+            sign::sign_psbt_full
+        } else {
+            sign::sign_psbt
+        };
+        let result = sign(
             &psbt[..r.psbt_len],
             &signer,
             &mut self.memory,

@@ -173,7 +173,7 @@ static TOOLS: [Entry; 9] = [
     todo_entry!(|s| s.totp, "M10", |s| s.ms_tools),
 ];
 
-static SETTINGS: [Entry; 11] = [
+static SETTINGS: [Entry; 12] = [
     setting(|s| s.network),
     setting(|s| s.units),
     setting(|s| s.qr_density),
@@ -183,6 +183,7 @@ static SETTINGS: [Entry; 11] = [
     setting(|s| s.fee_warn_label),
     setting(|s| s.fee_block_label),
     setting(|s| s.fee_rate_label),
+    setting(|s| s.sd.wipe_setting),
     Entry {
         label: |s| s.settings_qr,
         detail: ">",

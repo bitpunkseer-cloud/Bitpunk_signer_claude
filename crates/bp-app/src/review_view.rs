@@ -585,6 +585,7 @@ impl App {
                 let more: Buf<160> = match r.report.as_ref().and_then(|rep| self.multisig_progress(rep)) {
                     Some((_, after, m)) if after >= m => fill(s.wl.rv_complete, &[]),
                     Some((_, after, m)) => fill(s.wl.rv_more, &[&(m - after)]),
+                    None if r.from_sd => fill(s.sd.signed_sd, &[]),
                     None => fill(rv.signed_2, &[]),
                 };
                 let y = widgets::message_at(
@@ -594,14 +595,21 @@ impl App {
                     theme::OK,
                     &[l1.as_str(), more.as_str()],
                 );
-                let items = rv.show_qr.map(|label| MenuItem { label, detail: "" });
+                let mut items = rv.show_qr.map(|label| MenuItem { label, detail: "" });
+                let items: &[MenuItem] = if r.from_sd {
+                    items[0].label = s.sd.save_sd;
+                    items[1].label = s.sd.done;
+                    &items[..2]
+                } else {
+                    &items
+                };
                 widgets::list(
                     c,
                     MARGIN,
                     y + 16,
                     W - 2 * MARGIN,
                     4 * 52,
-                    &items,
+                    items,
                     sel as usize,
                     false,
                 );

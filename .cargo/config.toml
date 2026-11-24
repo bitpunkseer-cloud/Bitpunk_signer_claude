@@ -1,4 +1,10 @@
 [env]
-# The app state includes the camera scanner and QR buffers (~200 KB) and
-# debug test builds copy it on the stack: give test threads room.
-RUST_MIN_STACK = "16777216"
+# The app state includes the camera scanner, the QR buffers and the PSBT
+# file buffers (~500 KB) and debug test builds copy it on the stack: give
+# test threads room.
+RUST_MIN_STACK = "67108864"
+
+# The simulator builds the app state on the WebAssembly stack (1 MB by
+# default) before moving it into place.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=8388608"]

@@ -120,6 +120,13 @@ impl MsgState {
     pub fn signature(&self) -> Option<&[u8]> {
         (self.sig_len > 0).then(|| &self.sig[..self.sig_len])
     }
+
+    /// The armored signed message (message, address, signature) for a
+    /// `.sig` file. Returns its length.
+    pub fn armored(&self, out: &mut [u8]) -> Option<usize> {
+        let sig = core::str::from_utf8(self.signature()?).ok()?;
+        bp_bitcoin::message::write_armored(self.message(), self.addr(), sig, out)
+    }
 }
 
 impl Drop for MsgState {
@@ -436,6 +443,15 @@ impl App {
                 Pick::Choose(_) | Pick::Back => self.msg_end(),
                 Pick::None => {}
             },
+            MsStep::Done { sel } if self.msg_from_sd() => match crate::pick(ev.key, sel, 3) {
+                Pick::Move(s) => self.set_current(Screen::MsgSign {
+                    step: MsStep::Done { sel: s },
+                }),
+                Pick::Choose(0) => self.start_save(crate::sd::Job::SaveSig),
+                Pick::Choose(1) => self.open_qr(QrKind::MessageSig),
+                Pick::Choose(_) | Pick::Back => self.msg_end(),
+                Pick::None => {}
+            },
             MsStep::Done { sel } => match crate::pick(ev.key, sel, 2) {
                 Pick::Move(s) => self.set_current(Screen::MsgSign {
                     step: MsStep::Done { sel: s },
@@ -454,6 +470,13 @@ impl App {
         } else {
             self.msg_end();
         }
+    }
+
+    /// The message came from a file on the card (saving is offered).
+    pub(crate) fn msg_from_sd(&self) -> bool {
+        self.sd
+            .origin
+            .is_some_and(|o| o.kind == crate::sdfile::OriginKind::Message)
     }
 
     fn msg_end(&mut self) {
@@ -607,8 +630,10 @@ impl App {
                 let y = widgets::message_at(c, STATUS_H + 16, s.ms_signed, theme::OK, &[s.ms_signed_1]);
                 let sig = core::str::from_utf8(m.signature().unwrap_or(&[])).unwrap_or("");
                 let y = SMALL.draw_wrapped(c, MARGIN, y + 8, 800 - 2 * MARGIN, 22, 3, sig, theme::TEXT) + 8;
-                let items = s.ms_done_options.map(|label| MenuItem { label, detail: "" });
-                widgets::list(c, MARGIN, y, 800 - 2 * MARGIN, 110, &items, sel as usize, false);
+                let [qr, done] = s.ms_done_options;
+                let all = [s.sd.save_sd, qr, done].map(|label| MenuItem { label, detail: "" });
+                let items: &[MenuItem] = if self.msg_from_sd() { &all } else { &all[1..] };
+                widgets::list(c, MARGIN, y, 800 - 2 * MARGIN, 160, items, sel as usize, false);
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select)]);
             }
             MsStep::Failed => {

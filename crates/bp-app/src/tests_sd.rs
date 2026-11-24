@@ -180,7 +180,7 @@ pub(super) fn open_sd(a: &mut App, card: &mut MemCard) {
 /// Main > SD card > Browse files.
 fn open_browse(a: &mut App, card: &mut MemCard) {
     open_sd(a, card);
-    sd_press(a, card, Key::Char('1'));
+    sd_press(a, card, Key::Char('2'));
     assert!(matches!(
         a.current(),
         Screen::Sd {
@@ -227,7 +227,7 @@ fn probes_a_formatted_card() {
     assert!(info.bytes > 60_000_000);
     assert_eq!(card.cycles, 1);
     // Read again: one more power cycle.
-    sd_press(&mut a, &mut card, Key::Char('3'));
+    sd_press(&mut a, &mut card, Key::Char('4'));
     assert_eq!(card.cycles, 2);
     sd_press(&mut a, &mut card, Key::Esc);
     assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
@@ -241,11 +241,13 @@ fn explains_unusable_cards() {
     open_sd(&mut a, &mut none);
     assert_eq!(a.sd.card, Some(Err(CardProblem::NoCard)));
     assert_eq!(none.cycles, 0, "no power without a card");
-    // nothing to browse or format
+    // nothing to sign, browse or format
     sd_press(&mut a, &mut none, Key::Char('1'));
     assert_eq!(a.notice, Some(a.text().sd.not_ready));
     sd_press(&mut a, &mut none, Key::Char('2'));
-    assert_eq!(step(&a), SdStep::Status { sel: 1 });
+    assert_eq!(a.notice, Some(a.text().sd.not_ready));
+    sd_press(&mut a, &mut none, Key::Char('3'));
+    assert_eq!(step(&a), SdStep::Status { sel: 2 });
     press(&mut a, Key::Esc);
 
     let mut blank = MemCard::blank(8 << 20);
@@ -376,12 +378,12 @@ fn text_view_is_wiped_on_close() {
     open_browse(&mut a, &mut card);
     select(&mut a, &mut card, "notes.txt");
     sd_press(&mut a, &mut card, Key::Enter);
-    sd_press(&mut a, &mut card, Key::Char('1'));
+    sd_press(&mut a, &mut card, Key::Char('2'));
     assert_eq!(step(&a), SdStep::Text { top: 0 });
     assert_eq!(&a.sd.view[..a.sd.view_len], b"first line\nsecond line\n");
     sd_press(&mut a, &mut card, Key::Down);
     sd_press(&mut a, &mut card, Key::Esc);
-    assert_eq!(step(&a), SdStep::File { sel: 0 });
+    assert_eq!(step(&a), SdStep::File { sel: 1 });
     assert_eq!(a.sd.view_len, 0);
     assert!(a.sd.view.iter().all(|&b| b == 0));
 }
@@ -393,13 +395,13 @@ fn delete_asks_then_removes() {
     open_browse(&mut a, &mut card);
     select(&mut a, &mut card, "notes.txt");
     sd_press(&mut a, &mut card, Key::Enter);
-    sd_press(&mut a, &mut card, Key::Char('2'));
+    sd_press(&mut a, &mut card, Key::Char('3'));
     assert_eq!(step(&a), SdStep::Delete { sel: 0 });
     // Cancel keeps the file
     sd_press(&mut a, &mut card, Key::Enter);
-    assert_eq!(step(&a), SdStep::File { sel: 1 });
+    assert_eq!(step(&a), SdStep::File { sel: 2 });
     assert!(card.file("notes.txt").is_some());
-    sd_press(&mut a, &mut card, Key::Char('2'));
+    sd_press(&mut a, &mut card, Key::Char('3'));
     sd_press(&mut a, &mut card, Key::Char('2'));
     assert!(matches!(step(&a), SdStep::Browse { .. }));
     assert_eq!(a.notice, Some(a.text().sd.deleted));
@@ -466,18 +468,18 @@ fn format_asks_twice() {
     card.data[0] = 0x5A; // old junk
     open_sd(&mut a, &mut card);
     assert_eq!(a.sd.card, Some(Err(CardProblem::Blank)));
-    sd_press(&mut a, &mut card, Key::Char('2'));
+    sd_press(&mut a, &mut card, Key::Char('3'));
     assert_eq!(step(&a), SdStep::Format { stage: 0, sel: 0 });
     // cancel at either question changes nothing
     sd_press(&mut a, &mut card, Key::Char('1'));
     assert!(matches!(step(&a), SdStep::Status { .. }));
-    sd_press(&mut a, &mut card, Key::Char('2'));
+    sd_press(&mut a, &mut card, Key::Char('3'));
     sd_press(&mut a, &mut card, Key::Char('2'));
     assert_eq!(step(&a), SdStep::Format { stage: 1, sel: 0 });
     sd_press(&mut a, &mut card, Key::Esc);
     assert_eq!(card.data[0], 0x5A);
     // both confirmed
-    sd_press(&mut a, &mut card, Key::Char('2'));
+    sd_press(&mut a, &mut card, Key::Char('3'));
     sd_press(&mut a, &mut card, Key::Char('2'));
     sd_press(&mut a, &mut card, Key::Char('2'));
     assert_eq!(step(&a), SdStep::Formatted);
@@ -495,7 +497,7 @@ fn card_changes_close_open_files() {
     open_browse(&mut a, &mut card);
     select(&mut a, &mut card, "notes.txt");
     sd_press(&mut a, &mut card, Key::Enter);
-    sd_press(&mut a, &mut card, Key::Char('1'));
+    sd_press(&mut a, &mut card, Key::Char('2'));
     assert!(a.sd.view_len > 0);
     card.present = false;
     a.set_card_present(false);
@@ -537,7 +539,7 @@ fn sd_screens_fit() {
         );
         sd_press(&mut a, &mut card, Key::Enter);
         shot(&a, "file-long-name");
-        sd_press(&mut a, &mut card, Key::Char('2'));
+        sd_press(&mut a, &mut card, Key::Char('3'));
         shot(&a, "delete");
         sd_press(&mut a, &mut card, Key::Esc);
         sd_press(&mut a, &mut card, Key::Esc);
@@ -556,14 +558,411 @@ fn sd_screens_fit() {
         for _ in 0..5 {
             sd_press(&mut a, &mut card, Key::Esc);
         }
-        sd_press(&mut a, &mut card, Key::Char('2'));
+        shot(&a, "status");
+        sd_press(&mut a, &mut card, Key::Char('1'));
+        shot(&a, "psbt-list-empty");
+        sd_press(&mut a, &mut card, Key::Esc);
+        sd_press(&mut a, &mut card, Key::Char('3'));
         shot(&a, "format-1");
         sd_press(&mut a, &mut card, Key::Char('2'));
         shot(&a, "format-2");
         sd_press(&mut a, &mut card, Key::Char('2'));
         shot(&a, "formatted");
         sd_press(&mut a, &mut card, Key::Enter);
-        sd_press(&mut a, &mut card, Key::Char('1'));
+        sd_press(&mut a, &mut card, Key::Char('2'));
         shot(&a, "empty");
+    }
+}
+
+// ---------- PSBT and message files (M8-5) ----------
+
+fn hex(raw: &[u8]) -> String {
+    raw.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A card with the standard PSBT in three encodings, an already signed
+/// one, a message file, an oversized and a broken PSBT.
+fn psbt_card(p: &RefPsbt) -> MemCard {
+    let raw = p.serialize();
+    let mut img = Cursor::new(vec![0u8; 16 << 20]);
+    fatfs::format_volume(
+        &mut img,
+        fatfs::FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat16),
+    )
+    .unwrap();
+    {
+        let fs = fatfs::FileSystem::new(&mut img, fatfs::FsOptions::new()).unwrap();
+        let root = fs.root_dir();
+        let put = |name: &str, data: &[u8]| root.create_file(name).unwrap().write_all(data).unwrap();
+        put("tx.psbt", &raw);
+        // Base64 in lines with CRLF, as some wallets write it
+        let text = b64(&raw);
+        let wrapped: Vec<String> = text
+            .as_bytes()
+            .chunks(64)
+            .map(|c| String::from_utf8(c.to_vec()).unwrap())
+            .collect();
+        put("tx64.txt", format!("{}\r\n", wrapped.join("\r\n")).as_bytes());
+        put("txhex.hex", format!("{}\n", hex(&raw).to_uppercase()).as_bytes());
+        put("old-signed.psbt", &raw);
+        put("message.txt", b"hello from the card\nm/84h/0h/0h/0/0\n");
+        let mut big = raw.clone();
+        big.resize(130 * 1024, 0);
+        put("big.psbt", &big);
+        put("bad.txt", b"cHNidP8B!!not base64!!");
+    }
+    MemCard::image(img.into_inner())
+}
+
+/// Main > SD card > Sign PSBT.
+fn open_psbt_list(a: &mut App, card: &mut MemCard) {
+    open_sd(a, card);
+    sd_press(a, card, Key::Char('1'));
+    assert!(matches!(step(a), SdStep::PsbtList { .. }));
+}
+
+/// From the review's first screen to "Signed".
+fn approve(a: &mut App, card: &mut MemCard) {
+    assert_eq!(super::step(a), Step::Overview);
+    for _ in 0..4 {
+        sd_press(a, card, Key::Enter);
+    }
+    sd_press(a, card, Key::Down);
+    sd_press(a, card, Key::Enter);
+    assert_eq!(super::step(a), Step::Signed { sel: 0 });
+}
+
+/// The saved file: the original with one valid signature added.
+fn check_signed_file(w: &W, p: &RefPsbt, data: &[u8]) {
+    let out = RefPsbt::deserialize(data).unwrap();
+    assert_eq!(out.unsigned_tx, p.unsigned_tx);
+    // everything of the original kept
+    assert_eq!(out.outputs, p.outputs);
+    assert_eq!(out.inputs[0].witness_utxo, p.inputs[0].witness_utxo);
+    assert_eq!(out.inputs[0].non_witness_utxo, p.inputs[0].non_witness_utxo);
+    assert_eq!(out.inputs[0].bip32_derivation, p.inputs[0].bip32_derivation);
+    let (pk, _) = w.key("m/84'/0'/0'/0/0");
+    let sig = out.inputs[0].partial_sigs[&bitcoin::PublicKey::new(pk)];
+    let mut cache = bitcoin::sighash::SighashCache::new(&p.unsigned_tx);
+    let h = cache
+        .p2wpkh_signature_hash(
+            0,
+            &w.wpkh("m/84'/0'/0'/0/0"),
+            Amount::from_sat(100_000),
+            bitcoin::EcdsaSighashType::All,
+        )
+        .unwrap();
+    w.secp
+        .verify_ecdsa(
+            &bitcoin::secp256k1::Message::from_digest(h.to_byte_array()),
+            &sig.signature,
+            &pk,
+        )
+        .unwrap();
+    // the same as combining the original with the signature
+    let mut want = p.clone();
+    want.inputs[0]
+        .partial_sigs
+        .insert(bitcoin::PublicKey::new(pk), sig);
+    assert_eq!(out, want);
+}
+
+#[test]
+fn signs_psbt_files_and_saves_the_full_psbt() {
+    let w = W::from_phrase(ABANDON);
+    let p = standard(&w);
+    let mut card = psbt_card(&p);
+    let mut a = app();
+    load_abandon(&mut a);
+    open_psbt_list(&mut a, &mut card);
+    let listed = names(&a);
+    for n in ["tx.psbt", "tx64.txt", "txhex.hex", "big.psbt"] {
+        assert!(listed.contains(&String::from(n)), "{n} in {listed:?}");
+    }
+    // signed files and messages are left out (bad.txt starts like a
+    // Base64 PSBT: listed, refused when read)
+    for n in ["old-signed.psbt", "message.txt"] {
+        assert!(!listed.contains(&String::from(n)), "{n}");
+    }
+    let mut saved = Vec::new();
+    for (file, out) in [
+        ("tx.psbt", "tx-signed.psbt"),
+        ("tx64.txt", "tx64-signed.psbt"),
+        ("txhex.hex", "txhex-signed.psbt"),
+    ] {
+        select(&mut a, &mut card, file);
+        a.set_current(Screen::Sd {
+            step: SdStep::PsbtList {
+                sel: names(&a).iter().position(|n| n == file).unwrap() as u8,
+            },
+        });
+        sd_press(&mut a, &mut card, Key::Enter);
+        approve(&mut a, &mut card);
+        assert!(a.review.as_ref().unwrap().from_sd);
+        sd_press(&mut a, &mut card, Key::Enter); // Save to SD card
+        assert_eq!(step(&a), SdStep::Saved { sel: 0 });
+        let s = a.sd.saved.unwrap().unwrap();
+        assert_eq!(s.name.as_str(), out);
+        assert!(!s.wiped);
+        let data = card.file(out).unwrap();
+        check_signed_file(&w, &p, &data);
+        saved.push(data);
+        // Done: back to the refreshed list, buffers wiped
+        sd_press(&mut a, &mut card, Key::Enter);
+        assert!(matches!(step(&a), SdStep::PsbtList { .. }));
+        assert!(a.review.is_none() && a.sd.origin.is_none());
+        assert!(a.scan.out.iter().all(|&b| b == 0) && a.scan.work().iter().all(|&b| b == 0));
+        assert!(!names(&a).iter().any(|n| n.contains("-signed")));
+    }
+    // the three encodings give the same signed PSBT
+    assert!(saved.windows(2).all(|w| w[0] == w[1]));
+    // signing the same file again never replaces the first result
+    a.set_current(Screen::Sd {
+        step: SdStep::PsbtList {
+            sel: names(&a).iter().position(|n| n == "tx.psbt").unwrap() as u8,
+        },
+    });
+    sd_press(&mut a, &mut card, Key::Enter);
+    approve(&mut a, &mut card);
+    sd_press(&mut a, &mut card, Key::Enter);
+    assert_eq!(a.sd.saved.unwrap().unwrap().name.as_str(), "tx-signed-2.psbt");
+    assert_eq!(card.file("tx-signed.psbt").unwrap(), saved[0]);
+}
+
+#[test]
+fn refuses_large_and_broken_psbt_files() {
+    let w = W::from_phrase(ABANDON);
+    let mut card = psbt_card(&standard(&w));
+    let mut a = app();
+    load_abandon(&mut a);
+    open_psbt_list(&mut a, &mut card);
+    let i = names(&a).iter().position(|n| n == "big.psbt").unwrap();
+    a.set_current(Screen::Sd {
+        step: SdStep::PsbtList { sel: i as u8 },
+    });
+    sd_press(&mut a, &mut card, Key::Enter);
+    assert_eq!(a.notice, Some(a.text().sd.too_large));
+    assert!(matches!(step(&a), SdStep::PsbtList { .. }));
+    assert!(a.scan.out.iter().all(|&b| b == 0));
+    // a broken one opened from the file manager
+    sd_press(&mut a, &mut card, Key::Esc);
+    sd_press(&mut a, &mut card, Key::Char('2'));
+    select(&mut a, &mut card, "bad.txt");
+    sd_press(&mut a, &mut card, Key::Enter);
+    assert_eq!(a.sd.kind, Some(FileKind::Psbt));
+    sd_press(&mut a, &mut card, Key::Char('1'));
+    assert_eq!(a.notice, Some(a.text().sd.bad_encoding));
+    assert!(matches!(step(&a), SdStep::File { .. }));
+}
+
+#[test]
+fn wipes_the_original_when_asked() {
+    let w = W::from_phrase(ABANDON);
+    let p = standard(&w);
+    let mut card = psbt_card(&p);
+    let mut a = app();
+    load_abandon(&mut a);
+    a.settings.sd_wipe_original = true;
+    open_psbt_list(&mut a, &mut card);
+    let i = names(&a).iter().position(|n| n == "tx.psbt").unwrap();
+    a.set_current(Screen::Sd {
+        step: SdStep::PsbtList { sel: i as u8 },
+    });
+    sd_press(&mut a, &mut card, Key::Enter);
+    approve(&mut a, &mut card);
+    sd_press(&mut a, &mut card, Key::Enter);
+    let s = a.sd.saved.unwrap().unwrap();
+    assert!(s.wiped);
+    assert!(card.file("tx.psbt").is_none());
+    check_signed_file(&w, &p, &card.file("tx-signed.psbt").unwrap());
+    // the original's bytes are gone from the card image
+    let raw = p.serialize();
+    let count = card
+        .data
+        .windows(raw.len())
+        .filter(|x| *x == raw.as_slice())
+        .count();
+    assert_eq!(count, 2, "only old-signed.psbt and big.psbt still hold them");
+}
+
+#[test]
+fn a_pulled_card_can_be_saved_to_again() {
+    let w = W::from_phrase(ABANDON);
+    let p = standard(&w);
+    let mut card = psbt_card(&p);
+    let mut a = app();
+    load_abandon(&mut a);
+    open_psbt_list(&mut a, &mut card);
+    let i = names(&a).iter().position(|n| n == "tx.psbt").unwrap();
+    a.set_current(Screen::Sd {
+        step: SdStep::PsbtList { sel: i as u8 },
+    });
+    sd_press(&mut a, &mut card, Key::Enter);
+    approve(&mut a, &mut card);
+    card.present = false;
+    sd_press(&mut a, &mut card, Key::Enter);
+    assert_eq!(a.sd.saved, Some(Err(crate::sdfile::SaveProblem::NoCard)));
+    // still signed, in memory: put the card back and try again
+    card.present = true;
+    sd_press(&mut a, &mut card, Key::Enter);
+    assert_eq!(a.sd.saved.unwrap().unwrap().name.as_str(), "tx-signed.psbt");
+    check_signed_file(&w, &p, &card.file("tx-signed.psbt").unwrap());
+    // or cancel: back to the signed screen
+    sd_press(&mut a, &mut card, Key::Enter);
+}
+
+#[test]
+fn signs_message_files_and_saves_the_signature() {
+    let w = W::from_phrase(ABANDON);
+    let mut card = psbt_card(&standard(&w));
+    let mut a = app();
+    load_abandon(&mut a);
+    a.settings.msg_signing = true;
+    open_browse(&mut a, &mut card);
+    select(&mut a, &mut card, "message.txt");
+    sd_press(&mut a, &mut card, Key::Enter);
+    assert_eq!(a.sd.kind, Some(FileKind::Text));
+    sd_press(&mut a, &mut card, Key::Char('1')); // Sign message
+    assert!(matches!(a.current(), Screen::MsgSign { .. }), "{:?}", a.current());
+    sd_press(&mut a, &mut card, Key::Enter); // message page
+    sd_press(&mut a, &mut card, Key::Enter); // address
+    sd_press(&mut a, &mut card, Key::Char('2')); // sign
+    assert!(matches!(
+        a.current(),
+        Screen::MsgSign {
+            step: crate::msgsign::MsStep::Done { .. }
+        }
+    ));
+    sd_press(&mut a, &mut card, Key::Char('1')); // Save to SD card
+    assert_eq!(a.sd.saved.unwrap().unwrap().name.as_str(), "message.sig");
+    let sig = card.file("message.sig").unwrap();
+    let armored = bp_bitcoin::message::parse_armored(&sig).unwrap();
+    assert_eq!(armored.message, b"hello from the card");
+    assert_eq!(armored.address, "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu");
+    assert!(bp_bitcoin::message::verify(
+        armored.address,
+        bp_bitcoin::Network::Mainnet,
+        armored.message,
+        armored.signature
+    )
+    .is_ok());
+    sd_press(&mut a, &mut card, Key::Enter);
+    assert!(matches!(step(&a), SdStep::Browse { .. }));
+    assert!(names(&a).contains(&String::from("message.sig")));
+    assert!(a.msg.is_none());
+}
+
+#[test]
+fn psbt_file_helpers() {
+    use crate::sdfile::{message_request, signed_stem, Decoder, LoadError};
+    let net = bp_bitcoin::Network::Mainnet;
+    let mut out = [0u8; 256];
+    let n = message_request(b"signmessage m/84h/0h/0h/0/5 ascii:hi\r\nignored", net, &mut out);
+    assert_eq!(&out[..n], b"signmessage m/84h/0h/0h/0/5 ascii:hi");
+    let n = message_request(b"\xEF\xBB\xBFjust a message\n", net, &mut out);
+    assert_eq!(&out[..n], b"signmessage m/84h/0h/0h/0/0 ascii:just a message");
+    let n = message_request(
+        b"msg\nm/44h/1h/0h/0/2\nP2PKH\n",
+        bp_bitcoin::Network::Signet,
+        &mut out,
+    );
+    assert_eq!(&out[..n], b"signmessage m/44h/1h/0h/0/2 ascii:msg");
+    let n = message_request(b"msg\n\n", bp_bitcoin::Network::Signet, &mut out);
+    assert_eq!(&out[..n], b"signmessage m/84h/1h/0h/0/0 ascii:msg");
+
+    assert_eq!(signed_stem("tx.psbt", None).as_str(), "tx-signed");
+    assert_eq!(signed_stem("tx-signed-2.psbt", None).as_str(), "tx-signed");
+    assert_eq!(
+        signed_stem("tx.psbt", Some([0x73, 0xc5, 0xda, 0x0a])).as_str(),
+        "tx-signed-73c5da0a"
+    );
+    assert_eq!(signed_stem("??.psbt", None).as_str(), "__-signed");
+    assert_eq!(
+        signed_stem(".psbt", None).as_str(),
+        "_psbt-signed".replace("_psbt", ".psbt").as_str()
+    );
+
+    let decode = |data: &[u8]| -> Result<Vec<u8>, LoadError> {
+        let mut out = vec![0u8; 64];
+        let mut d = Decoder::detect(data)?;
+        for chunk in data.chunks(3) {
+            d.feed(chunk, &mut out)?;
+        }
+        let n = d.finish()?;
+        Ok(out[..n].to_vec())
+    };
+    let raw = b"psbt\xff\x01\x00\x02";
+    assert_eq!(decode(raw).unwrap(), raw);
+    assert_eq!(decode(b"70736274FF01 0002\n").unwrap(), raw);
+    assert_eq!(decode(b"cHNidP8BAAI=\n").unwrap(), raw);
+    assert_eq!(decode(b" cHNi\r\ndP8B\r\nAAI").unwrap(), raw);
+    assert_eq!(decode(b"70736274ff010").err(), Some(LoadError::Encoding));
+    assert_eq!(decode(b"cHNidP8BAAI=x").err(), Some(LoadError::Encoding));
+    assert_eq!(decode(b"cHNidP8BAAI===").err(), Some(LoadError::Encoding));
+    assert_eq!(decode(b"cHNidP8BA").err(), Some(LoadError::Encoding));
+    assert_eq!(decode(b"hello").err(), Some(LoadError::Encoding));
+    assert_eq!(
+        decode(&[b"psbt\xff".as_slice(), &[0u8; 70]].concat()).err(),
+        Some(LoadError::TooLarge)
+    );
+}
+
+/// The signing screens of SD files in both languages (layout check, and
+/// pictures when `BP_SHOTS` is set).
+#[test]
+fn sd_signing_screens_fit() {
+    let w = W::from_phrase(ABANDON);
+    let p = standard(&w);
+    for lang in [crate::settings::Lang::En, crate::settings::Lang::Ko] {
+        let dir = std::env::var_os("BP_SHOTS").map(std::path::PathBuf::from);
+        let shot = |a: &App, name: &str| {
+            let mut c = super::layout::Shot::new();
+            a.render(&mut c);
+            if let Some(d) = &dir {
+                let l = ["en", "ko"][lang as usize];
+                c.save(&d.join(format!("sd-{l}-{name}.ppm")));
+            }
+        };
+        let mut card = psbt_card(&p);
+        let mut a = app();
+        load_abandon(&mut a);
+        a.settings.lang = lang;
+        a.settings.msg_signing = true;
+        a.set_test_only(true);
+        open_psbt_list(&mut a, &mut card);
+        shot(&a, "psbt-list");
+        let i = names(&a).iter().position(|n| n == "big.psbt").unwrap();
+        a.set_current(Screen::Sd {
+            step: SdStep::PsbtList { sel: i as u8 },
+        });
+        sd_press(&mut a, &mut card, Key::Enter);
+        shot(&a, "psbt-too-large");
+        let i = names(&a).iter().position(|n| n == "tx.psbt").unwrap();
+        a.set_current(Screen::Sd {
+            step: SdStep::PsbtList { sel: i as u8 },
+        });
+        sd_press(&mut a, &mut card, Key::Enter);
+        approve(&mut a, &mut card);
+        shot(&a, "signed-sd");
+        card.present = false;
+        sd_press(&mut a, &mut card, Key::Enter);
+        shot(&a, "save-failed");
+        card.present = true;
+        a.settings.sd_wipe_original = true;
+        sd_press(&mut a, &mut card, Key::Enter);
+        shot(&a, "saved-wiped");
+        sd_press(&mut a, &mut card, Key::Enter);
+        sd_press(&mut a, &mut card, Key::Esc);
+        sd_press(&mut a, &mut card, Key::Char('2'));
+        select(&mut a, &mut card, "message.txt");
+        sd_press(&mut a, &mut card, Key::Enter);
+        shot(&a, "file-text");
+        sd_press(&mut a, &mut card, Key::Char('1'));
+        sd_press(&mut a, &mut card, Key::Enter);
+        sd_press(&mut a, &mut card, Key::Enter);
+        sd_press(&mut a, &mut card, Key::Char('2'));
+        shot(&a, "msg-done-sd");
+        sd_press(&mut a, &mut card, Key::Char('1'));
+        shot(&a, "saved");
     }
 }

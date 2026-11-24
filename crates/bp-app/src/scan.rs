@@ -7,8 +7,13 @@ use bp_bitcoin::qrinput::{AddressKind, Collector, Content, Feed, Progress, SeedS
 use bp_bitcoin::{psbt, Network};
 use bp_qr::scan::{Image, Point, Scanner};
 
-/// Collector and result buffers (PSBTs up to this size).
+/// QR frame collector (PSBTs scanned up to this size).
 pub const STORE: usize = 32 * 1024;
+/// Largest PSBT read from a file (M8 plan §5).
+pub const PSBT_MAX: usize = 128 * 1024;
+/// Payload and work buffers: a file PSBT plus room for the signatures
+/// added to it.
+pub const BUF: usize = PSBT_MAX + 16 * 1024;
 pub const PREVIEW_W: usize = 200;
 pub const PREVIEW_H: usize = 150;
 const FRAME_TEXT: usize = 4096;
@@ -98,8 +103,8 @@ pub enum Outcome {
 pub struct ScanState {
     scanner: Scanner,
     collector: Collector<STORE>,
-    work: [u8; STORE],
-    pub out: [u8; STORE],
+    work: [u8; BUF],
+    pub out: [u8; BUF],
     text: [u8; FRAME_TEXT],
     pub preview: [u8; PREVIEW_W * PREVIEW_H],
     pub has_preview: bool,
@@ -118,8 +123,8 @@ impl ScanState {
         Self {
             scanner: Scanner::new(),
             collector: Collector::new(),
-            work: [0; STORE],
-            out: [0; STORE],
+            work: [0; BUF],
+            out: [0; BUF],
             text: [0; FRAME_TEXT],
             preview: [0; PREVIEW_W * PREVIEW_H],
             has_preview: false,

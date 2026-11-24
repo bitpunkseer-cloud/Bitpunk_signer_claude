@@ -10,6 +10,7 @@ pub mod review;
 mod review_view;
 mod scan;
 mod sd;
+mod sdfile;
 mod seeds;
 mod settings;
 mod sigverify;
@@ -532,6 +533,20 @@ impl App {
             .any(|s| matches!(s, Screen::SigVerify { .. }))
         {
             self.sig = None;
+        }
+        // a file's origin lives while its review or message signing does
+        if !self.stack[..self.depth].iter().any(|s| {
+            matches!(
+                s,
+                Screen::Review { .. }
+                    | Screen::MsgSign { .. }
+                    | Screen::Sd {
+                        step: sd::SdStep::Saved { .. }
+                    }
+            )
+        }) {
+            self.sd.origin = None;
+            self.sd.saved = None;
         }
         self.end_scan_if_left();
     }

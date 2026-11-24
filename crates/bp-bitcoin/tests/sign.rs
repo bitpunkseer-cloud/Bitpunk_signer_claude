@@ -20,7 +20,7 @@ use bitcoin::sighash::{EcdsaSighashType, Prevouts as RefPrevouts, SighashCache, 
 use bp_bitcoin::bip32::Xpriv;
 use bp_bitcoin::psbt::Psbt;
 use bp_bitcoin::sighash::{self, SegwitV0Hashes};
-use bp_bitcoin::sign::{sign_psbt, Error, Signer};
+use bp_bitcoin::sign::{sign_psbt, sign_psbt_full, Error, Signer};
 use bp_bitcoin::validate::script::{classify, p2pkh, ScriptKind};
 use bp_bitcoin::validate::{validate, Context, Issue, Policy, UtxoMemory};
 use bp_bitcoin::{base58, base64, Network};
@@ -204,6 +204,67 @@ fn four_script_types_sign_and_verify() {
             op.extend_from_slice(&txin.previous_output.vout.to_le_bytes());
             assert_eq!(mem.amount(&op), Some(spec.amount));
         }
+    }
+}
+
+/// The full PSBT (for files) is the original with our signatures added:
+/// rust-bitcoin sees exactly what combining the trimmed result gives, and
+/// every original pair is kept byte for byte.
+#[test]
+fn full_psbt_is_the_original_plus_signatures() {
+    let w = Wallet::ours();
+    let m = master();
+    let signer = Signer {
+        master: &m,
+        network: Network::Signet,
+        policy: Policy::default(),
+        multisig: &[],
+    };
+    for specs in [
+        vec![In::new(Kind::Wpkh, 3, 100_000)],
+        vec![
+            In::new(Kind::Tr, 3, 60_000).without_prev_tx(),
+            In::new(Kind::Pkh, 9, 40_000),
+        ],
+        vec![In::new(Kind::ShWpkh, 1, 50_000), In::new(Kind::Wpkh, 2, 50_000)],
+    ] {
+        let p = build(
+            &w,
+            &specs,
+            &[Out::pay(60_000), Out::change(&w, specs[0].kind, 2, 39_000)],
+        );
+        let raw = p.serialize();
+        let digest = validate(&raw, &Context::new(&m, Network::Signet)).1.digest();
+        let mut out = vec![0u8; raw.len() + 4096];
+        let s = sign_psbt_full(&raw, &signer, &mut UtxoMemory::new(), &digest, false, &mut out).unwrap();
+        let full = &out[..s.len];
+        assert_eq!(s.signatures, specs.len());
+        let trimmed = approve_and_sign(&raw, &mut UtxoMemory::new(), false).unwrap();
+        let mut combined = p.clone();
+        combined.combine(RefPsbt::deserialize(&trimmed).unwrap()).unwrap();
+        assert_eq!(RefPsbt::deserialize(full).unwrap(), combined);
+        // original maps kept: global and outputs byte-identical, inputs grow
+        let (a, b) = (Psbt::parse(&raw).unwrap(), Psbt::parse(full).unwrap());
+        assert!(a.global_pairs().eq(b.global_pairs()));
+        assert!(a.outputs().zip(b.outputs()).all(|(x, y)| x.pairs().eq(y.pairs())));
+        for (x, y) in a.inputs().zip(b.inputs()) {
+            assert_eq!(x.pairs().count() + 1, y.pairs().count());
+            assert!(x.pairs().zip(y.pairs()).all(|(p, q)| p == q));
+        }
+        // signing the result again adds nothing (already signed)
+        let d2 = validate(full, &Context::new(&m, Network::Signet)).1.digest();
+        let mut again = vec![0u8; full.len() + 4096];
+        assert_eq!(
+            sign_psbt_full(full, &signer, &mut UtxoMemory::new(), &d2, false, &mut again).err(),
+            Some(Error::NotSignable)
+        );
+        // too small a buffer: refused and wiped
+        let mut small = vec![0xAAu8; raw.len()];
+        assert_eq!(
+            sign_psbt_full(&raw, &signer, &mut UtxoMemory::new(), &digest, false, &mut small).err(),
+            Some(Error::OutputTooSmall)
+        );
+        assert!(small.iter().all(|&b| b == 0));
     }
 }
 

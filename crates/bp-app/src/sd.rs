@@ -53,6 +53,14 @@ pub enum SdStep {
         sel: u8,
     },
     Formatted,
+    /// PSBT files to sign (top folder, "-signed" names left out).
+    PsbtList {
+        sel: u8,
+    },
+    /// Saving a signed PSBT or message signature: result, retry.
+    Saved {
+        sel: u8,
+    },
 }
 
 /// Why the card cannot be used (order matches `SdStrings::problems`).
@@ -161,6 +169,16 @@ pub enum Job {
     View(DirEntry),
     Delete(DirEntry),
     Format,
+    /// PSBT files in the top folder.
+    ListPsbt,
+    /// Read, decode and review a PSBT file.
+    LoadPsbt(DirEntry),
+    /// Read a message file and start signing it.
+    LoadMessage(DirEntry),
+    /// Save the signed PSBT next to its original.
+    SavePsbt,
+    /// Save the message signature next to its message file.
+    SaveSig,
 }
 
 pub struct SdState {
@@ -190,6 +208,10 @@ pub struct SdState {
     pub view: [u8; VIEW_MAX],
     pub view_len: usize,
     pub view_err: bool,
+    /// The file the review or message signing on the stack came from.
+    pub origin: Option<crate::sdfile::Origin>,
+    /// Result of the last save (`None` while it runs).
+    pub saved: Option<Result<crate::sdfile::Saved, crate::sdfile::SaveProblem>>,
 }
 
 impl SdState {
@@ -214,6 +236,8 @@ impl SdState {
             view: [0; VIEW_MAX],
             view_len: 0,
             view_err: false,
+            origin: None,
+            saved: None,
         }
     }
 
@@ -231,17 +255,26 @@ impl SdState {
     }
 }
 
-/// Rows on the status screen: browse, format, read again.
-const STATUS_ROWS: u8 = 3;
+/// Rows on the status screen: sign PSBT, browse, format, read again.
+const STATUS_ROWS: u8 = 4;
 
 /// File screen actions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FileAction {
+    Sign,
+    SignMessage,
     View,
     Delete,
 }
 
-const FILE_ACTIONS: [FileAction; 2] = [FileAction::View, FileAction::Delete];
+/// Actions offered for a file of this kind.
+fn file_actions(kind: Option<FileKind>) -> &'static [FileAction] {
+    match kind {
+        Some(FileKind::Psbt) => &[FileAction::Sign, FileAction::View, FileAction::Delete],
+        Some(FileKind::Text) => &[FileAction::SignMessage, FileAction::View, FileAction::Delete],
+        _ => &[FileAction::View, FileAction::Delete],
+    }
+}
 
 /// "29.7 GB" / "31.9 MB" (decimal units, as cards are sold).
 pub fn size_text(bytes: u64) -> Buf<16> {
@@ -329,26 +362,26 @@ impl App {
                 self.sd.job = Some(Job::Probe);
             }
             SdStep::Browse { .. } => self.sd.job = Some(Job::List),
+            SdStep::PsbtList { .. } => self.sd.job = Some(Job::ListPsbt),
+            // the result stays on screen; the folder is read when it closes
+            SdStep::Saved { .. } => {}
             SdStep::File { .. } | SdStep::Text { .. } | SdStep::Delete { .. } => {
                 // the entry may no longer be what it was
-                while matches!(self.current(), Screen::Sd { step } if !matches!(step, SdStep::Browse { .. } | SdStep::Status { .. }))
+                while matches!(self.current(), Screen::Sd { step } if !matches!(step, SdStep::Browse { .. } | SdStep::Status { .. } | SdStep::PsbtList { .. }))
                 {
                     self.pop();
                 }
                 self.sd.file = None;
                 self.sd.wipe_view();
-                self.sd.job = Some(
-                    if matches!(
-                        self.current(),
-                        Screen::Sd {
-                            step: SdStep::Browse { .. }
-                        }
-                    ) {
-                        Job::List
-                    } else {
-                        Job::Probe
-                    },
-                );
+                self.sd.job = Some(match self.current() {
+                    Screen::Sd {
+                        step: SdStep::Browse { .. },
+                    } => Job::List,
+                    Screen::Sd {
+                        step: SdStep::PsbtList { .. },
+                    } => Job::ListPsbt,
+                    _ => Job::Probe,
+                });
             }
         }
     }
@@ -392,7 +425,16 @@ impl App {
                 self.sd.list_err = Some(p);
                 self.sd.listed = true;
             }
+            Job::ListPsbt => {
+                self.sd.clear_list();
+                self.sd.list_err = Some(p);
+                self.sd.listed = true;
+            }
             Job::Sniff(_) | Job::View(_) => self.sd.view_err = true,
+            Job::LoadPsbt(_) | Job::LoadMessage(_) => {
+                self.notice = Some(self.text().sd.problems[p.index()][0])
+            }
+            Job::SavePsbt | Job::SaveSig => self.sd.saved = Some(Err(crate::sdfile::SaveProblem::NoCard)),
         }
     }
 
@@ -400,6 +442,10 @@ impl App {
         match job {
             Job::Probe => self.sd.card = Some(probe(card).map_err(CardProblem::from_fat)),
             Job::List => self.list_job(card),
+            Job::ListPsbt => self.list_psbt_job(card),
+            Job::LoadPsbt(e) => self.load_psbt_job(card, e),
+            Job::LoadMessage(e) => self.load_message_job(card, e),
+            Job::SavePsbt | Job::SaveSig => self.save_job(card, job),
             Job::Sniff(e) | Job::View(e) => {
                 let n = if matches!(job, Job::Sniff(_)) {
                     SNIFF
@@ -512,13 +558,21 @@ impl App {
                 Pick::Move(s) => self.sd_set(SdStep::Status { sel: s }),
                 Pick::Choose(s) => {
                     self.sd_set(SdStep::Status { sel: s });
+                    let ready = matches!(self.sd.card, Some(Ok(_)));
                     match s {
-                        0 if matches!(self.sd.card, Some(Ok(_))) => self.open_browse(),
-                        0 => self.notice = Some(t.not_ready),
-                        1 if self.sd.present => self.push(Screen::Sd {
+                        0 if ready => {
+                            self.sd.clear_list();
+                            self.sd.job = Some(Job::ListPsbt);
+                            self.push(Screen::Sd {
+                                step: SdStep::PsbtList { sel: 0 },
+                            });
+                        }
+                        1 if ready => self.open_browse(),
+                        0 | 1 => self.notice = Some(t.not_ready),
+                        2 if self.sd.present => self.push(Screen::Sd {
                             step: SdStep::Format { stage: 0, sel: 0 },
                         }),
-                        1 => self.notice = Some(t.problems[0][0]),
+                        2 => self.notice = Some(t.problems[0][0]),
                         _ => {
                             self.sd.card = None;
                             self.sd.job = Some(Job::Probe);
@@ -532,12 +586,14 @@ impl App {
                 Pick::None => {}
             },
             SdStep::Browse { sel } => self.browse_key(sel, ev),
-            SdStep::File { sel } => match crate::pick(ev.key, sel, FILE_ACTIONS.len() as u8) {
+            SdStep::File { sel } => match crate::pick(ev.key, sel, file_actions(self.sd.kind).len() as u8) {
                 Pick::Move(s) => self.sd_set(SdStep::File { sel: s }),
                 Pick::Choose(s) => {
                     let Some(e) = self.sd.file else { return };
                     self.sd_set(SdStep::File { sel: s });
-                    match FILE_ACTIONS[s as usize] {
+                    match file_actions(self.sd.kind)[s as usize] {
+                        FileAction::Sign => self.sd.job = Some(Job::LoadPsbt(e)),
+                        FileAction::SignMessage => self.sd.job = Some(Job::LoadMessage(e)),
                         FileAction::View => {
                             self.sd.job = Some(Job::View(e));
                             self.push(Screen::Sd {
@@ -601,6 +657,50 @@ impl App {
                     self.pop();
                 }
             }
+            SdStep::PsbtList { sel } => {
+                let n = self.sd.count as u8;
+                match ev.key {
+                    Key::Esc | Key::Backspace | Key::Left => {
+                        self.sd.clear_list();
+                        self.pop();
+                    }
+                    _ if n == 0 => {}
+                    _ => match crate::pick(ev.key, sel, n) {
+                        Pick::Move(s) => self.sd_set(SdStep::PsbtList { sel: s }),
+                        Pick::Choose(s) => {
+                            self.sd_set(SdStep::PsbtList { sel: s });
+                            if let Some(e) = self.sd.list[s as usize] {
+                                self.sd.job = Some(Job::LoadPsbt(e));
+                            }
+                        }
+                        _ => {}
+                    },
+                }
+            }
+            SdStep::Saved { sel } => match self.sd.saved {
+                None => {}
+                Some(Ok(_)) => {
+                    if matches!(ev.key, Key::Enter | Key::Esc | Key::Backspace) {
+                        self.finish_save();
+                    }
+                }
+                Some(Err(_)) => match crate::pick(ev.key, sel, 2) {
+                    Pick::Move(s) => self.sd_set(SdStep::Saved { sel: s }),
+                    Pick::Choose(0) => {
+                        let job = match self.sd.origin.map(|o| o.kind) {
+                            Some(crate::sdfile::OriginKind::Message) => Job::SaveSig,
+                            _ => Job::SavePsbt,
+                        };
+                        self.sd.saved = None;
+                        self.sd.job = Some(job);
+                    }
+                    Pick::Choose(_) | Pick::Back => {
+                        self.sd.saved = None;
+                        self.pop();
+                    }
+                    Pick::None => {}
+                },
+            },
         }
     }
 
@@ -696,6 +796,8 @@ impl App {
         let t = s.sd;
         match step {
             SdStep::Status { sel } => self.render_sd_status(c, sel),
+            SdStep::PsbtList { sel } => self.render_psbt_list(c, sel),
+            SdStep::Saved { sel } => self.render_saved(c, sel),
             SdStep::Browse { sel } => self.render_browse(c, sel),
             SdStep::File { sel } => self.render_file(c, sel),
             SdStep::Text { top } => self.render_text(c, top),
@@ -769,37 +871,36 @@ impl App {
         let s = self.text();
         let t = s.sd;
         self.status(c, t.menu);
-        let top = STATUS_H + 24;
+        let top = STATUS_H + 16;
         match self.sd.card {
             None => {
                 BODY.draw(c, MARGIN, top, t.reading, theme::TEXT_DIM);
             }
             Some(Ok(info)) => {
                 let size = size_text(info.bytes);
+                let line: Buf<48> = fill("{} - {}", &[&kind_name(info.kind), &size.as_str()]);
+                BODY.draw(c, MARGIN, top, line.as_str(), theme::TEXT);
                 let cluster: Buf<16> = if info.cluster < 1024 {
                     fill("{} B", &[&info.cluster])
                 } else {
                     fill("{} KB", &[&(info.cluster / 1024)])
                 };
-                let entries: Buf<16> = fill("{}", &[&info.entries]);
-                widgets::info_rows(
-                    c,
-                    &[
-                        (t.fs, kind_name(info.kind)),
-                        (t.size, size.as_str()),
-                        (t.cluster, cluster.as_str()),
-                        (t.entries, entries.as_str()),
-                    ],
-                );
+                let detail: Buf<80> = fill(t.detail_line, &[&cluster.as_str(), &info.entries]);
+                SMALL.draw(c, MARGIN, top + 36, detail.as_str(), theme::TEXT_DIM);
             }
             Some(Err(p)) => {
                 let lines = t.problems[p.index()];
                 BODY.draw(c, MARGIN, top, lines[0], theme::WARN);
-                SMALL.draw(c, MARGIN, top + 40, lines[1], theme::TEXT);
-                SMALL.draw(c, MARGIN, top + 66, lines[2], theme::TEXT);
+                SMALL.draw(c, MARGIN, top + 36, lines[1], theme::TEXT);
+                SMALL.draw(c, MARGIN, top + 60, lines[2], theme::TEXT);
             }
         }
+        SMALL.draw(c, MARGIN, STATUS_H + 92, t.power_note, theme::TEXT_DIM);
         let items = [
+            MenuItem {
+                label: t.sign_psbt,
+                detail: ">",
+            },
             MenuItem {
                 label: t.browse,
                 detail: ">",
@@ -813,12 +914,86 @@ impl App {
                 detail: "",
             },
         ];
-        widgets::list(c, MARGIN, STATUS_H + 196, W, 156, &items, sel as usize, false);
-        SMALL.draw(c, MARGIN, STATUS_H + 360, t.power_note, theme::TEXT_DIM);
+        widgets::list(c, MARGIN, STATUS_H + 124, W, 4 * 52, &items, sel as usize, false);
         if let Some(n) = self.notice {
-            BODY.draw(c, MARGIN, STATUS_H + 386, n, theme::WARN);
+            BODY.draw(c, MARGIN, STATUS_H + 340, n, theme::WARN);
         }
         widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+    }
+
+    fn render_psbt_list(&self, c: &mut dyn Canvas, sel: u8) {
+        let s = self.text();
+        let t = s.sd;
+        let sd = &self.sd;
+        self.status(c, t.sign_psbt);
+        let top = STATUS_H + 8;
+        if !sd.listed {
+            BODY.draw(c, MARGIN, top + 12, t.reading, theme::TEXT_DIM);
+        } else if let Some(p) = sd.list_err {
+            BODY.draw(c, MARGIN, top + 12, t.problems[p.index()][0], theme::WARN);
+            SMALL.draw(c, MARGIN, top + 52, t.problems[p.index()][1], theme::TEXT);
+        } else if sd.count == 0 {
+            BODY.draw(c, MARGIN, top + 12, t.psbt_none[0], theme::TEXT_DIM);
+            SMALL.draw(c, MARGIN, top + 52, t.psbt_none[1], theme::TEXT_DIM);
+        } else {
+            let mut names: [Buf<96>; PAGE] = [const { Buf::new() }; PAGE];
+            let mut sizes: [Buf<16>; PAGE] = [const { Buf::new() }; PAGE];
+            for (i, e) in sd.list[..sd.count].iter().enumerate() {
+                if let Some(e) = e {
+                    names[i] = fit_name(e.name(), 46);
+                    sizes[i] = file_size(e.size());
+                }
+            }
+            let items: [MenuItem; PAGE] = core::array::from_fn(|i| MenuItem {
+                label: names[i].as_str(),
+                detail: sizes[i].as_str(),
+            });
+            widgets::list(c, MARGIN, top, W, 364, &items[..sd.count], sel as usize, true);
+        }
+        if let Some(n) = self.notice {
+            SMALL.draw(c, MARGIN, 480 - widgets::HINT_H - 24, n, theme::WARN);
+        }
+        widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", t.sign), ("Esc", s.h_back)]);
+    }
+
+    fn render_saved(&self, c: &mut dyn Canvas, sel: u8) {
+        let s = self.text();
+        let t = s.sd;
+        self.status(c, t.save_sd);
+        match self.sd.saved {
+            None => {
+                BODY.draw(c, MARGIN, STATUS_H + 24, t.saving, theme::TEXT_DIM);
+            }
+            Some(Ok(saved)) => {
+                TITLE.draw(c, MARGIN, STATUS_H + 24, t.saved, theme::OK);
+                let name = fit_name(saved.name.as_str(), 60);
+                let line: Buf<128> = fill(t.saved_as, &[&name.as_str()]);
+                BODY.draw(c, MARGIN, STATUS_H + 84, line.as_str(), theme::TEXT);
+                let mut y = STATUS_H + 130;
+                if saved.wiped {
+                    SMALL.draw(c, MARGIN, y, t.wiped_original, theme::WARN);
+                    y += 30;
+                }
+                BODY.draw(c, MARGIN, y, t.remove_ok, theme::TEXT_DIM);
+                widgets::hint_bar(c, &[("Enter", t.done)]);
+            }
+            Some(Err(p)) => {
+                TITLE.draw(c, MARGIN, STATUS_H + 24, t.save_failed, theme::DANGER);
+                BODY.draw(c, MARGIN, STATUS_H + 84, t.save_problems[p as usize], theme::TEXT);
+                let items = [
+                    MenuItem {
+                        label: t.retry,
+                        detail: "",
+                    },
+                    MenuItem {
+                        label: t.cancel,
+                        detail: "",
+                    },
+                ];
+                widgets::list(c, MARGIN, STATUS_H + 150, W, 120, &items, sel as usize, false);
+                widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+            }
+        }
     }
 
     fn render_browse(&self, c: &mut dyn Canvas, sel: u8) {
@@ -904,17 +1079,42 @@ impl App {
                 (t.kind_label, kind),
             ],
         );
-        let items = [
+        let actions = file_actions(self.sd.kind);
+        let mut items = [
             MenuItem {
-                label: t.view_text,
+                label: "",
                 detail: ">",
             },
             MenuItem {
-                label: t.delete,
+                label: "",
+                detail: ">",
+            },
+            MenuItem {
+                label: "",
                 detail: ">",
             },
         ];
-        widgets::list(c, MARGIN, STATUS_H + 196, W, 120, &items, sel as usize, false);
+        for (item, a) in items.iter_mut().zip(actions) {
+            item.label = match a {
+                FileAction::Sign => t.sign,
+                FileAction::SignMessage => t.sign_message,
+                FileAction::View => t.view_text,
+                FileAction::Delete => t.delete,
+            };
+        }
+        widgets::list(
+            c,
+            MARGIN,
+            STATUS_H + 176,
+            W,
+            3 * 52,
+            &items[..actions.len()],
+            sel as usize,
+            false,
+        );
+        if let Some(n) = self.notice {
+            SMALL.draw(c, MARGIN, STATUS_H + 344, n, theme::WARN);
+        }
         widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
     }
 

@@ -14,7 +14,9 @@
 //! 6. Private keys are wiped when they go out of scope.
 //! 7. Output: a trimmed PSBT with the unsigned transaction and the new
 //!    signatures only (decision 3), parsed again to check that every
-//!    signature is there.
+//!    signature is there. For files (M8 decision 3) the full PSBT instead:
+//!    every original pair byte for byte, plus the new signatures, checked
+//!    the same way.
 //! 8. The amounts of the signed UTXOs are remembered until power-off.
 
 use crate::bip32::Xpriv;
@@ -100,11 +102,44 @@ pub fn sign_psbt(
     overridden: bool,
     out: &mut [u8],
 ) -> Result<Signed, Error> {
-    let r = sign_into(raw, signer, memory, approved, overridden, out);
+    let r = sign_into(raw, signer, memory, approved, overridden, out, false);
     if r.is_err() {
         bp_crypto::secret::wipe(out);
     }
     r
+}
+
+/// As [`sign_psbt`], but the output is the whole PSBT: every pair of the
+/// original (other cosigners' signatures included) unchanged, with this
+/// seed's signatures added. For PSBT files, where size does not matter
+/// and the next signer continues from the result.
+pub fn sign_psbt_full(
+    raw: &[u8],
+    signer: &Signer,
+    memory: &mut UtxoMemory,
+    approved: &[u8; 32],
+    overridden: bool,
+    out: &mut [u8],
+) -> Result<Signed, Error> {
+    let r = sign_into(raw, signer, memory, approved, overridden, out, true);
+    if r.is_err() {
+        bp_crypto::secret::wipe(out);
+    }
+    r
+}
+
+/// `got` starts with exactly the pairs of `want`; returns what follows.
+fn after_prefix<'a>(
+    mut got: crate::psbt::Pairs<'a>,
+    want: crate::psbt::Pairs<'_>,
+) -> Option<crate::psbt::Pairs<'a>> {
+    for p in want {
+        let g = got.next()?;
+        if g.key != p.key || g.value != p.value {
+            return None;
+        }
+    }
+    Some(got)
 }
 
 fn sign_into(
@@ -114,6 +149,7 @@ fn sign_into(
     approved: &[u8; 32],
     overridden: bool,
     out: &mut [u8],
+    full: bool,
 ) -> Result<Signed, Error> {
     // 1. the same verdict as approved
     let ctx = Context {
@@ -147,13 +183,24 @@ fn sign_into(
         None
     };
 
-    // 7. the trimmed PSBT, written while signing
+    // 7. the trimmed (or full) PSBT, written while signing
     let mut w = Buf::new(out);
     write::put_magic(&mut w);
-    write::put_pair(&mut w, 0x00, &[], tx.raw());
+    if full {
+        for p in psbt.global_pairs() {
+            write::put_raw_pair(&mut w, p.key, p.value);
+        }
+    } else {
+        write::put_pair(&mut w, 0x00, &[], tx.raw());
+    }
     write::put_separator(&mut w);
     let mut expected = 0usize;
     for (i, (rep, map)) in report.inputs().iter().zip(psbt.inputs()).enumerate() {
+        if full {
+            for p in map.pairs() {
+                write::put_raw_pair(&mut w, p.key, p.value);
+            }
+        }
         let Some(o) = rep.owned.filter(|_| !rep.finalized && !rep.signed) else {
             write::put_separator(&mut w);
             continue;
@@ -261,7 +308,12 @@ fn sign_into(
         write::put_separator(&mut w);
         expected += 1;
     }
-    for _ in 0..tx.n_outputs() {
+    for m in psbt.outputs() {
+        if full {
+            for p in m.pairs() {
+                write::put_raw_pair(&mut w, p.key, p.value);
+            }
+        }
         write::put_separator(&mut w);
     }
     let len = w.finish().ok_or(Error::OutputTooSmall)?;
@@ -274,6 +326,44 @@ fn sign_into(
     let result = Psbt::parse(&out[..len]).map_err(|_| Error::Output)?;
     if result.tx.raw() != tx.raw() {
         return Err(Error::Output);
+    }
+    if full {
+        // everything of the original, unchanged, plus one signature per
+        // signed input and nothing else
+        let same = |g: crate::psbt::Pairs, o: crate::psbt::Pairs| {
+            after_prefix(g, o).is_some_and(|mut rest| rest.next().is_none())
+        };
+        if !same(result.global_pairs(), psbt.global_pairs())
+            || result
+                .outputs()
+                .zip(psbt.outputs())
+                .any(|(r, o)| !same(r.pairs(), o.pairs()))
+        {
+            return Err(Error::Output);
+        }
+        let mut found = 0;
+        for ((rep, r), o) in report.inputs().iter().zip(result.inputs()).zip(psbt.inputs()) {
+            let mut rest = after_prefix(r.pairs(), o.pairs()).ok_or(Error::Output)?;
+            let want = rep.owned.filter(|_| !rep.finalized && !rep.signed);
+            match (want, rest.next()) {
+                (None, None) => {}
+                (Some(o), Some(p)) => {
+                    let ok = match o.get().kind {
+                        SpendKind::P2trKey => p.key_type == 0x13 && p.key_data.is_empty(),
+                        _ => p.key_type == 0x02 && p.key_data == o.get().pubkey.serialize(),
+                    };
+                    if !ok || rest.next().is_some() {
+                        return Err(Error::Output);
+                    }
+                    found += 1;
+                }
+                _ => return Err(Error::Output),
+            }
+        }
+        if found != expected {
+            return Err(Error::Output);
+        }
+        return Ok(finish(report.inputs(), tx, signer, memory, len, expected));
     }
     let mut found = 0;
     for (rep, m) in report.inputs().iter().zip(result.inputs()) {
@@ -297,19 +387,22 @@ fn sign_into(
         return Err(Error::Output);
     }
 
-    // 8. remember what was signed (not for messages: never broadcast)
-    for (rep, txin) in report
-        .inputs()
-        .iter()
-        .zip(tx.inputs())
-        .filter(|_| !signer.policy.message)
-    {
+    Ok(finish(report.inputs(), tx, signer, memory, len, expected))
+}
+
+/// 8. remember what was signed (not for messages: never broadcast)
+fn finish(
+    inputs: &[crate::validate::InputReport],
+    tx: &crate::tx::Tx,
+    signer: &Signer,
+    memory: &mut UtxoMemory,
+    len: usize,
+    signatures: usize,
+) -> Signed {
+    for (rep, txin) in inputs.iter().zip(tx.inputs()).filter(|_| !signer.policy.message) {
         if let (Some(o), false) = (rep.owned, rep.finalized || rep.signed) {
             memory.remember(txin.outpoint, o.get().amount);
         }
     }
-    Ok(Signed {
-        len,
-        signatures: expected,
-    })
+    Signed { len, signatures }
 }

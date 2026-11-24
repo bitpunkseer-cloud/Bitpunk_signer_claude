@@ -53,8 +53,9 @@ pub const ROW_MSG: u8 = 5;
 pub const ROW_FEE_WARN: u8 = 6;
 pub const ROW_FEE_BLOCK: u8 = 7;
 pub const ROW_FEE_RATE: u8 = 8;
+pub const ROW_SD_WIPE: u8 = 9;
 /// Rows that hold a value (the rest are actions).
-pub const VALUE_ROWS: u8 = 9;
+pub const VALUE_ROWS: u8 = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
@@ -69,6 +70,10 @@ pub struct Settings {
     pub fee_warn: u8,
     pub fee_block: u8,
     pub fee_rate: u8,
+    /// After saving a signed PSBT file, wipe the original (zeros, blank
+    /// name, delete). Off by default; set on the device only (not in
+    /// SettingsQR or the settings file).
+    pub sd_wipe_original: bool,
 }
 
 impl Default for Settings {
@@ -83,6 +88,7 @@ impl Default for Settings {
             fee_warn: 1,
             fee_block: 0,
             fee_rate: 1,
+            sd_wipe_original: false,
         }
     }
 }
@@ -125,6 +131,7 @@ impl Settings {
             ROW_FEE_WARN => self.fee_warn = step(&[0, 1, 2], self.fee_warn, dir),
             ROW_FEE_BLOCK => self.fee_block = step(&[0, 1, 2], self.fee_block, dir),
             ROW_FEE_RATE => self.fee_rate = step(&[0, 1, 2], self.fee_rate, dir),
+            ROW_SD_WIPE => self.sd_wipe_original = !self.sd_wipe_original,
             _ => return false,
         }
         true
@@ -148,6 +155,7 @@ impl Settings {
             ROW_FEE_WARN => FEE_WARN_LABELS[self.fee_warn as usize % 3],
             ROW_FEE_BLOCK => FEE_BLOCK_LABELS[self.fee_block as usize % 3],
             ROW_FEE_RATE => FEE_RATE_LABELS[self.fee_rate as usize % 3],
+            ROW_SD_WIPE => s.on_off[self.sd_wipe_original as usize],
             _ => return None,
         })
     }
@@ -327,6 +335,7 @@ mod tests {
             fee_warn: 0,
             fee_block: 0,
             fee_rate: 0,
+            sd_wipe_original: false,
         };
         let mut b = [0u8; 256];
         let n = s.to_qr(&mut b);
