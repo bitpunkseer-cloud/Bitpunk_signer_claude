@@ -124,6 +124,7 @@ fn first_run_screen_sets_language_and_network() {
 fn session_log_records_what_happened_and_power_off_wipes_it() {
     use crate::session::Event;
     let mut a = app();
+    a.settings.saver = 2; // no screen saver while the clock runs
     assert!(a.log.is_empty());
     for _ in 0..65 {
         a.tick(1000);
@@ -1361,4 +1362,100 @@ fn discarding_a_seed_needs_the_word_wipe() {
 /// that holds them (M9-4: Sign; it was the main menu before).
 fn back_where_scans_start(a: &App) -> bool {
     matches!(a.current(), Screen::Menu { id, .. } if id == nav::menu_of(To::Scan(scan::Purpose::Any)))
+}
+
+// ---------- M9-5: screen saver (intended change C6) ----------
+
+fn idle(a: &mut App, secs: u32) {
+    for _ in 0..secs {
+        a.tick(1000);
+    }
+}
+
+#[test]
+fn screen_saver_closes_secret_screens_and_keeps_typing_flows() {
+    // a seed's words on screen: the saver comes after a minute, the key
+    // that wakes it does nothing else, and the words are closed
+    let mut a = app();
+    load_abandon(&mut a);
+    nav::seed_opt(&mut a, keys::SlotOpt::Words);
+    while !matches!(a.current(), Screen::ShowWords { .. }) {
+        press(&mut a, Key::Enter);
+    }
+    idle(&mut a, 59);
+    assert!(!a.saver);
+    idle(&mut a, 2);
+    assert!(a.saver);
+    a.render(&mut layout_free::Null);
+    press(&mut a, Key::Char('1'));
+    assert!(!a.saver);
+    assert!(!matches!(a.current(), Screen::ShowWords { .. }), "words closed");
+    assert_eq!(a.seed_count(), 1, "nothing else happened");
+    // typing words: the saver hides them, and they are all still there after
+    nav::go(&mut a, To::Start(Start::TypeWords));
+    nav::words(&mut a, 12);
+    for _ in 0..5 {
+        type_str(&mut a, "aban");
+    }
+    let before = a.current();
+    idle(&mut a, 61);
+    assert!(a.saver);
+    press(&mut a, Key::Enter);
+    assert_eq!(a.current(), before);
+    for _ in 0..6 {
+        type_str(&mut a, "aban");
+    }
+    type_str(&mut a, "abou");
+    assert!(
+        matches!(a.current(), Screen::SeedReady { .. }),
+        "the five words were kept"
+    );
+}
+
+#[test]
+fn screen_saver_waits_for_qr_scanning_and_can_be_turned_off() {
+    let mut a = app();
+    load_abandon(&mut a);
+    // an xpub QR may stay up while a wallet scans it
+    nav::seed_opt(&mut a, keys::SlotOpt::Xpub);
+    nav::script(&mut a, ScriptType::NativeSegwit);
+    press(&mut a, Key::Char('1'));
+    idle(&mut a, 300);
+    assert!(!a.saver);
+    // the camera too
+    nav::go(&mut a, To::Scan(scan::Purpose::Any));
+    idle(&mut a, 300);
+    assert!(!a.saver);
+    // a SeedQR is a secret: covered, and closed after
+    nav::home(&mut a);
+    nav::seed(&mut a, 0);
+    nav::seed_opt(&mut a, keys::SlotOpt::SeedQr);
+    press(&mut a, Key::Char('1'));
+    press(&mut a, Key::Enter);
+    assert!(matches!(
+        a.current(),
+        Screen::QrShow {
+            kind: QrKind::SeedQr { .. }
+        }
+    ));
+    idle(&mut a, 61);
+    assert!(a.saver);
+    press(&mut a, Key::Esc);
+    assert!(!matches!(a.current(), Screen::QrShow { .. }));
+    assert!(a.qr.is_none(), "the SeedQR payload is dropped");
+    // 5 minutes, then off
+    nav::select_setting(&mut a, |s| s.saver_label);
+    press(&mut a, Key::Right);
+    assert_eq!(a.settings.saver, 1);
+    nav::home(&mut a);
+    idle(&mut a, 120);
+    assert!(!a.saver);
+    idle(&mut a, 200);
+    assert!(a.saver);
+    press(&mut a, Key::Esc);
+    nav::select_setting(&mut a, |s| s.saver_label);
+    press(&mut a, Key::Right);
+    assert_eq!(a.settings.saver, 2);
+    idle(&mut a, 3600);
+    assert!(!a.saver);
 }

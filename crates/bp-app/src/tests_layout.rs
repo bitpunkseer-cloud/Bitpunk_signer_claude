@@ -148,6 +148,26 @@ fn tour(lang: Lang) -> usize {
             t.snap(&w, "welcome");
         }
     }
+    {
+        // the boot self-test with every line, and the screen saver (M9-5)
+        for (comm, test) in [
+            (bp_hal::CommCheck::NotRun, true),
+            (bp_hal::CommCheck::Clean, false),
+        ] {
+            let mut b = App::new(b"tour");
+            b.settings.lang = t.lang;
+            b.set_test_only(test);
+            b.set_comm_check(comm);
+            b.splash_ms = 1500;
+            t.snap(&b, "boot");
+        }
+        let mut v = t.app();
+        for _ in 0..30 {
+            v.rain.tick(60);
+        }
+        v.saver = true;
+        t.snap(&v, "saver");
+    }
     let mut a = t.app();
     for id in [
         MenuId::Main,

@@ -33,8 +33,8 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | C3 | 첫 실행 안내: 시작 화면 뒤 원칙 3줄 + 언어·네트워크 선택 (저장이 없으니 켤 때마다) | M9-4 | 완료 — splash_times_out_to_the_first_run_screen_then_main, first_run_screen_sets_language_and_network |
 | C4 | 세션 로그: 주 메뉴 아래 최근 4건(켠 뒤 경과 시간, 종류, 시드는 지문만), RAM만·전원 끄면 지움 | M9-4 | 완료 — session_log_records_what_happened_and_power_off_wipes_it |
 | C5 | 되돌릴 수 없는 동작의 단어 입력 확인: 카드 포맷 `FORMAT`, 시드 지우기 `WIPE` | M9-3 | 완료 — format_asks_twice, discarding_a_seed_needs_the_word_wipe |
-| C6 | 화면 보호(1분, 비밀 화면 가림) | M9-5 | 예정 |
-| C7 | 부팅 자가 점검 화면 | M9-5 | 예정 |
+| C6 | 화면 보호: 1분(설정 5분·끔) 입력 없으면 비가 화면을 덮음. 깨우는 키는 다른 동작 없음, 단어·SeedQR·BIP-85 결과는 닫힘, 입력 중인 흐름은 그대로. 비밀 아닌 QR 표시·카메라·SD 작업·부팅·잠금 중에는 안 켜짐 | M9-5 | 완료 — screen_saver_closes_secret_screens_and_keeps_typing_flows, screen_saver_waits_for_qr_scanning_and_can_be_turned_off |
+| C7 | 부팅 자가 점검 화면: 실제로 하는 검사만(통신 칩 MDIO, 펌웨어 빌드 종류, SD, 시드 없음, 시뮬레이터 경고) | M9-5 | 완료 (화면 순회 boot) |
 | C8 | 오류 코드 표시 (`E-영역-번호`, [목록](ERROR_CODES.md)) | M9-3 | 완료 — error_codes_are_documented, refusal_screens_show_their_error_code |
 | C9 | 화면 효과·비(설정 3단계) | M9-2 | 효과·설정 완료(설정 > 화면 효과, 기기 전용), 비는 M9-5에서 사용 |
 | C10 | 금액 단위 표시 방식 | M9-6 | 예정 |
@@ -141,6 +141,8 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-066 | (M9) 화면 효과 전체·약하게·끔, QR은 효과 밖 | 설정 > 화면 효과 | qr_codes_read_through_screen_effects |
 | F-067 | (M9) 첫 실행 화면: 원칙, 언어·네트워크 | 부팅 직후 | first_run_screen_sets_language_and_network |
 | F-068 | (M9) 세션 로그 | 주 메뉴 아래 | session_log_records_what_happened_and_power_off_wipes_it |
+| F-069 | (M9) 화면 보호 1분·5분·끔 | 설정 > 화면 보호 | screen_saver_* |
+| F-070 | (M9) 부팅 자가 점검 로그 | 부팅 | (화면 순회) |
 
 ### 멀티시그 (M7)
 | # | 기능 | M8 위치 | 시험 |

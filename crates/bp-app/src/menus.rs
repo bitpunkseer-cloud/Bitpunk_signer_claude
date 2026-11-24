@@ -18,7 +18,7 @@ pub enum MenuId {
     Power,
 }
 
-pub const MAX_ITEMS: usize = 13;
+pub const MAX_ITEMS: usize = 14;
 
 type Label = fn(&Strings) -> &'static str;
 
@@ -142,7 +142,7 @@ static LOAD_SEED: [Entry; 3] = [
     action(|s| s.scan_seedqr, Action::Scan(crate::scan::Purpose::Seed)),
 ];
 
-static SETTINGS: [Entry; 13] = [
+static SETTINGS: [Entry; 14] = [
     setting(|s| s.network),
     setting(|s| s.units),
     setting(|s| s.qr_density),
@@ -154,6 +154,7 @@ static SETTINGS: [Entry; 13] = [
     setting(|s| s.fee_rate_label),
     setting(|s| s.sd.wipe_setting),
     setting(|s| s.fx_label),
+    setting(|s| s.saver_label),
     Entry {
         label: |s| s.settings_qr,
         detail: ">",

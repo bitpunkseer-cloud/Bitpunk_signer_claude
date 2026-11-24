@@ -138,10 +138,83 @@ impl App {
         self.err_code.set(None);
         #[cfg(test)]
         crate::coverage::note(&self.current());
+        if self.saver {
+            self.render_saver(c);
+            return;
+        }
         self.render_screen(c);
+        // a band of rain while a long search runs (no information there)
+        if matches!(
+            self.current(),
+            Screen::VerifyAddr {
+                step: crate::verify::VaStep::Searching
+            } | Screen::Wallets {
+                step: crate::wallets::WlStep::AddrSearch
+            }
+        ) {
+            self.rain.draw(c, 15, 3);
+        }
         if let Some((a, i)) = self.err_code.get() {
             widgets::error_code(c, crate::errors::code(a, i as usize).as_str());
         }
+    }
+
+    /// The screen saver: rain over the whole screen, nothing of what was
+    /// on it (M9-5, C6).
+    fn render_saver(&self, c: &mut dyn Canvas) {
+        let s = self.text();
+        let (w, h) = (c.width() as i32, c.height() as i32);
+        c.fill_rect(0, 0, w, h, theme::BG);
+        self.rain.draw(c, 0, bp_ui::grid::ROWS - 1);
+        let (bw, bh) = (456, 144);
+        let (bx, by) = ((w - bw) / 2, (h - bh) / 2);
+        c.fill_rect(bx, by, bw, bh, theme::BG);
+        bp_ui::draw::outline(c, bx, by, bw, bh, theme::TEXT_DIM);
+        TITLE.draw_centered(c, bx, bw, by + 22, s.saver_title, theme::BRIGHT);
+        BODY.draw_centered(c, bx, bw, by + 72, s.saver_lines[0], theme::TEXT_DIM);
+        BODY.draw_centered(c, bx, bw, by + 102, s.saver_lines[1], theme::TEXT_DIM);
+    }
+
+    /// Boot: the self-test log (M9-5, C7) under a band of rain with the
+    /// name. Only checks the device really makes are listed.
+    fn render_boot(&self, c: &mut dyn Canvas) {
+        use widgets::Tag;
+        let s = self.text();
+        let w = c.width() as i32;
+        self.rain.draw(c, 0, 5);
+        let name_w = bp_ui::font::DOUBLE.text_width("BITPUNK") + 32;
+        c.fill_rect((w - name_w) / 2, 40, name_w, 60, theme::BG);
+        bp_ui::font::DOUBLE.draw(c, (w - name_w) / 2 + 16, 44, "BITPUNK", theme::BRIGHT);
+        let ver = bformat!(64, "SIGNER v{} · build {}", VERSION, GIT_HASH);
+        SMALL.draw_centered(c, 0, w, 128, ver.as_str(), theme::TEXT_DIM);
+        c.fill_rect(MARGIN, 156, w - 2 * MARGIN, 1, theme::LINE);
+        SMALL.draw(c, MARGIN, 164, s.boot_title, theme::TEXT_DIM);
+        let net = match self.comm {
+            bp_hal::CommCheck::NotRun => (Tag::Pending, s.boot_net[0]),
+            bp_hal::CommCheck::Clean => (Tag::Ok, s.boot_net[1]),
+            bp_hal::CommCheck::Detected(_) => (Tag::Fail, s.boot_net[2]),
+        };
+        let sd = if self.sd.present {
+            (Tag::Ok, s.boot_sd[1])
+        } else {
+            (Tag::Pending, s.boot_sd[0])
+        };
+        let mut lines = [(Tag::Info, ""); 5];
+        lines[0] = net;
+        lines[1] = (Tag::Warn, s.boot_fw);
+        lines[2] = sd;
+        lines[3] = (Tag::Info, s.boot_seed);
+        let n = if self.test_only {
+            lines[4] = (Tag::Warn, s.boot_sim);
+            5
+        } else {
+            4
+        };
+        let shown = ((self.splash_ms / 150) as usize + 1).min(n);
+        for (i, (tag, text)) in lines[..shown].iter().enumerate() {
+            widgets::log_line(c, MARGIN, 192 + i as i32 * 32, w - 2 * MARGIN, *tag, text, "");
+        }
+        SMALL.draw(c, MARGIN, 420, s.boot_any_key, theme::TEXT_FAINT);
     }
 
     fn render_screen(&self, c: &mut dyn Canvas) {
@@ -149,7 +222,7 @@ impl App {
         c.fill_rect(0, 0, w, h, theme::BG);
         let s = self.text();
         match self.current() {
-            Screen::Splash => render_splash(c, s.tagline),
+            Screen::Splash => self.render_boot(c),
             Screen::PoweredOff => {
                 widgets::message_panel(c, s.powered_off, &[s.powered_off_1, "", s.powered_off_2]);
             }
@@ -2258,19 +2331,4 @@ fn check_rows(s: &crate::Strings, a: &Analysis, src: Source) -> [(&'static str, 
             fill(s.longest_detail, &[&a.longest_run, &(src.run_limit() - 1)]),
         ),
     ]
-}
-
-fn render_splash(c: &mut dyn Canvas, tagline: &str) {
-    let (w, h) = (c.width() as i32, c.height() as i32);
-    let y = h / 2 - HUGE.height as i32 + 10;
-    let bw = HUGE.text_width("BITPUNK");
-    let x = (w - bw) / 2;
-    HUGE.draw(c, x, y, "BIT", theme::ACCENT);
-    HUGE.draw(c, x + HUGE.text_width("BIT"), y, "PUNK", theme::TEXT);
-    let sy = y + HUGE.height as i32;
-    BODY.draw_centered(c, 0, w, sy, "S I G N E R", theme::TEXT_DIM);
-    c.fill_rect(w / 2 - 40, sy + BODY.height as i32 + 18, 80, 2, theme::ACCENT);
-    SMALL.draw_centered(c, 0, w, h - 60, tagline, theme::TEXT_FAINT);
-    let ver = bformat!(48, "v{} / {}", VERSION, GIT_HASH);
-    SMALL.draw_centered(c, 0, w, h - 36, ver.as_str(), theme::TEXT_FAINT);
 }

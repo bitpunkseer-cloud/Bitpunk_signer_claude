@@ -363,6 +363,12 @@ pub struct App {
     err_code: core::cell::Cell<Option<(errors::Area, u8)>>,
     /// What happened since power on (M9-4, shown under the main menu).
     pub(crate) log: session::Log,
+    /// Matrix rain (boot, screen saver, long searches).
+    rain: bp_ui::rain::Rain,
+    /// Time since the last key, for the screen saver.
+    idle_ms: u32,
+    /// The screen saver is up (M9-5, C6).
+    pub(crate) saver: bool,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -443,6 +449,9 @@ impl App {
             typed: typed::TypedWord::new(),
             err_code: core::cell::Cell::new(None),
             log: session::Log::new(),
+            rain: bp_ui::rain::Rain::new(),
+            idle_ms: 0,
+            saver: false,
         }
     }
 
@@ -537,6 +546,51 @@ impl App {
         self.set_current(s);
     }
 
+    /// Screens the saver may cover: not while a non-secret QR is shown for
+    /// scanning, the camera runs, the card is busy, or the device is
+    /// starting or locked.
+    fn saver_allowed(&self) -> bool {
+        let busy = self.sd_pending();
+        let blocked = match self.current() {
+            Screen::Splash | Screen::PoweredOff | Screen::CommDetected | Screen::Scan { .. } => true,
+            Screen::QrShow { kind } => !matches!(kind, QrKind::SeedQr { .. } | QrKind::Bip85 { .. }),
+            _ => false,
+        };
+        !busy && !blocked
+    }
+
+    /// Where the rain falls: boot, the screen saver, long searches.
+    fn rain_shown(&self) -> bool {
+        self.saver
+            || matches!(
+                self.current(),
+                Screen::Splash
+                    | Screen::VerifyAddr {
+                        step: verify::VaStep::Searching
+                    }
+                    | Screen::Wallets {
+                        step: wallets::WlStep::AddrSearch
+                    }
+            )
+    }
+
+    /// After the screen saver: close a screen that shows a secret (words,
+    /// SeedQR, BIP-85 result); screens where something is being typed keep
+    /// their state.
+    fn hide_secret(&mut self) {
+        match self.current() {
+            Screen::ShowWords { view: None } => self.set_current(Screen::WordsWarning { view: None }),
+            Screen::ShowWords { view: Some(_) } | Screen::Transcribe { .. } => self.pop(),
+            Screen::QrShow {
+                kind: QrKind::SeedQr { .. } | QrKind::Bip85 { .. },
+            } => self.pop(),
+            Screen::Bip85 {
+                step: b85::B85Step::Result { .. },
+            } => self.handle_key(KeyEvent::new(Key::Esc)),
+            _ => {}
+        }
+    }
+
     /// Return to Main > Seeds and optionally show `then` on top.
     fn go_seeds(&mut self, then: Option<Screen>) {
         self.flow = None;
@@ -570,6 +624,27 @@ impl App {
     /// Advance timers. Returns true when the screen needs redrawing.
     pub fn tick(&mut self, dt_ms: u32) -> bool {
         self.log.tick(dt_ms);
+        // the screen saver (M9-5)
+        match crate::settings::SAVER_MS[self.settings.saver as usize % 3] {
+            Some(limit) if self.saver_allowed() => {
+                self.idle_ms = self.idle_ms.saturating_add(dt_ms.min(5_000));
+                if !self.saver && self.idle_ms >= limit {
+                    self.saver = true;
+                    self.dirty = true;
+                }
+            }
+            _ => self.idle_ms = 0,
+        }
+        if self.rain_shown() && self.rain.tick(dt_ms) {
+            self.dirty = true;
+        }
+        if self.current() == Screen::Splash {
+            // the self-test lines appear one by one
+            let before = self.splash_ms / 150;
+            if (self.splash_ms.saturating_add(dt_ms)) / 150 != before {
+                self.dirty = true;
+            }
+        }
         if self.current() == Screen::Splash {
             self.splash_ms = self.splash_ms.saturating_add(dt_ms);
             if self.splash_ms >= SPLASH_MS {
@@ -600,7 +675,15 @@ impl App {
     }
 
     pub fn on_key(&mut self, ev: KeyEvent) {
-        self.handle_key(ev);
+        self.idle_ms = 0;
+        if self.saver {
+            // the key only wakes the screen; secret screens close
+            self.saver = false;
+            self.dirty = true;
+            self.hide_secret();
+        } else {
+            self.handle_key(ev);
+        }
         // the QR session (and any SeedQR payload) lives only while a QR
         // screen is on the stack
         if !self.stack[..self.depth]
