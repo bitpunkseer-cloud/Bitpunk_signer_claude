@@ -267,6 +267,23 @@ pub extern "C" fn bp_sd_erase() -> u32 {
     .unwrap_or(card::ERR_OTHER)
 }
 
+/// Simulate the boot-time network chip check: 0 not run, 1 clean, 2 a PHY
+/// answered (the device locks itself).
+#[no_mangle]
+pub extern "C" fn bp_comm_check(state: u32) {
+    use bp_hal::mdio::PhyFound;
+    use bp_hal::CommCheck;
+    let c = match state {
+        1 => CommCheck::Clean,
+        2 => CommCheck::Detected(PhyFound {
+            addr: 1,
+            id: 0x001C_C916,
+        }),
+        _ => CommCheck::NotRun,
+    };
+    with_sim(|s| s.app.set_comm_check(c));
+}
+
 #[no_mangle]
 pub extern "C" fn bp_wants_camera() -> u32 {
     with_sim(|s| s.app.wants_camera() as u32).unwrap_or(0)

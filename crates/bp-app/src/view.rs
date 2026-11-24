@@ -392,6 +392,24 @@ impl App {
             Screen::Sd { step } => self.render_sd(c, step),
             Screen::Bip85 { step } => self.render_b85(c, step),
             Screen::Key { step } => self.render_key(c, step),
+            Screen::CommDetected => {
+                self.status(c, s.key.comm_title);
+                let (addr, id) = match self.comm {
+                    bp_hal::CommCheck::Detected(p) => (p.addr, p.id),
+                    _ => (0, 0),
+                };
+                let found: Buf<96> = fill(
+                    s.key.comm_found,
+                    &[&addr, &bp_ui::bformat!(8, "{:08X}", id).as_str()],
+                );
+                TITLE.draw(c, MARGIN, STATUS_H + 30, s.key.comm_title, theme::DANGER);
+                BODY.draw(c, MARGIN, STATUS_H + 90, found.as_str(), theme::TEXT);
+                let mut y = STATUS_H + 136;
+                for l in s.key.comm_lines {
+                    SMALL.draw(c, MARGIN, y, l, theme::TEXT_DIM);
+                    y += 28;
+                }
+            }
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);

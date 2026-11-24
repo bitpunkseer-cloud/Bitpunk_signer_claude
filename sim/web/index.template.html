@@ -195,6 +195,10 @@
     <div class="drop" id="sdDrop">Drop files here to copy them onto the card, as a computer would.</div>
     <ul class="files" id="sdList" aria-label="Files on the card"></ul>
     <p class="cam-note">The 32 MB card lives in this page only and is written by the same FAT code the device uses. On the device: main menu 5, SD card.</p>
+    <div class="cam-row">
+      <button class="btn" id="commBtn" type="button" aria-pressed="false">Boot check: simulate an Ethernet chip</button>
+      <span class="cam-note" id="commNote">The board's Ethernet chip is removed; at every boot the firmware checks that no chip answers on MDIO.</span>
+    </div>
   </section>
 
   <div class="info">
@@ -557,6 +561,16 @@
     if (wasm.bp_tick(0)) blit();
     sdRefresh();
   }
+  const commBtn = document.getElementById("commBtn");
+  let commOn = false;
+  commBtn.addEventListener("click", () => {
+    commOn = !commOn;
+    wasm.bp_comm_check(commOn ? 2 : 1);
+    commBtn.setAttribute("aria-pressed", String(commOn));
+    commBtn.textContent = commOn ? "Boot check: remove the chip" : "Boot check: simulate an Ethernet chip";
+    commBtn.classList.toggle("on", commOn);
+    if (wasm.bp_tick(0)) blit();
+  });
   sdInsert.addEventListener("click", () => {
     sdIn = !sdIn;
     wasm.bp_sd_insert(sdIn ? 1 : 0);

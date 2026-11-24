@@ -5,6 +5,7 @@
 #![no_std]
 
 pub mod input;
+pub mod mdio;
 
 /// 24-bit RGB colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,4 +55,15 @@ pub trait SdCard: BlockDevice {
     fn present(&self) -> bool;
     /// Power the card and its bus on or off.
     fn set_power(&mut self, on: bool);
+}
+
+/// Outcome of the boot-time network chip check (`mdio::scan_phys`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommCheck {
+    /// Not run (simulator, or a board without MDIO pins).
+    NotRun,
+    /// No PHY answered on any address.
+    Clean,
+    /// A network chip answered: seeds and signing are refused.
+    Detected(mdio::PhyFound),
 }

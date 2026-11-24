@@ -291,6 +291,8 @@ pub enum Screen {
     Key {
         step: keys::KeyStep,
     },
+    /// The boot check found a network chip: nothing else is possible.
+    CommDetected,
 }
 
 pub struct App {
@@ -345,6 +347,8 @@ pub struct App {
     key_in: keys::KeyInput,
     key_pending: Option<seeds::SeedSlot>,
     key_problem: Option<keys::KeyProblem>,
+    /// Boot-time network chip check (M8 decision 9-2).
+    comm: bp_hal::CommCheck,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -420,7 +424,40 @@ impl App {
             key_in: keys::KeyInput::new(),
             key_pending: None,
             key_problem: None,
+            comm: bp_hal::CommCheck::NotRun,
         }
+    }
+
+    /// Result of the boot-time network chip check. A detected chip wipes
+    /// every loaded seed and locks the device on a screen that explains
+    /// what to remove: seeds cannot be loaded and nothing is signed.
+    pub fn set_comm_check(&mut self, c: bp_hal::CommCheck) {
+        self.comm = c;
+        self.dirty = true;
+        match c {
+            bp_hal::CommCheck::Detected(_) => {
+                self.seeds = [None, None, None];
+                self.flow = None;
+                self.pending = None;
+                self.scanned = None;
+                self.review = None;
+                self.msg = None;
+                self.b85 = None;
+                self.key_pending = None;
+                self.wallets.clear();
+                self.scan.clear();
+                self.reset_to(Screen::CommDetected);
+            }
+            _ if self.current() == Screen::CommDetected => self.reset_to(Screen::Menu {
+                id: MenuId::Main,
+                sel: 0,
+            }),
+            _ => {}
+        }
+    }
+
+    pub fn comm_check(&self) -> bp_hal::CommCheck {
+        self.comm
     }
 
     /// Mark this build as a test build (simulator): shows a TEST ONLY badge.
@@ -507,10 +544,14 @@ impl App {
         if self.current() == Screen::Splash {
             self.splash_ms = self.splash_ms.saturating_add(dt_ms);
             if self.splash_ms >= SPLASH_MS {
-                self.reset_to(Screen::Menu {
-                    id: MenuId::Main,
-                    sel: 0,
-                });
+                if matches!(self.comm, bp_hal::CommCheck::Detected(_)) {
+                    self.reset_to(Screen::CommDetected);
+                } else {
+                    self.reset_to(Screen::Menu {
+                        id: MenuId::Main,
+                        sel: 0,
+                    });
+                }
             }
         }
         if matches!(self.current(), Screen::Scan { .. }) && self.scan.tick(dt_ms) {
@@ -775,6 +816,11 @@ impl App {
             return;
         }
         match self.current() {
+            // locked: no key does anything
+            Screen::CommDetected => {}
+            Screen::Splash if matches!(self.comm, bp_hal::CommCheck::Detected(_)) => {
+                self.reset_to(Screen::CommDetected)
+            }
             Screen::Splash => self.reset_to(Screen::Menu {
                 id: MenuId::Main,
                 sel: 0,

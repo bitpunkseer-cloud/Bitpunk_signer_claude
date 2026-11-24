@@ -338,3 +338,51 @@ fn key_screens_fit() {
         shot(&a, "addresses");
     }
 }
+
+#[test]
+fn a_network_chip_locks_the_device() {
+    use bp_hal::mdio::PhyFound;
+    use bp_hal::CommCheck;
+    let mut a = app();
+    import_typed(&mut a, &wif(bitcoin::NetworkKind::Main, true));
+    press(&mut a, Key::Enter);
+    assert_eq!(a.seed_count(), 1);
+    a.set_comm_check(CommCheck::Detected(PhyFound {
+        addr: 1,
+        id: 0x001C_C916,
+    }));
+    assert_eq!(a.current(), Screen::CommDetected);
+    assert_eq!(a.seed_count(), 0, "seeds wiped");
+    for k in [Key::Enter, Key::Esc, Key::Char('1'), Key::Qr, Key::Down] {
+        press(&mut a, k);
+        assert_eq!(a.current(), Screen::CommDetected);
+    }
+    a.tick(10_000);
+    assert_eq!(a.current(), Screen::CommDetected);
+    // a fresh boot with the chip still there goes straight back
+    let mut b = App::new(b"x");
+    b.set_comm_check(CommCheck::Detected(PhyFound {
+        addr: 31,
+        id: 0x0007_C0F1,
+    }));
+    b.tick(SPLASH_MS);
+    assert_eq!(b.current(), Screen::CommDetected);
+    // removed: back to the main menu
+    a.set_comm_check(CommCheck::Clean);
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    for lang in [crate::settings::Lang::En, crate::settings::Lang::Ko] {
+        let mut c = app();
+        c.settings.lang = lang;
+        c.set_test_only(true);
+        c.set_comm_check(CommCheck::Detected(PhyFound {
+            addr: 1,
+            id: 0x001C_C916,
+        }));
+        let mut shot = super::layout::Shot::new();
+        c.render(&mut shot);
+        if let Some(d) = std::env::var_os("BP_SHOTS").map(std::path::PathBuf::from) {
+            let l = ["en", "ko"][lang as usize];
+            shot.save(&d.join(format!("key-{l}-comm.ppm")));
+        }
+    }
+}
