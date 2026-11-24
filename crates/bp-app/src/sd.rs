@@ -179,6 +179,15 @@ pub enum Job {
     SavePsbt,
     /// Save the message signature next to its message file.
     SaveSig,
+    /// Save what a QR screen shows as a file (xpub JSON, key JSON,
+    /// wallet descriptor or Coldcard file, settings).
+    SaveExport(crate::QrKind),
+    /// Save a registered wallet as a Bitpunk wallet file (`.bpw`).
+    SaveWalletFile(u8),
+    /// Read a wallet file and import it.
+    LoadWallet(DirEntry),
+    /// Read a settings file and show what it would change.
+    LoadSettings(DirEntry),
 }
 
 pub struct SdState {
@@ -212,6 +221,8 @@ pub struct SdState {
     pub origin: Option<crate::sdfile::Origin>,
     /// Result of the last save (`None` while it runs).
     pub saved: Option<Result<crate::sdfile::Saved, crate::sdfile::SaveProblem>>,
+    /// The save to repeat on "Try again".
+    pub last_save: Option<Job>,
 }
 
 impl SdState {
@@ -238,6 +249,7 @@ impl SdState {
             view_err: false,
             origin: None,
             saved: None,
+            last_save: None,
         }
     }
 
@@ -263,6 +275,8 @@ const STATUS_ROWS: u8 = 4;
 enum FileAction {
     Sign,
     SignMessage,
+    ImportWallet,
+    ImportSettings,
     View,
     Delete,
 }
@@ -272,6 +286,8 @@ fn file_actions(kind: Option<FileKind>) -> &'static [FileAction] {
     match kind {
         Some(FileKind::Psbt) => &[FileAction::Sign, FileAction::View, FileAction::Delete],
         Some(FileKind::Text) => &[FileAction::SignMessage, FileAction::View, FileAction::Delete],
+        Some(FileKind::Wallet) => &[FileAction::ImportWallet, FileAction::View, FileAction::Delete],
+        Some(FileKind::Settings) => &[FileAction::ImportSettings, FileAction::View, FileAction::Delete],
         _ => &[FileAction::View, FileAction::Delete],
     }
 }
@@ -434,7 +450,12 @@ impl App {
             Job::LoadPsbt(_) | Job::LoadMessage(_) => {
                 self.notice = Some(self.text().sd.problems[p.index()][0])
             }
-            Job::SavePsbt | Job::SaveSig => self.sd.saved = Some(Err(crate::sdfile::SaveProblem::NoCard)),
+            Job::SavePsbt | Job::SaveSig | Job::SaveExport(_) | Job::SaveWalletFile(_) => {
+                self.sd.saved = Some(Err(crate::sdfile::SaveProblem::NoCard))
+            }
+            Job::LoadWallet(_) | Job::LoadSettings(_) => {
+                self.notice = Some(self.text().sd.problems[p.index()][0])
+            }
         }
     }
 
@@ -446,6 +467,9 @@ impl App {
             Job::LoadPsbt(e) => self.load_psbt_job(card, e),
             Job::LoadMessage(e) => self.load_message_job(card, e),
             Job::SavePsbt | Job::SaveSig => self.save_job(card, job),
+            Job::SaveExport(_) | Job::SaveWalletFile(_) => self.save_export_job(card, job),
+            Job::LoadWallet(e) => self.load_wallet_job(card, e),
+            Job::LoadSettings(e) => self.load_settings_job(card, e),
             Job::Sniff(e) | Job::View(e) => {
                 let n = if matches!(job, Job::Sniff(_)) {
                     SNIFF
@@ -594,6 +618,8 @@ impl App {
                     match file_actions(self.sd.kind)[s as usize] {
                         FileAction::Sign => self.sd.job = Some(Job::LoadPsbt(e)),
                         FileAction::SignMessage => self.sd.job = Some(Job::LoadMessage(e)),
+                        FileAction::ImportWallet => self.sd.job = Some(Job::LoadWallet(e)),
+                        FileAction::ImportSettings => self.sd.job = Some(Job::LoadSettings(e)),
                         FileAction::View => {
                             self.sd.job = Some(Job::View(e));
                             self.push(Screen::Sd {
@@ -687,12 +713,8 @@ impl App {
                 Some(Err(_)) => match crate::pick(ev.key, sel, 2) {
                     Pick::Move(s) => self.sd_set(SdStep::Saved { sel: s }),
                     Pick::Choose(0) => {
-                        let job = match self.sd.origin.map(|o| o.kind) {
-                            Some(crate::sdfile::OriginKind::Message) => Job::SaveSig,
-                            _ => Job::SavePsbt,
-                        };
                         self.sd.saved = None;
-                        self.sd.job = Some(job);
+                        self.sd.job = self.sd.last_save;
                     }
                     Pick::Choose(_) | Pick::Back => {
                         self.sd.saved = None;
@@ -1098,6 +1120,8 @@ impl App {
             item.label = match a {
                 FileAction::Sign => t.sign,
                 FileAction::SignMessage => t.sign_message,
+                FileAction::ImportWallet => t.import_wallet,
+                FileAction::ImportSettings => t.import_settings,
                 FileAction::View => t.view_text,
                 FileAction::Delete => t.delete,
             };

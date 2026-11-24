@@ -1369,6 +1369,13 @@ impl App {
             Key::Enter => q.fullscreen = !q.fullscreen,
             Key::Esc if q.fullscreen => q.fullscreen = false,
             Key::Esc | Key::Backspace => self.close_qr(),
+            Key::Char('s' | 'S') if self.export_allowed(kind) => {
+                if self.sd.present {
+                    self.start_save(sd::Job::SaveExport(kind));
+                } else {
+                    self.notice = Some(self.text().sd.problems[0][0]);
+                }
+            }
             Key::Char('v' | 'V') => {
                 if let QrKind::SeedQr { slot, .. } = kind {
                     self.start_scan(scan::Purpose::Verify { slot });

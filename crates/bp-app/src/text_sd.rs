@@ -70,6 +70,14 @@ pub struct SdStrings {
     pub detail_line: &'static str,
     /// Signed screen of a PSBT file.
     pub signed_sd: &'static str,
+    pub import_wallet: &'static str,
+    pub import_settings: &'static str,
+    /// QR screen key help: S saves the shown export as a file.
+    pub qr_save: &'static str,
+    /// Export menu row: label and detail.
+    pub bpw_export: (&'static str, &'static str),
+    pub file_too_large: &'static str,
+    pub registered_from_file: &'static str,
 }
 
 pub static EN_SD: SdStrings = SdStrings {
@@ -182,6 +190,12 @@ pub static EN_SD: SdStrings = SdStrings {
     retry: "Try again",
     detail_line: "Cluster {} - Root entries {}",
     signed_sd: "Save the whole PSBT to the card and open it in your wallet.",
+    import_wallet: "Import wallet",
+    import_settings: "Import settings",
+    qr_save: "S  save as a file on the SD card",
+    bpw_export: ("Bitpunk wallet file", "SD card, .bpw"),
+    file_too_large: "File too large (4 KB at most).",
+    registered_from_file: "Registered: the file's tag matches a loaded seed.",
 };
 
 pub static KO_SD: SdStrings = SdStrings {
@@ -290,4 +304,10 @@ pub static KO_SD: SdStrings = SdStrings {
     retry: "다시 시도",
     detail_line: "클러스터 {} - 루트 항목 {}",
     signed_sd: "전체 PSBT를 카드에 저장해 지갑 앱에서 여세요.",
+    import_wallet: "지갑 가져오기",
+    import_settings: "설정 가져오기",
+    qr_save: "S  SD 카드에 파일로 저장",
+    bpw_export: ("Bitpunk 지갑 파일", "SD 카드, .bpw"),
+    file_too_large: "파일이 너무 큽니다 (최대 4 KB).",
+    registered_from_file: "등록했습니다: 파일의 태그가 불러온 시드와 맞습니다.",
 };

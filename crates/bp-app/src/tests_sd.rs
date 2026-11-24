@@ -966,3 +966,308 @@ fn sd_signing_screens_fit() {
         shot(&a, "saved");
     }
 }
+
+// ---------- wallet, key and settings files (M8-6) ----------
+
+/// A formatted card, the "abandon" seed loaded, the card inserted.
+fn export_setup() -> (App, MemCard) {
+    let mut a = app();
+    load_abandon(&mut a);
+    let card = MemCard::formatted(64 << 20);
+    a.set_card_present(true);
+    (a, card)
+}
+
+/// On a QR screen: S saves the export; returns the saved file name.
+fn save_qr(a: &mut App, card: &mut MemCard, kind: QrKind) -> String {
+    a.open_qr(kind);
+    assert!(matches!(a.current(), Screen::QrShow { .. }));
+    render(a);
+    sd_press(a, card, Key::Char('s'));
+    assert!(matches!(step(a), SdStep::Saved { .. }), "{:?}", a.current());
+    let name = String::from(a.sd.saved.unwrap().unwrap().name.as_str());
+    sd_press(a, card, Key::Enter);
+    assert!(matches!(a.current(), Screen::QrShow { .. }), "back to the QR");
+    sd_press(a, card, Key::Esc);
+    name
+}
+
+#[test]
+fn qr_exports_save_as_files() {
+    let (mut a, mut card) = export_setup();
+    let st = bp_bitcoin::address::ScriptType::NativeSegwit;
+    let name = save_qr(
+        &mut a,
+        &mut card,
+        QrKind::Xpub {
+            slot: 0,
+            st,
+            account: 0,
+            format: XpubFormat::UrAccount,
+        },
+    );
+    assert_eq!(name, "bitpunk-73c5da0a.json");
+    let json = String::from_utf8(card.file(&name).unwrap()).unwrap();
+    assert!(json.contains("zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs"));
+    assert!(json.contains("\"bip86\""));
+    // the same export again gets a number
+    let again = save_qr(
+        &mut a,
+        &mut card,
+        QrKind::Xpub {
+            slot: 0,
+            st,
+            account: 0,
+            format: XpubFormat::StaticText,
+        },
+    );
+    assert_eq!(again, "bitpunk-73c5da0a-2.json");
+
+    let kind = QrKind::MsKey {
+        slot: 0,
+        script: bp_bitcoin::multisig::MsScript::Wsh,
+        account: 0,
+        format: crate::wallets::KeyFormat::Text,
+    };
+    let name = save_qr(&mut a, &mut card, kind);
+    assert_eq!(name, "ccxp-73c5da0a.json");
+    let json = String::from_utf8(card.file(&name).unwrap()).unwrap();
+    assert!(json.contains("\"p2wsh_deriv\": \"m/48'/0'/0'/2'\"") && json.contains("\"xfp\": \"73C5DA0A\""));
+
+    let name = save_qr(&mut a, &mut card, QrKind::Settings);
+    assert_eq!(name, "bitpunk-settings.txt");
+    let text = card.file(&name).unwrap();
+    assert!(text.starts_with(crate::settings::PREFIX.as_bytes()));
+
+    // never a SeedQR or a signed result
+    for k in [
+        QrKind::SeedQr {
+            slot: 0,
+            compact: false,
+        },
+        QrKind::MessageSig,
+        QrKind::SignedPsbt {
+            format: PsbtFormat::Ur,
+        },
+    ] {
+        assert!(!a.export_allowed(k));
+    }
+    // no card: a note, nothing written
+    card.present = false;
+    a.set_card_present(false);
+    a.open_qr(QrKind::Settings);
+    sd_press(&mut a, &mut card, Key::Char('s'));
+    assert!(matches!(a.current(), Screen::QrShow { .. }));
+    assert_eq!(a.notice, Some(a.text().sd.problems[0][0]));
+    render(&a);
+}
+
+#[test]
+fn wallet_files_round_trip_and_tags_register() {
+    use bp_bitcoin::multisig::MsScript;
+    let (mut a, mut card) = export_setup();
+    let w = super::wallets_flow::wallet_of(&a, MsScript::Wsh, 2, 3);
+    super::wallets_flow::register_quick(&mut a, &w);
+    assert_eq!(a.wallets.len(), 1);
+    let (idx, e) = a.wallets.iter().next().map(|(i, e)| (i as u8, *e)).unwrap();
+    let wname = String::from(a.wallet_name(&e).as_str());
+    // Export > Bitpunk wallet file (row 5)
+    a.push(Screen::Wallets {
+        step: crate::wallets::WlStep::Export { idx, sel: 0 },
+    });
+    sd_press(&mut a, &mut card, Key::Char('5'));
+    let bpw = String::from(a.sd.saved.unwrap().unwrap().name.as_str());
+    assert_eq!(bpw, format!("{wname}.bpw"));
+    sd_press(&mut a, &mut card, Key::Enter);
+    let desc = save_qr(
+        &mut a,
+        &mut card,
+        QrKind::Wallet {
+            idx,
+            format: crate::wallets::WalletFormat::Descriptor,
+        },
+    );
+    assert_eq!(desc, format!("{wname}-descriptor.txt"));
+    let cc = save_qr(
+        &mut a,
+        &mut card,
+        QrKind::Wallet {
+            idx,
+            format: crate::wallets::WalletFormat::ColdcardUr,
+        },
+    );
+    assert_eq!(cc, format!("{wname}-coldcard.txt"));
+    let bpw_text = card.file(&bpw).unwrap();
+    assert!(bpw_text.starts_with(b"# Bitpunk wallet v1"));
+
+    // a new session: the .bpw registers without the code
+    let mut b = app();
+    load_abandon(&mut b);
+    b.set_card_present(true);
+    open_browse(&mut b, &mut card);
+    select(&mut b, &mut card, &bpw);
+    sd_press(&mut b, &mut card, Key::Enter);
+    assert_eq!(b.sd.kind, Some(FileKind::Wallet));
+    sd_press(&mut b, &mut card, Key::Char('1')); // Import wallet
+    assert!(
+        matches!(
+            b.current(),
+            Screen::Wallets {
+                step: crate::wallets::WlStep::Registered { .. }
+            }
+        ),
+        "{:?}",
+        b.current()
+    );
+    assert_eq!(b.notice, Some(b.text().sd.registered_from_file));
+    let (_, e2) = b.wallets.iter().next().unwrap();
+    assert_eq!(e2.wallet.id(), w.id());
+    assert_eq!(e2.code, e.code);
+    assert_eq!(b.wallet_name(e2).as_str(), wname);
+    render(&b);
+
+    // the descriptor file goes through the normal import (checks)
+    let mut c = app();
+    load_abandon(&mut c);
+    c.set_card_present(true);
+    open_browse(&mut c, &mut card);
+    select(&mut c, &mut card, &desc);
+    sd_press(&mut c, &mut card, Key::Enter);
+    sd_press(&mut c, &mut card, Key::Char('1'));
+    assert!(matches!(
+        c.current(),
+        Screen::Wallets {
+            step: crate::wallets::WlStep::Summary { .. }
+        }
+    ));
+    assert!(c.wallets.is_empty());
+}
+
+#[test]
+fn tampered_wallet_files_do_not_register() {
+    use bp_bitcoin::multisig::MsScript;
+    let (mut a, _card) = export_setup();
+    let w = super::wallets_flow::wallet_of(&a, MsScript::Wsh, 2, 3);
+    super::wallets_flow::register_quick(&mut a, &w);
+    let (idx, _) = a.wallets.iter().next().map(|(i, e)| (i as u8, *e)).unwrap();
+    let mut buf = [0u8; 8192];
+    let (_, n) = a.wallet_bpw(idx, &mut buf).unwrap();
+    let good = String::from_utf8(buf[..n].to_vec()).unwrap();
+    let lines: Vec<String> = good.lines().map(String::from).collect();
+    // another tag (as if made with another seed): normal import, the code is asked
+    let mut tag = lines[3].clone().into_bytes();
+    tag[10] = if tag[10] == b'0' { b'1' } else { b'0' };
+    let other_tag = good.replace(&lines[3], &String::from_utf8(tag).unwrap());
+    // a code that does not belong to the tag
+    let other_code = good.replace(&lines[2], "code: AAAA-AAAA");
+    // a broken descriptor checksum
+    let mut d = lines[4].clone();
+    d.pop();
+    d.push('q');
+    let bad_desc = good.replace(&lines[4], &d);
+    for (text, want_summary) in [(other_tag, true), (other_code, true), (bad_desc, false)] {
+        let mut b = app();
+        load_abandon(&mut b);
+        b.wallet_import_file(text.as_bytes());
+        assert!(b.wallets.is_empty(), "{text}");
+        let st = match b.current() {
+            Screen::Wallets { step } => step,
+            s => panic!("{s:?}"),
+        };
+        if want_summary {
+            assert!(matches!(st, crate::wallets::WlStep::Summary { .. }), "{st:?}");
+        } else {
+            assert_eq!(st, crate::wallets::WlStep::Refused);
+        }
+        render(&b);
+    }
+}
+
+#[test]
+fn settings_files_never_weaken() {
+    let (mut a, mut card) = export_setup();
+    a.settings.lang = crate::settings::Lang::En;
+    let name = save_qr(&mut a, &mut card, QrKind::Settings);
+    // edit the file: Korean (harmless) and message signing on (refused)
+    let text = String::from_utf8(card.file(&name).unwrap()).unwrap();
+    let edited = text
+        .replace("lang=en", "lang=ko")
+        .replace("msg_signing=0", "msg_signing=1");
+    card.powered = true;
+    {
+        let mut v = bp_fat::Volume::mount(&mut card).unwrap();
+        let e = v.find(bp_fat::DirId::Root, &name).unwrap();
+        v.delete(&e).unwrap();
+        v.create(bp_fat::DirId::Root, &name, edited.as_bytes()).unwrap();
+    }
+    card.powered = false;
+    let mut b = app();
+    b.set_card_present(true);
+    open_browse(&mut b, &mut card);
+    select(&mut b, &mut card, &name);
+    sd_press(&mut b, &mut card, Key::Enter);
+    assert_eq!(b.sd.kind, Some(FileKind::Settings));
+    sd_press(&mut b, &mut card, Key::Char('1')); // Import settings
+    assert_eq!(b.current(), Screen::SettingsImport { sel: 0 });
+    render(&b);
+    let imp = b.import.as_ref().unwrap().as_ref().unwrap();
+    assert!(imp.blocked.any());
+    // Apply
+    sd_press(&mut b, &mut card, Key::Down);
+    sd_press(&mut b, &mut card, Key::Enter);
+    assert_eq!(b.settings.lang, crate::settings::Lang::Ko);
+    assert!(!b.settings.msg_signing, "never turned on from a file");
+    assert!(matches!(step(&b), SdStep::File { .. }));
+}
+
+/// Export and import screens in both languages (layout check, pictures
+/// with `BP_SHOTS`).
+#[test]
+fn sd_export_screens_fit() {
+    use bp_bitcoin::multisig::MsScript;
+    for lang in [crate::settings::Lang::En, crate::settings::Lang::Ko] {
+        let dir = std::env::var_os("BP_SHOTS").map(std::path::PathBuf::from);
+        let shot = |a: &App, name: &str| {
+            let mut c = super::layout::Shot::new();
+            a.render(&mut c);
+            if let Some(d) = &dir {
+                let l = ["en", "ko"][lang as usize];
+                c.save(&d.join(format!("sd-{l}-{name}.ppm")));
+            }
+        };
+        let (mut a, mut card) = export_setup();
+        a.settings.lang = lang;
+        a.set_test_only(true);
+        a.open_qr(QrKind::Xpub {
+            slot: 0,
+            st: bp_bitcoin::address::ScriptType::NativeSegwit,
+            account: 0,
+            format: XpubFormat::UrAccount,
+        });
+        shot(&a, "qr-save");
+        sd_press(&mut a, &mut card, Key::Char('s'));
+        shot(&a, "qr-saved");
+        sd_press(&mut a, &mut card, Key::Enter);
+        sd_press(&mut a, &mut card, Key::Esc);
+        let w = super::wallets_flow::wallet_of(&a, MsScript::Wsh, 2, 3);
+        super::wallets_flow::register_quick(&mut a, &w);
+        let idx = a.wallets.iter().next().map(|(i, _)| i as u8).unwrap();
+        a.push(Screen::Wallets {
+            step: crate::wallets::WlStep::Export { idx, sel: 4 },
+        });
+        shot(&a, "wallet-export");
+        sd_press(&mut a, &mut card, Key::Enter);
+        sd_press(&mut a, &mut card, Key::Enter);
+        let mut b = app();
+        load_abandon(&mut b);
+        b.settings.lang = lang;
+        b.set_card_present(true);
+        open_browse(&mut b, &mut card);
+        let bpw = names(&b).into_iter().find(|n| n.ends_with(".bpw")).unwrap();
+        select(&mut b, &mut card, &bpw);
+        sd_press(&mut b, &mut card, Key::Enter);
+        shot(&b, "file-wallet");
+        sd_press(&mut b, &mut card, Key::Char('1'));
+        shot(&b, "registered-from-file");
+    }
+}

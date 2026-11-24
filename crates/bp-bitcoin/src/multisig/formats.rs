@@ -859,3 +859,79 @@ pub fn write_coldcard_xpub_json(
     r.ok()?;
     Some(o.len())
 }
+
+/// First line of a Bitpunk wallet registration file (`.bpw`, M8 plan §6).
+pub const BPW_HEADER: &str = "# Bitpunk wallet v1";
+
+/// A parsed `.bpw` file. The tag only proves registration with a seed
+/// when it is recomputed from that seed and matches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bpw<'a> {
+    pub name: &'a str,
+    pub code: &'a str,
+    pub tag: [u8; 32],
+    pub descriptor: &'a [u8],
+}
+
+/// Write a `.bpw` file: header, name, wallet code, the 256-bit tag, then
+/// the descriptor (both branches, with checksum).
+pub fn write_bpw(w: &Wallet, name: &str, code: &str, tag: &[u8; 32], out: &mut [u8]) -> Option<usize> {
+    use core::fmt::Write;
+    let mut desc = [0u8; descriptor::MAX_DESCRIPTOR];
+    let n = descriptor::write(w, descriptor::Form::Multipath, &mut desc)?;
+    let mut o = descriptor::Out::new(out);
+    let r: core::fmt::Result = (|| {
+        writeln!(o, "{BPW_HEADER}")?;
+        writeln!(o, "name: {name}")?;
+        writeln!(o, "code: {code}")?;
+        o.write_str("tag: ")?;
+        for b in tag {
+            write!(o, "{b:02x}")?;
+        }
+        o.write_str("\n")?;
+        o.write_str(core::str::from_utf8(&desc[..n]).map_err(|_| core::fmt::Error)?)?;
+        o.write_str("\n")
+    })();
+    r.ok()?;
+    Some(o.len())
+}
+
+/// Read a `.bpw` file. Every field must be present and well formed; the
+/// descriptor is returned as text for `parse_wallet`.
+pub fn parse_bpw(text: &[u8]) -> Result<Bpw<'_>, Error> {
+    let text = core::str::from_utf8(text).map_err(|_| Error::Unknown)?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut lines = text.lines().map(str::trim_end).filter(|l| !l.is_empty());
+    if lines.next() != Some(BPW_HEADER) {
+        return Err(Error::Unknown);
+    }
+    let mut field = |key: &str| -> Result<&str, Error> {
+        lines
+            .next()
+            .and_then(|l| l.strip_prefix(key))
+            .map(str::trim)
+            .ok_or(Error::Unknown)
+    };
+    let name = field("name:")?;
+    let code = field("code:")?;
+    let tag_hex = field("tag:")?;
+    let descriptor = field("")?;
+    if lines.next().is_some()
+        || name.len() > 64
+        || !name.bytes().all(|c| (0x20..0x7F).contains(&c))
+        || tag_hex.len() != 64
+        || !(descriptor.starts_with("wsh(") || descriptor.starts_with("sh("))
+    {
+        return Err(Error::Unknown);
+    }
+    let mut tag = [0u8; 32];
+    for (i, t) in tag.iter_mut().enumerate() {
+        *t = u8::from_str_radix(&tag_hex[2 * i..2 * i + 2], 16).map_err(|_| Error::Unknown)?;
+    }
+    Ok(Bpw {
+        name,
+        code,
+        tag,
+        descriptor: descriptor.as_bytes(),
+    })
+}

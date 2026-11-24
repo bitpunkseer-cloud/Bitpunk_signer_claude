@@ -13,6 +13,7 @@ pub mod bip32;
 pub mod bip322;
 pub mod bip39;
 pub mod entropy;
+pub mod export;
 pub mod message;
 pub mod multisig;
 pub mod psbt;

@@ -303,6 +303,19 @@ fn format_index(f: Format) -> usize {
     }
 }
 
+/// A file name stem from a wallet name: FAT-safe characters only.
+fn file_stem(name: &str, out: &mut bp_fat::Name) {
+    for c in name.chars() {
+        let ok = c.is_ascii_alphanumeric() || "-_ ()".contains(c);
+        let mut b = [0u8; 4];
+        let part: &str = if ok { c.encode_utf8(&mut b) } else { "_" };
+        out.push_str(part);
+    }
+    if out.is_empty() {
+        out.push_str("wallet");
+    }
+}
+
 /// `xpub…` in its own version, as 4-character groups.
 fn xpub_text(k: &Cosigner, test: bool, out: &mut [u8; XKEY_LEN]) -> usize {
     let net = if test {
@@ -812,8 +825,16 @@ impl App {
                     _ => {}
                 }
             }
-            WlStep::Export { idx, sel } => match crate::pick(ev.key, sel, 4) {
+            WlStep::Export { idx, sel } => match crate::pick(ev.key, sel, 5) {
                 Pick::Move(s) => set(self, WlStep::Export { idx, sel: s }),
+                Pick::Choose(4) => {
+                    set(self, WlStep::Export { idx, sel: 4 });
+                    if self.sd.present {
+                        self.start_save(crate::sd::Job::SaveWalletFile(idx));
+                    } else {
+                        self.notice = Some(self.text().sd.problems[0][0]);
+                    }
+                }
                 Pick::Choose(s) => self.open_qr(QrKind::Wallet {
                     idx,
                     format: WalletFormat::ALL[s as usize],
@@ -1081,6 +1102,136 @@ impl App {
     }
 
     /// The wallet's name, or "Bitpunk-<code>" when it has none.
+    /// A wallet export as a file: the descriptor, or the Coldcard file.
+    /// Returns the file stem and the length written.
+    pub(crate) fn wallet_export_file(
+        &self,
+        idx: u8,
+        format: WalletFormat,
+        out: &mut [u8],
+    ) -> Option<(bp_fat::Name, usize)> {
+        let e = self.wallets.get(idx)?;
+        let name = self.wallet_name(e);
+        let mut stem = bp_fat::Name::empty();
+        file_stem(name.as_str(), &mut stem);
+        let n = match format {
+            WalletFormat::ColdcardUr => {
+                stem.push_str("-coldcard");
+                formats::write_coldcard(&e.wallet, name.as_str(), out)?
+            }
+            _ => {
+                stem.push_str("-descriptor");
+                let n = bp_bitcoin::multisig::descriptor::write(
+                    &e.wallet,
+                    bp_bitcoin::multisig::descriptor::Form::Multipath,
+                    out,
+                )?;
+                *out.get_mut(n)? = b'\n';
+                n + 1
+            }
+        };
+        Some((stem, n))
+    }
+
+    /// The Bitpunk wallet file (`.bpw`) of a registered wallet.
+    pub(crate) fn wallet_bpw(&self, idx: u8, out: &mut [u8]) -> Option<(bp_fat::Name, usize)> {
+        let e = self.wallets.get(idx)?;
+        let name = self.wallet_name(e);
+        let d = e.code.display();
+        let code = core::str::from_utf8(&d).ok()?;
+        let n = formats::write_bpw(&e.wallet, name.as_str(), code, &e.tag, out)?;
+        let mut stem = bp_fat::Name::empty();
+        file_stem(name.as_str(), &mut stem);
+        Some((stem, n))
+    }
+
+    /// This device's BIP-48 keys as Coldcard's multisig JSON (`ccxp-…`).
+    pub(crate) fn ms_key_json(&self, slot: u8, account: u32, out: &mut [u8]) -> Option<usize> {
+        let net = self.settings.network;
+        let seed = self.slot(slot as usize)?;
+        let key = |sc: MsScript| -> Option<Cosigner> {
+            let path = sc.account_path(net, account);
+            Some(Cosigner {
+                fingerprint: seed.fingerprint,
+                origin: path,
+                xpub: seed.master().derive_path(&path).ok()?.to_xpub(),
+                version: bp_bitcoin::bip32::KeyVersion::X,
+            })
+        };
+        let test = net != bp_bitcoin::Network::Mainnet;
+        formats::write_coldcard_xpub_json(&key(MsScript::Wsh)?, &key(MsScript::ShWsh)?, account, test, out)
+    }
+
+    /// A wallet file from the card. A `.bpw` whose tag one of the loaded
+    /// seeds recomputes is registered without the code (the registration
+    /// rules are checked again); anything else goes through the normal
+    /// import (every cosigner checked, or the code typed). Pushes the
+    /// wallet screens.
+    pub(crate) fn wallet_import_file(&mut self, text: &[u8]) {
+        self.push(Screen::Wallets {
+            step: WlStep::List { sel: 0 },
+        });
+        if !text.starts_with(formats::BPW_HEADER.as_bytes()) && !text.starts_with(b"\xEF\xBB\xBF# Bitpunk") {
+            self.wallet_import(text, false);
+            return;
+        }
+        let bpw = match formats::parse_bpw(text) {
+            Ok(b) => b,
+            Err(e) => {
+                self.wl.pending = None;
+                self.wl.problem = Some(Problem::Format(e));
+                self.set_current(Screen::Wallets {
+                    step: WlStep::Refused,
+                });
+                return;
+            }
+        };
+        let mut desc = [0u8; bp_bitcoin::multisig::descriptor::MAX_DESCRIPTOR];
+        let n = bpw.descriptor.len().min(desc.len());
+        desc[..n].copy_from_slice(&bpw.descriptor[..n]);
+        let (tag, name) = (bpw.tag, {
+            let mut b = [0u8; 64];
+            let k = bpw.name.len().min(64);
+            b[..k].copy_from_slice(&bpw.name.as_bytes()[..k]);
+            (b, k)
+        });
+        let code_ok = |c: &Code| core::str::from_utf8(&c.display()).ok() == Some(bpw.code);
+        let matched = formats::parse_wallet(&desc[..n]).ok().and_then(|imp| {
+            let code = Code::from_tag(&tag);
+            if !code_ok(&code) {
+                return None;
+            }
+            self.seeds.iter().enumerate().find_map(|(i, s)| {
+                let s = s.as_ref()?;
+                (CodeKey::new(s.master()).tag(&imp.wallet) == tag).then_some((i, imp))
+            })
+        });
+        let name = core::str::from_utf8(&name.0[..name.1]).unwrap_or("");
+        match matched {
+            Some((slot, mut imp)) => {
+                imp.wallet.set_name(name);
+                self.wl.pending = None;
+                self.wl.problem = None;
+                self.wl.clear_input();
+                if self.make_pending(imp.wallet, Some(imp.format), slot, false) {
+                    if let Some(idx) = self.wallet_register() {
+                        self.notice = Some(self.text().sd.registered_from_file);
+                        self.set_current(Screen::Wallets {
+                            step: WlStep::Registered { idx, sel: 0 },
+                        });
+                    }
+                }
+            }
+            None => {
+                self.wallet_import(&desc[..n], false);
+                if let Some(p) = self.wl.pending.as_mut() {
+                    p.wallet.set_name(name);
+                }
+            }
+        }
+        bp_crypto::secret::wipe(&mut desc);
+    }
+
     pub(crate) fn wallet_name(&self, e: &Entry) -> Buf<24> {
         if e.wallet.name().is_empty() {
             let c = core::str::from_utf8(&e.code.0[..4]).unwrap_or("");
@@ -1275,8 +1426,11 @@ impl App {
                 );
                 BODY.draw(c, MARGIN, top + 82, line.as_str(), theme::TEXT_DIM);
                 SMALL.draw(c, MARGIN, top + 116, t.done_line, theme::TEXT_DIM);
+                if let Some(n) = self.notice {
+                    SMALL.draw(c, MARGIN, top + 140, n, theme::OK);
+                }
                 let items = t.done_options.map(|l| MenuItem { label: l, detail: "" });
-                widgets::list(c, MARGIN, top + 160, W, 110, &items, sel as usize, false);
+                widgets::list(c, MARGIN, top + 176, W, 110, &items, sel as usize, false);
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select)]);
             }
             WlStep::Wallet { idx, sel } => {
@@ -1296,8 +1450,13 @@ impl App {
             }
             WlStep::Export { idx, sel } => {
                 TITLE.draw(c, MARGIN, top, t.export_title, theme::TEXT);
-                let items = t.export_formats.map(|(l, d)| MenuItem { label: l, detail: d });
-                widgets::list(c, MARGIN, top + 44, W, 220, &items, sel as usize, false);
+                let f = t.export_formats;
+                let b = s.sd.bpw_export;
+                let items = [f[0], f[1], f[2], f[3], b].map(|(l, d)| MenuItem { label: l, detail: d });
+                widgets::list(c, MARGIN, top + 44, W, 5 * 52, &items, sel as usize, false);
+                if let Some(n) = self.notice {
+                    SMALL.draw(c, MARGIN, top + 44 + 5 * 52 + 4, n, theme::WARN);
+                }
                 let shared = self.wallets.get(idx).is_some_and(|e| {
                     e.wallet
                         .keys()

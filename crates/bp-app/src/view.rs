@@ -1208,6 +1208,13 @@ impl App {
         for (i, k) in s.qr_keys.iter().chain(core::iter::once(&extra)).enumerate() {
             SMALL.draw(c, x, y0 + i as i32 * 21, k, theme::TEXT_DIM);
         }
+        if self.export_allowed(kind) {
+            let (text, col) = match self.notice {
+                Some(n) => (n, theme::WARN),
+                None => (s.sd.qr_save, theme::TEXT_DIM),
+            };
+            SMALL.draw(c, x, y0 - 21, text, col);
+        }
     }
 
     fn render_transcribe(&self, c: &mut dyn Canvas, line: bool, bx: u8, by: u8) {

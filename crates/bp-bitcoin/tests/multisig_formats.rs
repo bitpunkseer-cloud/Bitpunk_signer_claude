@@ -6,7 +6,8 @@
 use bp_bitcoin::bip32::{KeyVersion, Xpriv, XKEY_LEN};
 use bp_bitcoin::multisig::descriptor::{self, Error as DError, Form};
 use bp_bitcoin::multisig::formats::{
-    self, parse_cosigner, parse_cosigner_ur, parse_output_ur, parse_wallet, Error, Format,
+    self, parse_bpw, parse_cosigner, parse_cosigner_ur, parse_output_ur, parse_wallet, write_bpw, Error,
+    Format, BPW_HEADER,
 };
 use bp_bitcoin::multisig::{Cosigner, MsScript, Wallet};
 use bp_bitcoin::Network;
@@ -494,4 +495,47 @@ fn cosigner_exports_round_trip() {
             );
         }
     }
+}
+
+/// The Bitpunk wallet file: round trip, and every malformed field refused.
+#[test]
+fn bpw_files() {
+    use bp_bitcoin::multisig::register::{Code, CodeKey};
+    let net = Network::Testnet;
+    let w = wallet(MsScript::Wsh, 2, 3, net);
+    let ck = CodeKey::new(&master(0));
+    let tag = ck.tag(&w);
+    let code = ck.code(&w).display();
+    let code = std::str::from_utf8(&code).unwrap();
+    let mut out = [0u8; 8192];
+    let n = write_bpw(&w, "Family vault", code, &tag, &mut out).unwrap();
+    let text = std::str::from_utf8(&out[..n]).unwrap().to_string();
+    assert!(text.starts_with(BPW_HEADER));
+    let b = parse_bpw(text.as_bytes()).unwrap();
+    assert_eq!((b.name, b.code, b.tag), ("Family vault", code, tag));
+    // the descriptor reads back as the same wallet
+    let back = parse_wallet(b.descriptor).unwrap().wallet;
+    assert_eq!(back.id(), w.id());
+    assert_eq!(ck.tag(&back), tag);
+    assert_eq!(Code::from_tag(&b.tag).display(), ck.code(&w).display());
+    // CRLF and a byte order mark are fine
+    let crlf = format!("\u{feff}{}", text.replace('\n', "\r\n"));
+    assert_eq!(parse_bpw(crlf.as_bytes()).unwrap().tag, tag);
+    // malformed files
+    let lines: Vec<&str> = text.lines().collect();
+    let bad = [
+        text.replace(BPW_HEADER, "# Bitpunk wallet v2"),
+        text.replace("name: ", "nom: "),
+        text.replace(&lines[3][5..9], "zzzz"),
+        text.replace(lines[3], &lines[3][..lines[3].len() - 2]),
+        lines[..4].join("\n"),
+        format!("{text}extra line\n"),
+        text.replace("Family vault", "Fam\u{1}ly"),
+        text.replace(lines[4], "pkh(xpub)"),
+    ];
+    for t in bad {
+        assert!(parse_bpw(t.as_bytes()).is_err(), "{t}");
+    }
+    // a small buffer
+    assert!(write_bpw(&w, "x", code, &tag, &mut out[..100]).is_none());
 }

@@ -470,6 +470,7 @@ impl App {
     /// Signed step / Done step: save to the card.
     pub(crate) fn start_save(&mut self, job: Job) {
         self.sd.saved = None;
+        self.sd.last_save = Some(job);
         self.sd.job = Some(job);
         self.push(Screen::Sd {
             step: SdStep::Saved { sel: 0 },
@@ -480,6 +481,12 @@ impl App {
     /// came from is read again (it has a new file, maybe one less).
     pub(crate) fn finish_save(&mut self) {
         self.pop(); // the saved screen
+        self.sd.last_save = None;
+        if self.sd.origin.is_none() {
+            // an export: back to the QR or menu it came from
+            self.sd.saved = None;
+            return;
+        }
         match self.sd.origin.map(|o| o.kind) {
             Some(OriginKind::Psbt) => {
                 self.review = None;
@@ -494,6 +501,136 @@ impl App {
         self.sd.origin = None;
         self.sd.saved = None;
         self.card_changed();
+    }
+}
+
+impl App {
+    /// QR screens whose content can also be saved as a file (never a
+    /// SeedQR, a signed PSBT or a signature: secrets stay off the card,
+    /// and signing results are saved by their own flow).
+    pub(crate) fn export_allowed(&self, kind: crate::QrKind) -> bool {
+        matches!(
+            kind,
+            crate::QrKind::Xpub { .. }
+                | crate::QrKind::MsKey { .. }
+                | crate::QrKind::Wallet { .. }
+                | crate::QrKind::Settings
+        )
+    }
+
+    /// The file for a QR export or a `.bpw`: stem, extension, length.
+    fn export_file(&self, job: Job, out: &mut [u8]) -> Option<(Name, &'static str, usize)> {
+        use crate::QrKind;
+        use bp_bitcoin::address::ScriptType;
+        let named = |prefix: &str, fp: [u8; 4]| {
+            let mut n = Name::empty();
+            n.push_str(prefix);
+            n.push_str(crate::seeds::fingerprint_hex(&fp).as_str());
+            n
+        };
+        match job {
+            Job::SaveWalletFile(idx) => self.wallet_bpw(idx, out).map(|(n, len)| (n, "bpw", len)),
+            Job::SaveExport(QrKind::Xpub { slot, account, .. }) => {
+                let net = self.settings.network;
+                let seed = self.slot(slot as usize)?;
+                let types = [
+                    ScriptType::Legacy,
+                    ScriptType::NestedSegwit,
+                    ScriptType::NativeSegwit,
+                    ScriptType::Taproot,
+                ];
+                let paths = types.map(|st| st.account_path(net, account));
+                let mut xpubs = [None; 4];
+                for (x, st) in xpubs.iter_mut().zip(types) {
+                    *x = seed.account_xpub(st, net, account);
+                }
+                let keys = [0, 1, 2, 3].map(|i| {
+                    xpubs[i].as_ref().map(|x| bp_bitcoin::export::AccountExport {
+                        script: types[i],
+                        path: &paths[i],
+                        xpub: x,
+                    })
+                });
+                let keys = [keys[0]?, keys[1]?, keys[2]?, keys[3]?];
+                let n = bp_bitcoin::export::write_generic_json(seed.fingerprint, net, account, &keys, out)?;
+                Some((named("bitpunk-", seed.fingerprint), "json", n))
+            }
+            Job::SaveExport(QrKind::MsKey { slot, account, .. }) => {
+                let fp = self.slot(slot as usize)?.fingerprint;
+                let n = self.ms_key_json(slot, account, out)?;
+                Some((named("ccxp-", fp), "json", n))
+            }
+            Job::SaveExport(QrKind::Wallet { idx, format }) => self
+                .wallet_export_file(idx, format, out)
+                .map(|(n, len)| (n, "txt", len)),
+            Job::SaveExport(QrKind::Settings) => {
+                let n = self.settings.to_qr(out);
+                *out.get_mut(n)? = b'\n';
+                let mut stem = Name::empty();
+                stem.push_str("bitpunk-settings");
+                Some((stem, "txt", n + 1))
+            }
+            _ => None,
+        }
+    }
+
+    /// Save an export to the card's top folder (never replacing a file).
+    pub(crate) fn save_export_job(&mut self, card: &mut dyn SdCard, job: Job) {
+        let mut buf = [0u8; 8192];
+        let Some((stem, ext, n)) = self.export_file(job, &mut buf) else {
+            self.sd.saved = Some(Err(SaveProblem::Card));
+            return;
+        };
+        let r = Volume::mount(&mut *card).and_then(|mut v| {
+            let name = v.unique_name(DirId::Root, stem.as_str(), ext)?;
+            v.create(DirId::Root, name.as_str(), &buf[..n])?;
+            Ok(Saved { name, wiped: false })
+        });
+        self.sd.saved = Some(r.map_err(SaveProblem::from_fat));
+    }
+
+    /// A wallet file: import (a `.bpw` with a matching tag registers).
+    pub(crate) fn load_wallet_job(&mut self, card: &mut dyn SdCard, e: DirEntry) {
+        let t = self.text().sd;
+        if e.size() as usize > VIEW_MAX {
+            self.notice = Some(t.file_too_large);
+            return;
+        }
+        let r = Volume::mount(&mut *card).and_then(|mut v| v.read_file(&e, &mut self.sd.view));
+        let mut text = [0u8; VIEW_MAX];
+        let n = match r {
+            Ok(n) => n,
+            Err(_) => {
+                self.notice = Some(t.problems[crate::sd::CardProblem::ReadFailed as usize][0]);
+                return;
+            }
+        };
+        text[..n].copy_from_slice(&self.sd.view[..n]);
+        bp_crypto::secret::wipe(&mut self.sd.view);
+        self.wallet_import_file(&text[..n]);
+        bp_crypto::secret::wipe(&mut text);
+    }
+
+    /// A settings file: the same import as a SettingsQR (never weakens).
+    pub(crate) fn load_settings_job(&mut self, card: &mut dyn SdCard, e: DirEntry) {
+        let t = self.text().sd;
+        if e.size() > 1024 {
+            self.notice = Some(t.file_too_large);
+            return;
+        }
+        let r = Volume::mount(&mut *card).and_then(|mut v| v.read_file(&e, &mut self.sd.view[..1024]));
+        let Ok(n) = r else {
+            self.notice = Some(t.problems[crate::sd::CardProblem::ReadFailed as usize][0]);
+            return;
+        };
+        let text = after_bom_and_space(&self.sd.view[..n]);
+        let end = text
+            .iter()
+            .rposition(|c| !c.is_ascii_whitespace())
+            .map_or(0, |i| i + 1);
+        self.import = Some(self.settings.import(&text[..end]));
+        bp_crypto::secret::wipe(&mut self.sd.view);
+        self.push(Screen::SettingsImport { sel: 0 });
     }
 }
 
