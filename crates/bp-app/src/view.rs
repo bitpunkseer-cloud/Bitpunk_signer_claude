@@ -56,12 +56,34 @@ pub fn seed_label(slot: &crate::seeds::SeedSlot) -> Buf<40> {
 }
 
 impl App {
+    /// The status line's path: the menus below this screen, then its title,
+    /// e.g. `BITPUNK:~/Tools/BIP-85>` (UX language: where you are).
+    pub(crate) fn status_path(&self, title: &str) -> Buf<192> {
+        let mut path = Buf::<192>::new();
+        path.push_str("BITPUNK:~");
+        for i in 0..self.depth.saturating_sub(1) {
+            if let Screen::Menu { id, .. } = self.stack[i] {
+                if id != MenuId::Main {
+                    path.push_str("/");
+                    path.push_str(menus::title(id, self.text()));
+                }
+            }
+        }
+        if !matches!(self.current(), Screen::Menu { id: MenuId::Main, .. }) {
+            path.push_str("/");
+            path.push_str(title);
+        }
+        path.push_str(">");
+        path
+    }
+
     pub(crate) fn status(&self, c: &mut dyn Canvas, title: &str) {
         let net = self.settings.network;
+        let path = self.status_path(title);
         widgets::status_bar(
             c,
             &widgets::Status {
-                title,
+                title: path.as_str(),
                 network_badge: net.badge(),
                 mainnet: net == bp_bitcoin::Network::Mainnet,
                 air_gapped: match self.comm {

@@ -5,13 +5,18 @@ use crate::font::{split_line, Font, BODY, SMALL, TITLE};
 use crate::theme::*;
 use bp_hal::{Canvas, Rgb};
 
-pub const STATUS_H: i32 = 44;
-pub const HINT_H: i32 = 34;
-pub const MARGIN: i32 = 24;
+/// Status band: grid rows 0-1 (the path in row 0's band, the rule under it).
+pub const STATUS_H: i32 = 2 * crate::grid::CELL_H;
+/// Key bar: grid row 19.
+pub const HINT_H: i32 = crate::grid::CELL_H;
+/// Left edge of grid column 0.
+pub const MARGIN: i32 = crate::grid::LEFT;
 
-/// Top-of-screen status: title on the left; TEST ONLY, network and
-/// AIR-GAPPED badges on the right.
+/// Top-of-screen status: where you are on the left (a shell-style path);
+/// TEST ONLY, SD, network and the air-gap mark on the right.
 pub struct Status<'a> {
+    /// The path, e.g. `BITPUNK:~/Tools/BIP-85>`; shortened from the left
+    /// when it does not fit.
     pub title: &'a str,
     pub network_badge: &'a str,
     pub mainnet: bool,
@@ -30,32 +35,46 @@ pub fn status_bar(c: &mut dyn Canvas, s: &Status) {
     let w = c.width() as i32;
     c.fill_rect(0, 0, w, STATUS_H, SURFACE);
     c.fill_rect(0, STATUS_H - 1, w, 1, LINE);
-    BODY.draw(c, MARGIN, (STATUS_H - BODY.height as i32) / 2, s.title, TEXT);
+    let by = STATUS_H / 2 - 12;
 
     let mut x = w - MARGIN;
     let tag = s.air_gapped;
     x -= SMALL.text_width(tag);
     let mark = if s.air_gap_ok { OK } else { DANGER };
     SMALL.draw(c, x, (STATUS_H - SMALL.height as i32) / 2, tag, mark);
-    round_rect(c, x - 14, STATUS_H / 2 - 4, 8, 8, 4, mark);
+    c.fill_rect(x - 14, STATUS_H / 2 - 4, 8, 8, mark);
     x -= 30;
 
     // mainnet (real money) in amber, test networks dim
     x -= badge_width(s.network_badge);
-    if s.mainnet {
-        badge_outline(c, x, STATUS_H / 2 - 12, s.network_badge, WARN);
-    } else {
-        badge_outline(c, x, STATUS_H / 2 - 12, s.network_badge, TEXT_DIM);
-    }
+    badge_outline(c, x, by, s.network_badge, if s.mainnet { WARN } else { TEXT_DIM });
 
     if let Some(t) = s.sd {
-        x -= badge_width(t) + 10;
-        badge(c, x, STATUS_H / 2 - 12, t, LINE, TEXT);
+        x -= badge_width(t) + 8;
+        badge_outline(c, x, by, t, TEXT);
     }
 
     if let Some(t) = s.test_only {
-        x -= badge_width(t) + 10;
-        badge(c, x, STATUS_H / 2 - 12, t, WARN, ACCENT_TEXT);
+        x -= badge_width(t) + 8;
+        badge(c, x, by, t, WARN, ACCENT_TEXT);
+    }
+
+    // the path, shortened from the left to fit before the badges
+    let room = x - 16 - MARGIN;
+    let ty = (STATUS_H - BODY.height as i32) / 2;
+    if BODY.text_width(s.title) <= room {
+        BODY.draw(c, MARGIN, ty, s.title, TEXT);
+    } else {
+        let ell = "..";
+        let mut start = 0;
+        for (i, _) in s.title.char_indices() {
+            if BODY.text_width(&s.title[i..]) + BODY.text_width(ell) <= room {
+                start = i;
+                break;
+            }
+        }
+        let x1 = BODY.draw(c, MARGIN, ty, ell, TEXT_DIM);
+        BODY.draw(c, x1, ty, &s.title[start..], TEXT);
     }
 }
 
@@ -63,9 +82,9 @@ pub fn badge_width(text: &str) -> i32 {
     SMALL.text_width(text) + 16
 }
 
-/// Rounded label, 24px tall, top-left at (x, y).
+/// Filled label, 24px tall, top-left at (x, y).
 pub fn badge(c: &mut dyn Canvas, x: i32, y: i32, text: &str, bg: Rgb, fg: Rgb) {
-    round_rect(c, x, y, badge_width(text), 24, 6, bg);
+    c.fill_rect(x, y, badge_width(text), 24, bg);
     SMALL.draw(c, x + 8, y + 12 - SMALL.height as i32 / 2, text, fg);
 }
 
@@ -73,11 +92,12 @@ pub fn badge(c: &mut dyn Canvas, x: i32, y: i32, text: &str, bg: Rgb, fg: Rgb) {
 /// A badge drawn as an outline (text in the outline colour).
 pub fn badge_outline(c: &mut dyn Canvas, x: i32, y: i32, text: &str, color: Rgb) {
     let w = badge_width(text);
-    round_rect(c, x, y, w, 24, 5, color);
-    round_rect(c, x + 1, y + 1, w - 2, 22, 4, SURFACE);
+    outline(c, x, y, w, 24, color);
     SMALL.draw_centered(c, x, w, y + 12 - SMALL.height as i32 / 2, text, color);
 }
 
+/// Key bar (grid row 19): each key as an inverse key cap, then what it
+/// does. Enter, the main action, is lit in the signal colour.
 pub fn hint_bar(c: &mut dyn Canvas, hints: &[(&str, &str)]) {
     let (w, h) = (c.width() as i32, c.height() as i32);
     let y = h - HINT_H;
@@ -86,11 +106,12 @@ pub fn hint_bar(c: &mut dyn Canvas, hints: &[(&str, &str)]) {
     let mut x = MARGIN;
     let ty = y + (HINT_H - SMALL.height as i32) / 2;
     for (key, label) in hints {
-        let kw = SMALL.text_width(key) + 12;
-        round_rect(c, x, y + 6, kw, HINT_H - 12, 4, SURFACE_HI);
-        SMALL.draw(c, x + 6, ty, key, TEXT);
-        x += kw + 8;
-        x = SMALL.draw(c, x, ty, label, TEXT_DIM) + 20;
+        let kw = SMALL.text_width(key) + 10;
+        let cap = if *key == "Enter" { ACCENT } else { TEXT_DIM };
+        c.fill_rect(x, y + 3, kw, HINT_H - 6, cap);
+        SMALL.draw(c, x + 5, ty, key, ACCENT_TEXT);
+        x += kw + 6;
+        x = SMALL.draw(c, x, ty, label, TEXT) + 18;
     }
 }
 
@@ -101,8 +122,8 @@ pub struct MenuItem<'a> {
 
 /// Full-height vertical menu with numbered rows (1-9 hotkeys).
 pub fn menu_list(c: &mut dyn Canvas, items: &[MenuItem], selected: usize) {
-    let top = STATUS_H + 16;
-    let bottom = c.height() as i32 - HINT_H - 12;
+    let top = STATUS_H + 8;
+    let bottom = c.height() as i32 - HINT_H - 8;
     let w = c.width() as i32 - 2 * MARGIN;
     list(c, MARGIN, top, w, bottom - top, items, selected, true);
 }
@@ -119,40 +140,42 @@ pub fn list(
     selected: usize,
     scrollbar: bool,
 ) {
-    let row_h = 52;
+    // two grid rows per item; the selection is an inverse bar
+    let row_h = 2 * crate::grid::CELL_H;
     let visible = (height / row_h).max(1) as usize;
     let first = if selected >= visible {
         selected + 1 - visible
     } else {
         0
     };
+    let cw = BODY.width as i32;
     for (i, item) in items.iter().enumerate().skip(first).take(visible) {
         let y = top + (i - first) as i32 * row_h;
         let sel = i == selected;
         if sel {
-            round_rect(c, x, y, rw, row_h - 6, 10, ACCENT);
+            c.fill_rect(x, y + 4, rw, row_h - 8, ACCENT);
         }
         let (fg, dim) = if sel {
             (ACCENT_TEXT, ACCENT_TEXT)
         } else {
             (TEXT, TEXT_DIM)
         };
-        let ty = y + (row_h - 6 - BODY.height as i32) / 2;
-        if i < 9 {
-            let n = [b'1' + i as u8];
-            let ns = core::str::from_utf8(&n).unwrap_or("?");
-            if !sel {
-                round_rect(c, x + 12, y + 9, 28, 28, 6, SURFACE_HI);
-            }
-            BODY.draw(c, x + 20, ty, ns, if sel { ACCENT_TEXT } else { TEXT_DIM });
+        let ty = y + (row_h - BODY.height as i32) / 2;
+        if sel {
+            BODY.draw(c, x + 4, ty, ">", ACCENT_TEXT);
         }
-        BODY.draw(c, x + 56, ty, item.label, fg);
+        if i < 9 {
+            let n = [b'[', b'1' + i as u8, b']'];
+            let ns = core::str::from_utf8(&n).unwrap_or("?");
+            BODY.draw(c, x + 4 + cw, ty, ns, dim);
+        }
+        BODY.draw(c, x + 4 + 5 * cw, ty, item.label, fg);
         if !item.detail.is_empty() {
             let dw = SMALL.text_width(item.detail);
             SMALL.draw(
                 c,
-                x + rw - 20 - dw,
-                y + (row_h - 6 - SMALL.height as i32) / 2,
+                x + rw - 12 - dw,
+                y + (row_h - SMALL.height as i32) / 2,
                 item.detail,
                 dim,
             );
