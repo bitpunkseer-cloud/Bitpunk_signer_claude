@@ -2,6 +2,7 @@
 //! firmware and the web simulator. Allocation-free.
 #![no_std]
 
+mod b85;
 mod flow;
 mod menus;
 mod msgsign;
@@ -15,6 +16,7 @@ mod seeds;
 mod settings;
 mod sigverify;
 mod text;
+mod text_b85;
 mod text_sd;
 mod verify;
 mod view;
@@ -74,6 +76,10 @@ pub enum QrKind {
     Wallet {
         idx: u8,
         format: wallets::WalletFormat,
+    },
+    /// A BIP-85 result (a mnemonic as SeedQR, or the text).
+    Bip85 {
+        compact: bool,
     },
     /// This device's BIP-48 multisig key, for a coordinator.
     MsKey {
@@ -275,6 +281,10 @@ pub enum Screen {
     Sd {
         step: sd::SdStep,
     },
+    /// Tools > BIP-85 child keys.
+    Bip85 {
+        step: b85::B85Step,
+    },
 }
 
 pub struct App {
@@ -323,6 +333,8 @@ pub struct App {
     wl: wallets::WlState,
     /// microSD presence, the queued job and its results.
     sd: sd::SdState,
+    /// BIP-85 derivation in progress (wiped when its screens close).
+    b85: Option<b85::B85State>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -394,6 +406,7 @@ impl App {
             wallets: bp_bitcoin::multisig::register::Registry::new(),
             wl: wallets::WlState::default(),
             sd: sd::SdState::new(),
+            b85: None,
         }
     }
 
@@ -533,6 +546,12 @@ impl App {
             .any(|s| matches!(s, Screen::SigVerify { .. }))
         {
             self.sig = None;
+        }
+        if !self.stack[..self.depth]
+            .iter()
+            .any(|s| matches!(s, Screen::Bip85 { .. }))
+        {
+            self.b85 = None;
         }
         // a file's origin lives while its review or message signing does
         if !self.stack[..self.depth].iter().any(|s| {
@@ -1141,6 +1160,7 @@ impl App {
             }
             Screen::Wallets { step } => self.wallets_key(step, ev),
             Screen::Sd { step } => self.sd_key(step, ev),
+            Screen::Bip85 { step } => self.b85_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1275,6 +1295,7 @@ impl App {
                 bp_crypto::secret::wipe(&mut ent);
                 s
             }
+            QrKind::Bip85 { compact } => self.b85_qr(compact),
             QrKind::Settings => {
                 let mut b = [0u8; 256];
                 let n = self.settings.to_qr(&mut b);
@@ -1537,6 +1558,7 @@ impl App {
             Action::VerifySignature => self.start_scan(scan::Purpose::Signed),
             Action::Multisig => self.open_wallets(),
             Action::SdCard => self.open_sd(),
+            Action::Bip85 => self.open_b85(),
             Action::SettingsQr => self.open_qr(QrKind::Settings),
             Action::VerifyAddress => {
                 if self.seed_count() == 0 {

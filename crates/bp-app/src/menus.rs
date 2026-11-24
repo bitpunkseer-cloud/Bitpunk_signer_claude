@@ -53,6 +53,8 @@ pub enum Action {
     Multisig,
     /// Main > SD card.
     SdCard,
+    /// Tools > BIP-85 child keys.
+    Bip85,
     /// Settings > Settings as QR.
     SettingsQr,
     Start(Start),
@@ -168,7 +170,11 @@ static TOOLS: [Entry; 9] = [
         detail: ">",
         action: Action::Multisig,
     },
-    todo_entry!(|s| s.bip85, "M8", |s| s.ms_keys),
+    Entry {
+        label: |s| s.bip85,
+        detail: ">",
+        action: Action::Bip85,
+    },
     todo_entry!(|s| s.secure_notes, "M10", |s| s.ms_tools),
     todo_entry!(|s| s.totp, "M10", |s| s.ms_tools),
 ];

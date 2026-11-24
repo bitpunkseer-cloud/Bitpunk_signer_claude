@@ -415,6 +415,8 @@ pub struct Strings {
     pub wl: &'static WalletStrings,
     // microSD
     pub sd: &'static crate::text_sd::SdStrings,
+    // BIP-85
+    pub b85: &'static crate::text_b85::B85Strings,
 }
 
 /// Number of issue kinds (see `review::issue_index`).
@@ -1071,6 +1073,7 @@ pub static EN: Strings = Strings {
     rv: &EN_REVIEW,
     wl: &EN_WALLET,
     sd: &crate::text_sd::EN_SD,
+    b85: &crate::text_b85::EN_B85,
 };
 
 pub static KO_REVIEW: ReviewStrings = ReviewStrings {
@@ -1656,6 +1659,7 @@ pub static KO: Strings = Strings {
     rv: &KO_REVIEW,
     wl: &KO_WALLET,
     sd: &crate::text_sd::KO_SD,
+    b85: &crate::text_b85::KO_B85,
 };
 
 /// Number of wallet-format error messages (see `wallets::format_error_index`).

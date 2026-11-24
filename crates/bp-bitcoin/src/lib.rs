@@ -12,6 +12,7 @@ pub mod bech32;
 pub mod bip32;
 pub mod bip322;
 pub mod bip39;
+pub mod bip85;
 pub mod entropy;
 pub mod export;
 pub mod message;
@@ -24,6 +25,7 @@ pub mod sign;
 pub mod tx;
 pub mod urtypes;
 pub mod validate;
+pub mod wif;
 
 /// Bitcoin networks supported by the signer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

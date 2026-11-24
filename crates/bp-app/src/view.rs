@@ -388,6 +388,7 @@ impl App {
             Screen::SettingsImport { sel } => self.render_settings_import(c, sel),
             Screen::Wallets { step } => self.render_wallets(c, step),
             Screen::Sd { step } => self.render_sd(c, step),
+            Screen::Bip85 { step } => self.render_b85(c, step),
             Screen::NoSeed => {
                 self.status(c, s.address_explorer);
                 widgets::message_at(c, STATUS_H + 80, s.no_seed_title, theme::WARN, &[s.no_seed_1]);
@@ -1073,6 +1074,14 @@ impl App {
                 fill(s.wl.qr_title, &[&name.as_str()])
             }
             QrKind::MsKey { script, account, .. } => fill(s.wl.key_qr_title, &[&script.name(), &account]),
+            QrKind::Bip85 { compact } => {
+                let what = if compact {
+                    s.seedqr_kinds[1].0
+                } else {
+                    self.b85_title()
+                };
+                fill("{}", &[&what])
+            }
         }
     }
 
@@ -1203,6 +1212,7 @@ impl App {
             QrKind::SignedPsbt { .. } | QrKind::MessageSig => s.rv.qr_keys,
             QrKind::Settings => s.si_note_short,
             QrKind::Wallet { .. } | QrKind::MsKey { .. } => s.wl.qr_keys,
+            QrKind::Bip85 { .. } => s.b85.qr_keys,
         };
         let y0 = h - 4 * 21 - 6;
         for (i, k) in s.qr_keys.iter().chain(core::iter::once(&extra)).enumerate() {

@@ -1425,3 +1425,18 @@ mod wallets_flow;
 
 #[path = "tests_sd.rs"]
 mod sd_flow;
+
+#[path = "tests_b85.rs"]
+mod b85_flow;
+
+/// A BIP-85 result recorded from embit (see tools/gen_embit_bip85.py).
+pub(crate) fn b85_embit(app: &str, index: u32) -> String {
+    let src = include_str!("../../bp-bitcoin/tests/data/embit_bip85.rs");
+    let prefix = format!("(App::{app}, {index}, \"");
+    let line = src
+        .lines()
+        .find(|l| l.trim_start().starts_with(&prefix))
+        .expect("vector");
+    let rest = &line.trim_start()[prefix.len()..];
+    String::from(&rest[..rest.find('"').unwrap()])
+}

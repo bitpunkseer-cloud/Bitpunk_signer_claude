@@ -185,6 +185,19 @@ impl Xpriv {
         r
     }
 
+    /// A root key (depth 0) from a chain code and a private key, as BIP-85
+    /// XPRV builds it. Fails if the key is zero or not below the order.
+    pub fn from_parts(chain_code: &[u8; 32], key: &[u8; 32]) -> Result<Self, Error> {
+        let key = SecretKey::from_bytes(key).ok_or(Error::InvalidChildKey)?;
+        Ok(Self {
+            depth: 0,
+            parent_fingerprint: [0; 4],
+            child_number: 0,
+            chain_code: *chain_code,
+            key,
+        })
+    }
+
     fn from_i(i: &[u8; 64], depth: u8, parent: [u8; 4], child: u32) -> Result<Self, Error> {
         let key = SecretKey::from_bytes(i[..32].try_into().expect("32")).ok_or(Error::InvalidChildKey)?;
         let mut chain_code = [0u8; 32];
