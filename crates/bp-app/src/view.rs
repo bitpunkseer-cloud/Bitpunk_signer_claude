@@ -1122,7 +1122,7 @@ impl App {
         };
         let (w, h) = (c.width() as i32, c.height() as i32);
         if q.fullscreen {
-            c.fill_rect(0, 0, w, h, bp_hal::Rgb(0, 0, 0));
+            c.fill_rect(0, 0, w, h, theme::QR_DARK);
             widgets::qr_code(c, &sym, 0, 0, w, h, style);
             return;
         }
@@ -1262,8 +1262,8 @@ impl App {
         self.status(c, s.transcribe);
         let n = sym.size() as i32;
         let w = c.width() as i32;
-        let white = bp_hal::Rgb(255, 255, 255);
-        let black = bp_hal::Rgb(0, 0, 0);
+        let white = theme::QR_LIGHT;
+        let black = theme::QR_DARK;
 
         // overview with the current block / row outlined
         // smaller overview in row mode to leave room for the big strip
@@ -1385,7 +1385,7 @@ impl App {
                         by + py as i32 * 2,
                         (px - start) as i32 * 2,
                         2,
-                        bp_hal::Rgb(g, g, g),
+                        bp_hal::Rgb(g, g, g), // palette: camera image
                     );
                 }
             }

@@ -1685,6 +1685,7 @@ fn resource_budget() {
         &bp_ui::font::BODY,
         &bp_ui::font::TITLE,
         &bp_ui::font::HUGE,
+        &bp_ui::font::DOUBLE,
     ]
     .iter()
     .map(|f| f.data.len() + f.wide.map_or(0, |w| w.data.len()))
@@ -1693,4 +1694,37 @@ fn resource_budget() {
     // M8 end: App 485 KB, fonts 417 KB. Effects and new screens must not grow RAM much.
     assert!(app <= 560 * 1024, "App is {app} bytes (budget 560 KB)");
     assert!(fonts <= 1024 * 1024, "fonts are {fonts} bytes (budget 1 MB)");
+}
+
+/// UX language (M9): screens take every colour from `bp_ui::theme`. A
+/// colour value written anywhere else must say why on its line
+/// (`// palette: ...`), e.g. the camera picture.
+#[test]
+fn screens_use_theme_colours_only() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut bad = Vec::new();
+    for dir in [
+        root.join("src"),
+        root.join("../bp-ui/src"),
+        root.join("../bp-ui/src/font"),
+    ] {
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let p = e.unwrap().path();
+            let name = p.file_name().unwrap().to_string_lossy().into_owned();
+            if !name.ends_with(".rs") || name.starts_with("tests") || name == "theme.rs" || name == "bench.rs"
+            {
+                continue;
+            }
+            let src = std::fs::read_to_string(&p).unwrap();
+            // test modules at the end of a file may build colours freely
+            let body = src.split("#[cfg(test)]\nmod tests").next().unwrap();
+            for (i, line) in body.lines().enumerate() {
+                let colour = line.contains("Rgb(") || line.contains("Rgb::hex(");
+                if colour && !line.contains("palette:") && !line.trim_start().starts_with("//") {
+                    bad.push(format!("{name}:{}: {}", i + 1, line.trim()));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "colours outside the theme:\n{}", bad.join("\n"));
 }

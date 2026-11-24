@@ -5,6 +5,7 @@
 pub mod draw;
 pub mod fmt;
 pub mod font;
+pub mod grid;
 pub mod theme;
 pub mod widgets;
 

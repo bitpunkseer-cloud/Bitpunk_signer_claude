@@ -40,13 +40,13 @@ pub fn status_bar(c: &mut dyn Canvas, s: &Status) {
     round_rect(c, x - 14, STATUS_H / 2 - 4, 8, 8, 4, mark);
     x -= 30;
 
-    let (bg, fg) = if s.mainnet {
-        (ACCENT, ACCENT_TEXT)
-    } else {
-        (WARN, ACCENT_TEXT)
-    };
+    // mainnet (real money) in amber, test networks dim
     x -= badge_width(s.network_badge);
-    badge(c, x, STATUS_H / 2 - 12, s.network_badge, bg, fg);
+    if s.mainnet {
+        badge_outline(c, x, STATUS_H / 2 - 12, s.network_badge, WARN);
+    } else {
+        badge_outline(c, x, STATUS_H / 2 - 12, s.network_badge, TEXT_DIM);
+    }
 
     if let Some(t) = s.sd {
         x -= badge_width(t) + 10;
@@ -55,7 +55,7 @@ pub fn status_bar(c: &mut dyn Canvas, s: &Status) {
 
     if let Some(t) = s.test_only {
         x -= badge_width(t) + 10;
-        badge(c, x, STATUS_H / 2 - 12, t, DANGER, TEXT);
+        badge(c, x, STATUS_H / 2 - 12, t, WARN, ACCENT_TEXT);
     }
 }
 
@@ -70,6 +70,14 @@ pub fn badge(c: &mut dyn Canvas, x: i32, y: i32, text: &str, bg: Rgb, fg: Rgb) {
 }
 
 /// Bottom bar listing available keys, e.g. `[("^v","Move"),("Enter","Select")]`.
+/// A badge drawn as an outline (text in the outline colour).
+pub fn badge_outline(c: &mut dyn Canvas, x: i32, y: i32, text: &str, color: Rgb) {
+    let w = badge_width(text);
+    round_rect(c, x, y, w, 24, 5, color);
+    round_rect(c, x + 1, y + 1, w - 2, 22, 4, SURFACE);
+    SMALL.draw_centered(c, x, w, y + 12 - SMALL.height as i32 / 2, text, color);
+}
+
 pub fn hint_bar(c: &mut dyn Canvas, hints: &[(&str, &str)]) {
     let (w, h) = (c.width() as i32, c.height() as i32);
     let y = h - HINT_H;
@@ -287,7 +295,7 @@ pub fn check_row(
     let (txt, bg, fg) = match state {
         CheckState::Wait => (pills[0], SURFACE_HI, TEXT_DIM),
         CheckState::Pass => (pills[1], OK, ACCENT_TEXT),
-        CheckState::Fail => (pills[2], DANGER, TEXT),
+        CheckState::Fail => (pills[2], DANGER, ACCENT_TEXT),
     };
     round_rect(c, x, y, 52, 22, 5, bg);
     SMALL.draw_centered(c, x, 52, y + 11 - SMALL.height as i32 / 2, txt, fg);
@@ -395,8 +403,10 @@ pub fn qr_code(c: &mut dyn Canvas, q: &bp_qr::QrCode, x: i32, y: i32, w: i32, h:
     let side = px * modules;
     let ox = x + (w - side) / 2;
     let oy = y + (h - side) / 2;
-    let light = Rgb(style.light, style.light, style.light);
-    let dark = Rgb(0, 0, 0);
+    // a pale phosphor panel, dimmed by the user's glare setting
+    let dim = |v: u8| (v as u16 * style.light as u16 / 255) as u8;
+    let light = Rgb(dim(QR_LIGHT.0), dim(QR_LIGHT.1), dim(QR_LIGHT.2)); // palette: QR_LIGHT dimmed
+    let dark = QR_DARK;
     let (bg, fg) = if style.invert {
         (dark, light)
     } else {
