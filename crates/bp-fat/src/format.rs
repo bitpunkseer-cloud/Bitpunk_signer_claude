@@ -136,7 +136,10 @@ fn boot_sector(l: &Layout, serial: u32) -> Sector {
 /// FAT volume. `random` fills buffers from the hardware RNG: it scrambles
 /// the area before the partition and picks the disk and volume serials.
 /// Old file contents in the data area are not erased.
-pub fn format<D: BlockDevice>(dev: &mut D, random: &mut dyn FnMut(&mut [u8])) -> Result<FatKind, Error> {
+pub fn format<D: BlockDevice + ?Sized>(
+    dev: &mut D,
+    random: &mut dyn FnMut(&mut [u8]),
+) -> Result<FatKind, Error> {
     let l = layout(dev.sectors())?;
     let mut s: Sector = [0; SECTOR];
     for lba in 1..l.start {

@@ -178,6 +178,7 @@ dependencies = [
  "bp-hal",
  "bp-qr",
  "bp-ui",
+ "fatfs",
  "rqrr",
  "rxing",
 ]

@@ -21,3 +21,5 @@ rqrr = "0.8"
 rxing = { version = "=0.9.3", default-features = false, features = ["qrcode", "decoders", "encoding_rs"] }
 # Test-only reference for building and checking PSBTs in flow tests.
 bitcoin = { version = "0.32", features = ["secp-recovery"] }
+# Test-only reference for building SD card images with folders.
+fatfs = "0.3.6"

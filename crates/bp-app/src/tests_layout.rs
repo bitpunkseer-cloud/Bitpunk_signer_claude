@@ -7,18 +7,18 @@ use super::*;
 use crate::settings::Lang;
 
 /// 800 x 480 RGB framebuffer.
-struct Shot {
+pub(super) struct Shot {
     px: Vec<u8>,
 }
 
 impl Shot {
-    fn new() -> Shot {
+    pub(super) fn new() -> Shot {
         Shot {
             px: vec![0; 800 * 480 * 3],
         }
     }
 
-    fn save(&self, path: &std::path::Path) {
+    pub(super) fn save(&self, path: &std::path::Path) {
         let mut out = b"P6\n800 480\n255\n".to_vec();
         out.extend_from_slice(&self.px);
         std::fs::write(path, out).unwrap();
