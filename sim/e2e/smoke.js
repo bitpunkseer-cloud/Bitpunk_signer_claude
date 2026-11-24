@@ -24,6 +24,8 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   const page = await browser.newPage({ viewport: { width: 1200, height: 1600 }, acceptDownloads: true });
   const errors = [];
   page.on("pageerror", e => errors.push(String(e)));
+  // the page's web fonts are decoration: never wait on the network
+  await page.route(/^https?:/, r => r.abort());
   await page.goto("file://" + path.resolve(page_));
   await page.waitForTimeout(2500); // splash
   const key = async k => { await page.keyboard.press(k); await page.waitForTimeout(120); };
