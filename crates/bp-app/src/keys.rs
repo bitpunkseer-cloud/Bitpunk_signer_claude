@@ -11,7 +11,7 @@ use bp_bitcoin::Network;
 use bp_hal::input::{Key, KeyEvent};
 use bp_hal::Canvas;
 use bp_ui::fmt::{fill, Buf};
-use bp_ui::font::{BODY, SMALL, TITLE};
+use bp_ui::font::{BODY, DOUBLE, SMALL, TITLE};
 use bp_ui::theme;
 use bp_ui::widgets::{self, MenuItem, MARGIN, STATUS_H};
 
@@ -325,11 +325,13 @@ impl App {
                     _ => (t.kind_wif, t.can_wif),
                 };
                 let fp = crate::seeds::fingerprint_hex(&k.fingerprint);
-                let line: Buf<64> = fill("{}  {}", &[&t.fingerprint, &fp.as_str()]);
-                BODY.draw(c, MARGIN, top + 50, kind, theme::ACCENT);
-                BODY.draw(c, MARGIN, top + 86, line.as_str(), theme::TEXT);
-                SMALL.draw(c, MARGIN, top + 126, can, theme::TEXT_DIM);
-                SMALL.draw(c, MARGIN, top + 156, t.not_new[1], theme::TEXT_DIM);
+                BODY.draw(c, MARGIN, top + 46, kind, theme::ACCENT);
+                // the fingerprint: data to compare, double size (M9-7)
+                let x1 = BODY.draw(c, MARGIN, top + 100, t.fingerprint, theme::TEXT_DIM);
+                let dy = top + 100 + BODY.baseline as i32 - DOUBLE.baseline as i32;
+                DOUBLE.draw(c, x1 + 16, dy, fp.as_str(), theme::BRIGHT);
+                SMALL.draw(c, MARGIN, top + 140, can, theme::TEXT_DIM);
+                SMALL.draw(c, MARGIN, top + 164, t.not_new[1], theme::TEXT_DIM);
                 let items = [
                     MenuItem {
                         label: t.load,

@@ -1412,6 +1412,44 @@ fn screen_saver_closes_secret_screens_and_keeps_typing_flows() {
     );
 }
 
+/// M9-7: the words screen says when the saver will hide the words, and is
+/// redrawn as the seconds count down; nothing is shown when the saver is off.
+#[test]
+fn words_screen_counts_down_to_the_screen_saver() {
+    let mut a = app();
+    load_abandon(&mut a);
+    nav::seed_opt(&mut a, keys::SlotOpt::Words);
+    while !matches!(a.current(), Screen::ShowWords { .. }) {
+        press(&mut a, Key::Enter);
+    }
+    assert_eq!(a.hides_in(), Some(60));
+    a.render(&mut layout_free::Null);
+    a.tick(1); // settle any pending redraw
+    assert!(!a.tick(400), "no redraw inside the same second");
+    assert_eq!(a.hides_in(), Some(60), "rounded up to the whole second");
+    assert!(a.tick(700), "redrawn when the second changes");
+    assert_eq!(a.hides_in(), Some(59));
+    idle(&mut a, 50);
+    assert!(a.hides_in().unwrap() <= 10);
+    idle(&mut a, 10);
+    assert!(a.saver);
+    assert_eq!(a.hides_in(), None, "covered");
+    // a key wakes the device and closes the words; open them again
+    press(&mut a, Key::Esc);
+    while !matches!(a.current(), Screen::ShowWords { .. }) {
+        press(&mut a, Key::Enter);
+    }
+    assert_eq!(a.hides_in(), Some(60), "a key press restarts the count");
+    // other screens and a saver turned off show nothing
+    press(&mut a, Key::Esc);
+    assert_eq!(a.hides_in(), None);
+    a.settings.saver = 2;
+    while !matches!(a.current(), Screen::ShowWords { .. }) {
+        press(&mut a, Key::Enter);
+    }
+    assert_eq!(a.hides_in(), None);
+}
+
 #[test]
 fn screen_saver_waits_for_qr_scanning_and_can_be_turned_off() {
     let mut a = app();

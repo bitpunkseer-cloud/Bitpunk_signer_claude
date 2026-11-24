@@ -591,6 +591,16 @@ impl App {
         }
     }
 
+    /// Seconds until the screen saver hides the secret on screen (seed
+    /// words), when it will (M9-7: shown on the words screen).
+    pub(crate) fn hides_in(&self) -> Option<u32> {
+        if self.saver || !matches!(self.current(), Screen::ShowWords { .. }) || !self.saver_allowed() {
+            return None;
+        }
+        let limit = crate::settings::SAVER_MS[self.settings.saver as usize % 3]?;
+        Some(limit.saturating_sub(self.idle_ms).div_ceil(1000))
+    }
+
     /// Return to Main > Seeds and optionally show `then` on top.
     fn go_seeds(&mut self, then: Option<Screen>) {
         self.flow = None;
@@ -624,6 +634,7 @@ impl App {
     /// Advance timers. Returns true when the screen needs redrawing.
     pub fn tick(&mut self, dt_ms: u32) -> bool {
         self.log.tick(dt_ms);
+        let hides_in = self.hides_in();
         // the screen saver (M9-5)
         match crate::settings::SAVER_MS[self.settings.saver as usize % 3] {
             Some(limit) if self.saver_allowed() => {
@@ -634,6 +645,9 @@ impl App {
                 }
             }
             _ => self.idle_ms = 0,
+        }
+        if self.hides_in() != hides_in {
+            self.dirty = true;
         }
         if self.rain_shown() && self.rain.tick(dt_ms) {
             self.dirty = true;

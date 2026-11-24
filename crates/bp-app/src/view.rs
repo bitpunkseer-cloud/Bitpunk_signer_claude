@@ -11,7 +11,7 @@ use bp_bitcoin::entropy::{Analysis, Source, Status};
 use bp_hal::Canvas;
 use bp_ui::bformat;
 use bp_ui::fmt::{fill, Buf};
-use bp_ui::font::{BODY, HUGE, SMALL, TITLE};
+use bp_ui::font::{BODY, DOUBLE, SMALL, TITLE};
 use bp_ui::theme;
 use bp_ui::widgets::{self, CheckState, MenuItem, MARGIN, STATUS_H};
 
@@ -400,15 +400,28 @@ impl App {
                 widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select)]);
             }
             Screen::SeedReady { slot, created } => {
+                // M9-7: what was made, its fingerprint large, where it lives
                 self.status(c, s.seeds);
                 let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
                 let head = if created { s.seed_created } else { s.seed_loaded };
-                widgets::message_at(
+                let g = |row| bp_ui::grid::text_y(&BODY, row, 1);
+                TITLE.draw(c, MARGIN, bp_ui::grid::text_y(&TITLE, 2, 2), head, theme::OK);
+                widgets::label(c, MARGIN, g(5), s.fp_label);
+                DOUBLE.draw(
                     c,
-                    STATUS_H + 80,
-                    head,
-                    theme::OK,
-                    &[label.as_str(), "", s.seed_ready_1],
+                    MARGIN,
+                    bp_ui::grid::text_y(&DOUBLE, 6, 2),
+                    label.as_str(),
+                    theme::BRIGHT,
+                );
+                widgets::log_line(
+                    c,
+                    MARGIN,
+                    g(9),
+                    800 - 2 * MARGIN,
+                    widgets::Tag::Info,
+                    s.seed_ready_1,
+                    "",
                 );
                 widgets::hint_bar(c, &[("Enter", s.h_continue)]);
             }
@@ -774,59 +787,55 @@ impl App {
         let head: Buf<112> = fill(s.entry_head, &[&head_name, &f.words]);
         widgets::label(c, lx, STATUS_H + 14, head.as_str());
         let count = bformat!(8, "{}", a.count);
-        let x = HUGE.draw(c, lx - 4, STATUS_H + 30, count.as_str(), theme::TEXT);
+        let dy = bp_ui::grid::text_y(&DOUBLE, 3, 2);
+        let x = DOUBLE.draw(c, lx, dy, count.as_str(), theme::BRIGHT);
         let min: Buf<96> = fill(s.count_of, &[&a.min_count, &unit]);
         BODY.draw(
             c,
             x + 10,
-            STATUS_H + 30 + HUGE.baseline as i32 - BODY.baseline as i32,
+            dy + DOUBLE.baseline as i32 - BODY.baseline as i32,
             min.as_str(),
             theme::TEXT_DIM,
         );
 
-        widgets::label(c, lx, 168, s.recent);
+        // M9-7: the board fills up to the minimum count (dice 50/100, D20
+        // 30/60, coins 128/256), then shows the latest values
         let rec = pe.record();
-        if d20 {
-            // two-digit values, ten per row
-            let shown = rec.len().min(40);
-            let start = rec.len() - shown;
-            bp_ui::draw::round_rect(c, lx, 190, 360, 4 * 28 + 14, 8, theme::SURFACE);
-            for (i, &v) in rec[start..].iter().enumerate() {
-                let t = bformat!(4, "{:>2}", v);
-                let last = start + i + 1 == rec.len();
-                let (col, row) = ((i % 10) as i32, (i / 10) as i32);
-                BODY.draw(
-                    c,
-                    lx + 14 + col * 34,
-                    197 + row * 28,
-                    t.as_str(),
-                    if last { theme::ACCENT } else { theme::TEXT },
-                );
+        let (cols, cell_w, pitch, font) = match f.kind {
+            Start::D20 => (10usize, 36, 24, &BODY),
+            Start::Dice => (20, 18, 24, &BODY),
+            _ => (32, 11, 18, &SMALL),
+        };
+        let slots = a.min_count;
+        let start = rec.len().saturating_sub(slots);
+        let label: Buf<64> = if start > 0 {
+            fill(s.board_latest, &[&(rec.len() - start)])
+        } else {
+            fill(s.board, &[])
+        };
+        widgets::label(c, lx, bp_ui::grid::y(6) + 4, label.as_str());
+        let top = bp_ui::grid::y(7);
+        let filled = rec.len() - start;
+        for i in 0..slots {
+            let (cx, cy) = (lx + (i % cols) as i32 * cell_w, top + (i / cols) as i32 * pitch);
+            if i >= filled {
+                // an empty slot: a dot
+                c.fill_rect(cx + cell_w / 2 - 1, cy + pitch / 2 - 1, 2, 2, theme::TEXT_FAINT);
+                continue;
             }
-        }
-        let per_row = if d20 { 0 } else { 14 };
-        let rows = 4;
-        let shown = rec.len().min(per_row * rows);
-        let start = rec.len() - shown;
-        if !d20 {
-            bp_ui::draw::round_rect(c, lx, 190, 360, rows as i32 * 28 + 14, 8, theme::SURFACE);
-        }
-        for (i, &v) in rec[start..].iter().enumerate() {
-            let ch = match (dice, v) {
-                (true, _) => v as char,
-                (false, b'1') => 'H',
-                (false, _) => 'T',
+            let v = rec[start + i];
+            let t: Buf<4> = match f.kind {
+                Start::D20 => bformat!(4, "{:>2}", v),
+                Start::Dice => bformat!(4, "{}", v as char),
+                _ => bformat!(4, "{}", if v == b'1' { 'H' } else { 'T' }),
             };
-            let mut b = [0u8; 4];
-            let cs = ch.encode_utf8(&mut b);
-            let col = (i % per_row) as i32;
-            let row = (i / per_row) as i32;
-            let last = start + i + 1 == rec.len();
-            BODY.draw(
+            let last = i + 1 == filled;
+            let tw = font.text_width(t.as_str());
+            font.draw(
                 c,
-                lx + 14 + col * 24,
-                197 + row * 28,
-                cs,
+                cx + (cell_w - tw) / 2,
+                cy + (pitch - font.height as i32) / 2,
+                t.as_str(),
                 if last { theme::ACCENT } else { theme::TEXT },
             );
         }
@@ -1019,7 +1028,7 @@ impl App {
         let cs = 11 - free;
         let head: Buf<96> = fill(s.words_count, &[&s.final_result_title, &n]);
         widgets::label(c, MARGIN, STATUS_H + 14, head.as_str());
-        HUGE.draw_centered(c, 0, 800, STATUS_H + 50, m.word(n - 1), theme::ACCENT);
+        DOUBLE.draw_centered(c, 0, 800, STATUS_H + 61, m.word(n - 1), theme::BRIGHT);
         let mut bits = Buf::<16>::new();
         for i in (0..11).rev() {
             bits.push_str(if (last >> i) & 1 == 1 { "1" } else { "0" });
@@ -1094,7 +1103,7 @@ impl App {
             for chunk in text.chunks(58).take(2) {
                 let line = core::str::from_utf8(chunk).unwrap_or("");
                 let quoted = bformat!(64, "\"{}\"", line);
-                BODY.draw(c, MARGIN, y, quoted.as_str(), theme::TEXT);
+                BODY.draw(c, MARGIN, y, quoted.as_str(), theme::BRIGHT);
                 y += 30;
             }
             let spaces = text.iter().filter(|&&b| b == b' ').count();
@@ -1114,7 +1123,7 @@ impl App {
         widgets::label(c, MARGIN, y + 6, s.fp_current);
         BODY.draw(c, MARGIN + 220, y, cur.as_str(), theme::TEXT_DIM);
         widgets::label(c, MARGIN, y + 46, s.fp_new);
-        TITLE.draw(c, MARGIN + 220, y + 34, new.as_str(), theme::ACCENT);
+        DOUBLE.draw(c, MARGIN + 220, y + 26, new.as_str(), theme::BRIGHT);
         SMALL.draw(c, MARGIN, y + 84, s.pp_check, theme::TEXT_DIM);
         let items = [
             MenuItem {
@@ -1126,7 +1135,7 @@ impl App {
                 detail: "",
             },
         ];
-        widgets::list(c, 200, 336, 400, 104, &items, sel as usize, false);
+        widgets::list(c, MARGIN, 336, 400, 104, &items, sel as usize, false);
         widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.edit)]);
     }
 
@@ -1716,7 +1725,7 @@ impl App {
         let Some(seed) = self.scanned.as_ref() else { return };
         let fp = crate::seeds::fingerprint_hex(&seed.fingerprint);
         widgets::label(c, MARGIN, STATUS_H + 20, s.fp_label);
-        HUGE.draw(c, MARGIN, STATUS_H + 42, fp.as_str(), theme::ACCENT);
+        DOUBLE.draw(c, MARGIN, STATUS_H + 53, fp.as_str(), theme::BRIGHT);
         let src = match self.scan.seed_source {
             Some(bp_bitcoin::qrinput::SeedSource::SeedQrStandard) => s.scan_seed_sources[0],
             Some(bp_bitcoin::qrinput::SeedSource::SeedQrCompact) => s.scan_seed_sources[1],
@@ -1966,33 +1975,48 @@ impl App {
         let dice = f.kind != Start::Coin;
         self.status(c, start_title(self, f.kind));
         let a = pe.analyze();
-        let w = 800;
-        TITLE.draw_centered(c, 0, w, STATUS_H + 14, s.summary_title, theme::OK);
+        // M9-7: left-aligned like a terminal report; the hash is the data
+        let g = |row| bp_ui::grid::text_y(&BODY, row, 1);
+        TITLE.draw(
+            c,
+            MARGIN,
+            bp_ui::grid::text_y(&TITLE, 2, 2),
+            s.summary_title,
+            theme::OK,
+        );
         let est = bformat!(16, "{:.0}", a.est_bits);
         let info: Buf<160> = fill(
             s.summary_info,
             &[&a.count, &if dice { s.rolls } else { s.flips }, &est, &f.words],
         );
-        BODY.draw_centered(c, 0, w, STATUS_H + 58, info.as_str(), theme::TEXT_DIM);
+        widgets::log_line(
+            c,
+            MARGIN,
+            g(4),
+            800 - 2 * MARGIN,
+            widgets::Tag::Ok,
+            info.as_str(),
+            "",
+        );
 
-        widgets::label(c, MARGIN, 146, s.summary_sha);
+        widgets::label(c, MARGIN, g(6), s.summary_sha);
         let hash = pe.sha256();
         let mut hex = Buf::<64>::new();
         for b in hash {
             let _ = core::fmt::Write::write_fmt(&mut hex, format_args!("{b:02x}"));
         }
         let hs = hex.as_str();
-        BODY.draw(c, MARGIN, 168, &hs[..32], theme::ACCENT);
-        BODY.draw(c, MARGIN, 194, &hs[32..], theme::ACCENT);
+        BODY.draw(c, MARGIN, g(7), &hs[..32], theme::BRIGHT);
+        BODY.draw(c, MARGIN, g(8), &hs[32..], theme::BRIGHT);
 
-        widgets::label(c, MARGIN, 232, s.summary_record);
+        widgets::label(c, MARGIN, g(10), s.summary_record);
         let mut text = [0u8; bp_bitcoin::entropy::MAX_TEXT];
         let n = pe.text(&mut text);
         let rec = &text[..n];
         let per_row = 80;
-        for (row, chunk) in rec.chunks(per_row).take(7).enumerate() {
+        for (row, chunk) in rec.chunks(per_row).take(6).enumerate() {
             let line = core::str::from_utf8(chunk).unwrap_or("");
-            SMALL.draw(c, MARGIN, 254 + row as i32 * 20, line, theme::TEXT);
+            SMALL.draw(c, MARGIN, bp_ui::grid::y(11) + row as i32 * 20, line, theme::TEXT);
         }
         SMALL.draw(c, MARGIN, 404, s.summary_verify, theme::TEXT_FAINT);
         widgets::hint_bar(c, &[("Enter", s.h_continue), ("Esc", s.h_back)]);
@@ -2008,31 +2032,30 @@ impl App {
         let title: Buf<96> = fill(s.words_count, &[&s.words_title, &m.len()]);
         self.status(c, title.as_str());
         let words: [&str; 24] = core::array::from_fn(|i| if i < m.len() { m.word(i) } else { "" });
-        if m.len() <= 12 {
-            widgets::word_grid(
-                c,
-                64,
-                STATUS_H + 30,
-                800 - 128,
-                &words[..m.len()],
-                3,
-                72,
-                None,
-                &TITLE,
-            );
-        } else {
-            widgets::word_grid(
-                c,
-                40,
-                STATUS_H + 20,
-                800 - 80,
-                &words[..m.len()],
-                4,
-                58,
-                None,
-                &BODY,
-            );
+        // row 2: the first-four rule, and when the saver will hide the words
+        let y2 = bp_ui::grid::text_y(&BODY, 2, 1);
+        BODY.draw(c, MARGIN, y2, s.words_first4, theme::TEXT_DIM);
+        if let Some(secs) = self.hides_in() {
+            let t = bformat!(8, "{}:{:02}", secs / 60, secs % 60);
+            let l: Buf<48> = fill(s.words_hide, &[&t.as_str()]);
+            let w = BODY.text_width(l.as_str());
+            let color = if secs <= 10 { theme::WARN } else { theme::TEXT_DIM };
+            BODY.draw(c, bp_ui::grid::x(bp_ui::grid::COLS) - w, y2, l.as_str(), color);
         }
+        // M9-7: three columns, read down each column; 24 words in 8 rows
+        let rows = m.len().div_ceil(3) as i32;
+        let pitch = if rows <= 4 { 3 } else { 2 } * bp_ui::grid::CELL_H;
+        widgets::word_grid(
+            c,
+            MARGIN + 12,
+            bp_ui::grid::y(3),
+            800 - 2 * MARGIN,
+            &words[..m.len()],
+            3,
+            pitch,
+            None,
+            &TITLE,
+        );
         if view.is_none() {
             widgets::hint_bar(c, &[("Enter", s.h_start_check), ("Esc", s.h_cancel)]);
         } else {

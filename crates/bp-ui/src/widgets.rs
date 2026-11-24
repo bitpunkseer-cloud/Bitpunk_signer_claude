@@ -517,8 +517,18 @@ pub fn word_grid(
                 1,
                 TEXT_FAINT,
             );
+        } else if here {
+            font.draw(c, wx, ty, word, ACCENT);
         } else {
-            font.draw(c, wx, ty, word, if here { ACCENT } else { TEXT });
+            // BIP-39 words are told apart by their first four letters (UX
+            // language: the same rule as typing them)
+            let k = if word.is_char_boundary(4.min(word.len())) {
+                4.min(word.len())
+            } else {
+                word.len()
+            };
+            let x1 = font.draw(c, wx, ty, &word[..k], BRIGHT);
+            font.draw(c, x1, ty, &word[k..], TEXT);
         }
     }
 }

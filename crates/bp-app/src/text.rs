@@ -95,6 +95,9 @@ pub struct Strings {
     pub flips: &'static str,
     pub minimum: &'static str,
     pub recent: &'static str,
+    /// M9-7 entropy board label; "... latest {}" once it scrolls
+    pub board: &'static str,
+    pub board_latest: &'static str,
     pub frequency: &'static str,
     pub entropy_label: &'static str,
     pub checks: &'static str,
@@ -121,6 +124,9 @@ pub struct Strings {
     pub warn_title: &'static str,
     pub warn_lines: [&'static str; 4],
     pub words_title: &'static str,
+    /// M9-7 seed words: the first-four-letters rule, and "hidden in {m:ss}"
+    pub words_first4: &'static str,
+    pub words_hide: &'static str,
 
     // quiz
     pub quiz_intro_title: &'static str,
@@ -778,6 +784,8 @@ pub static EN: Strings = Strings {
     flips: "flips",
     minimum: "minimum",
     recent: "LAST VALUES",
+    board: "BOARD",
+    board_latest: "BOARD - latest {}",
     frequency: "FREQUENCY",
     entropy_label: "ESTIMATED ENTROPY",
     checks: "CHECKS",
@@ -807,6 +815,8 @@ pub static EN: Strings = Strings {
         "Next you must pass a check of every word.",
     ],
     words_title: "Seed words",
+    words_first4: "The first 4 letters identify each word",
+    words_hide: "hidden in {}",
 
     quiz_intro_title: "Backup check",
     quiz_intro: [
@@ -1423,6 +1433,8 @@ pub static KO: Strings = Strings {
     flips: "회",
     minimum: "최소",
     recent: "최근 값",
+    board: "기록판",
+    board_latest: "기록판 - 최근 {}개",
     frequency: "빈도",
     entropy_label: "추정 엔트로피",
     checks: "검사",
@@ -1452,6 +1464,8 @@ pub static KO: Strings = Strings {
         "다음 단계에서 모든 단어를 확인하는 검사를 통과해야 합니다.",
     ],
     words_title: "시드 단어",
+    words_first4: "단어는 앞 4글자로 구분됩니다",
+    words_hide: "{} 뒤 가림",
 
     quiz_intro_title: "백업 검사",
     quiz_intro: [

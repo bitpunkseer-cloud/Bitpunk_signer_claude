@@ -433,7 +433,7 @@ impl App {
                 let mut text = [0u8; MAX_TEXT];
                 let n = d.write_text(&mut text);
                 let shown = core::str::from_utf8(&text[..n]).unwrap_or("");
-                let y2 = BODY.draw_wrapped(c, MARGIN, y + 8, W, 34, 5, shown, theme::ACCENT);
+                let y2 = BODY.draw_wrapped(c, MARGIN, y + 8, W, 34, 5, shown, theme::BRIGHT);
                 bp_crypto::secret::wipe(&mut text);
                 widgets::list(c, MARGIN, y2 + 16, W, 2 * 52, &items_text, sel as usize, false);
             }
