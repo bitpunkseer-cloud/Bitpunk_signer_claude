@@ -649,7 +649,7 @@ impl App {
             MsStep::Done { sel } => {
                 let y = widgets::message_at(c, STATUS_H + 16, s.ms_signed, theme::OK, &[s.ms_signed_1]);
                 let sig = core::str::from_utf8(m.signature().unwrap_or(&[])).unwrap_or("");
-                let y = SMALL.draw_wrapped(c, MARGIN, y + 8, 800 - 2 * MARGIN, 22, 3, sig, theme::TEXT) + 8;
+                let y = SMALL.draw_wrapped(c, MARGIN, y + 8, 800 - 2 * MARGIN, 22, 3, sig, theme::BRIGHT) + 8;
                 let [qr, done] = s.ms_done_options;
                 let all = [s.sd.save_sd, qr, done].map(|label| MenuItem { label, detail: "" });
                 let items: &[MenuItem] = if self.msg_from_sd() { &all } else { &all[1..] };

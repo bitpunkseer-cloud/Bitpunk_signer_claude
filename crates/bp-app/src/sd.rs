@@ -13,6 +13,7 @@ use bp_hal::input::{Key, KeyEvent};
 use bp_hal::{Canvas, SdCard};
 use bp_ui::fmt::{fill, Buf};
 use bp_ui::font::{BODY, SMALL, TITLE};
+use bp_ui::grid;
 use bp_ui::theme;
 use bp_ui::widgets::{self, MenuItem, MARGIN, STATUS_H};
 
@@ -917,25 +918,33 @@ impl App {
         self.status(c, t.menu);
         let top = STATUS_H + 16;
         match self.sd.card {
+            // M9-8: what the card check found, as log lines
             None => {
-                BODY.draw(c, MARGIN, top, t.reading, theme::TEXT_DIM);
+                widgets::log_line(c, MARGIN, top, W, widgets::Tag::Pending, t.reading, "");
             }
             Some(Ok(info)) => {
                 let size = size_text(info.bytes);
                 let line: Buf<48> = fill("{} - {}", &[&kind_name(info.kind), &size.as_str()]);
-                BODY.draw(c, MARGIN, top, line.as_str(), theme::TEXT);
                 let cluster: Buf<16> = if info.cluster < 1024 {
                     fill("{} B", &[&info.cluster])
                 } else {
                     fill("{} KB", &[&(info.cluster / 1024)])
                 };
                 let detail: Buf<80> = fill(t.detail_line, &[&cluster.as_str(), &info.entries]);
-                SMALL.draw(c, MARGIN, top + 36, detail.as_str(), theme::TEXT_DIM);
+                widgets::log_line(
+                    c,
+                    MARGIN,
+                    top,
+                    W,
+                    widgets::Tag::Ok,
+                    line.as_str(),
+                    detail.as_str(),
+                );
             }
             Some(Err(p)) => {
                 let lines = t.problems[p.index()];
                 self.show_error(crate::errors::Area::Card, p.index());
-                BODY.draw(c, MARGIN, top, lines[0], theme::WARN);
+                widgets::log_line(c, MARGIN, top, W, widgets::Tag::Warn, lines[0], "");
                 SMALL.draw(c, MARGIN, top + 32, lines[1], theme::TEXT);
                 SMALL.draw(c, MARGIN, top + 54, lines[2], theme::TEXT);
             }
@@ -972,7 +981,7 @@ impl App {
         let t = s.sd;
         let sd = &self.sd;
         self.status(c, t.sign_psbt);
-        let top = STATUS_H + 8;
+        let top = grid::y(2);
         if !sd.listed {
             BODY.draw(c, MARGIN, top + 12, t.reading, theme::TEXT_DIM);
         } else if let Some(p) = sd.list_err {
@@ -983,19 +992,8 @@ impl App {
             BODY.draw(c, MARGIN, top + 12, t.psbt_none[0], theme::TEXT_DIM);
             SMALL.draw(c, MARGIN, top + 52, t.psbt_none[1], theme::TEXT_DIM);
         } else {
-            let mut names: [Buf<96>; PAGE] = [const { Buf::new() }; PAGE];
-            let mut sizes: [Buf<16>; PAGE] = [const { Buf::new() }; PAGE];
-            for (i, e) in sd.list[..sd.count].iter().enumerate() {
-                if let Some(e) = e {
-                    names[i] = fit_name(e.name(), 46);
-                    sizes[i] = file_size(e.size());
-                }
-            }
-            let items: [MenuItem; PAGE] = core::array::from_fn(|i| MenuItem {
-                label: names[i].as_str(),
-                detail: sizes[i].as_str(),
-            });
-            widgets::list(c, MARGIN, top, W, 364, &items[..sd.count], sel as usize, true);
+            // M9-8: the same listing; digits choose here
+            self.dir_rows(c, sel, true);
         }
         if let Some(n) = self.notice {
             SMALL.draw(c, MARGIN, 480 - widgets::HINT_H - 24, n, theme::WARN);
@@ -1015,13 +1013,13 @@ impl App {
                 TITLE.draw(c, MARGIN, STATUS_H + 24, t.saved, theme::OK);
                 let name = fit_name(saved.name.as_str(), 60);
                 let line: Buf<128> = fill(t.saved_as, &[&name.as_str()]);
-                BODY.draw(c, MARGIN, STATUS_H + 84, line.as_str(), theme::TEXT);
-                let mut y = STATUS_H + 130;
+                widgets::log_line(c, MARGIN, STATUS_H + 84, W, widgets::Tag::Ok, line.as_str(), "");
+                let mut y = STATUS_H + 120;
                 if saved.wiped {
                     SMALL.draw(c, MARGIN, y, t.wiped_original, theme::WARN);
                     y += 30;
                 }
-                BODY.draw(c, MARGIN, y, t.remove_ok, theme::TEXT_DIM);
+                widgets::log_line(c, MARGIN, y, W, widgets::Tag::Info, t.remove_ok, "");
                 widgets::hint_bar(c, &[("Enter", t.done)]);
             }
             Some(Err(p)) => {
@@ -1057,7 +1055,27 @@ impl App {
         }
         let title = fit_name(path.as_str(), 40);
         self.status(c, title.as_str());
-        let top = STATUS_H + 8;
+        // M9-8: a DOS-style listing — volume and folder, one row per entry,
+        // a totals line
+        let g = |row| grid::text_y(&BODY, row, 1);
+        if let Some(Ok(info)) = self.sd.card {
+            let size = size_text(info.bytes);
+            let v: Buf<48> = fill(t.volume, &[&kind_name(info.kind), &size.as_str()]);
+            BODY.draw(c, MARGIN, g(2), v.as_str(), theme::TEXT_DIM);
+        }
+        let mut here: Buf<96> = Buf::new();
+        here.push_str("\\");
+        for (i, name) in sd.names[..sd.depth].iter().enumerate() {
+            if i > 0 {
+                here.push_str("\\");
+            }
+            here.push_str(name.as_str());
+        }
+        let here = fit_name(here.as_str(), 30);
+        let hw = BODY.text_width(here.as_str());
+        BODY.draw(c, grid::x(grid::COLS) - hw, g(2), here.as_str(), theme::TEXT_DIM);
+        grid::rule(c, 2);
+        let top = grid::y(3);
         if !sd.listed {
             BODY.draw(c, MARGIN, top + 12, t.reading, theme::TEXT_DIM);
         } else if let Some(p) = sd.list_err {
@@ -1068,24 +1086,19 @@ impl App {
         } else if sd.count == 0 {
             BODY.draw(c, MARGIN, top + 12, t.empty_dir, theme::TEXT_DIM);
         } else {
-            let mut names: [Buf<96>; PAGE] = [const { Buf::new() }; PAGE];
-            let mut sizes: [Buf<16>; PAGE] = [const { Buf::new() }; PAGE];
-            for (i, e) in sd.list[..sd.count].iter().enumerate() {
-                let Some(e) = e else { continue };
-                names[i] = fit_name(e.name(), 46);
-                sizes[i] = if e.is_dir() {
-                    fill(">", &[])
-                } else {
-                    file_size(e.size())
-                };
-            }
-            let items: [MenuItem; PAGE] = core::array::from_fn(|i| MenuItem {
-                label: names[i].as_str(),
-                detail: sizes[i].as_str(),
-            });
-            widgets::list(c, MARGIN, top, W, 364, &items[..sd.count], sel as usize, true);
+            self.dir_rows(c, sel, false);
         }
-        // "33-64 of 120 · 3 hidden"
+        grid::rule(c, 17);
+        // "8 file(s)  1.1 KB   2 folder(s)" ... "33-64 of 120  3 hidden"
+        let (mut files, mut dirs, mut bytes) = (0usize, 0usize, 0u32);
+        for e in sd.list[..sd.count].iter().flatten() {
+            if e.is_dir() {
+                dirs += 1;
+            } else {
+                files += 1;
+                bytes = bytes.saturating_add(e.size());
+            }
+        }
         let first = sd.page as u32 * PAGE as u32;
         let mut foot: Buf<64> = Buf::new();
         if sd.count > 0 {
@@ -1099,13 +1112,41 @@ impl App {
             let h: Buf<24> = fill(t.hidden, &[&sd.hidden]);
             foot.push_str(h.as_str());
         }
-        let y = 480 - widgets::HINT_H - 24;
         if let Some(n) = self.notice {
-            SMALL.draw(c, MARGIN, y, n, theme::WARN);
-        } else {
-            SMALL.draw(c, MARGIN, y, foot.as_str(), theme::TEXT_DIM);
+            BODY.draw(c, MARGIN, g(18), n, theme::WARN);
+        } else if sd.count > 0 {
+            let size = file_size(bytes);
+            let tot: Buf<96> = fill(t.totals, &[&files, &size.as_str(), &dirs]);
+            BODY.draw(c, MARGIN, g(18), tot.as_str(), theme::TEXT_DIM);
+        }
+        let fw = BODY.text_width(foot.as_str());
+        if self.notice.is_none() {
+            BODY.draw(c, grid::x(grid::COLS) - fw, g(18), foot.as_str(), theme::TEXT_DIM);
         }
         widgets::hint_bar(c, &[("^v", s.h_move), ("Enter", s.h_select), ("Esc", s.h_back)]);
+    }
+
+    /// The listed entries as directory rows from grid row 3 (14 rows).
+    fn dir_rows(&self, c: &mut dyn Canvas, sel: u8, numbered: bool) {
+        let sd = &self.sd;
+        let mut names: [Buf<96>; PAGE] = [const { Buf::new() }; PAGE];
+        let mut sizes: [Buf<16>; PAGE] = [const { Buf::new() }; PAGE];
+        let mut dirs = [false; PAGE];
+        for (i, e) in sd.list[..sd.count].iter().enumerate() {
+            let Some(e) = e else { continue };
+            names[i] = fit_name(e.name(), 46);
+            dirs[i] = e.is_dir();
+            if !e.is_dir() {
+                sizes[i] = file_size(e.size());
+            }
+        }
+        let rows: [widgets::DirRow; PAGE] = core::array::from_fn(|i| widgets::DirRow {
+            name: names[i].as_str(),
+            size: sizes[i].as_str(),
+            dir: dirs[i],
+        });
+        let (row, n) = if numbered { (2, 15) } else { (3, 14) };
+        widgets::dir_list(c, row, n, &rows[..sd.count], sel as usize, numbered);
     }
 
     fn render_file(&self, c: &mut dyn Canvas, sel: u8) {
@@ -1128,6 +1169,9 @@ impl App {
                 (t.kind_label, kind),
             ],
         );
+        if self.sd.kind.is_some() {
+            SMALL.draw(c, MARGIN + 200, STATUS_H + 128, t.kind_note, theme::TEXT_DIM);
+        }
         let actions = file_actions(self.sd.kind);
         let mut items = [
             MenuItem {

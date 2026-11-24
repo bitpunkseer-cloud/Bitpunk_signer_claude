@@ -218,6 +218,81 @@ pub fn list_rows(
     }
 }
 
+/// One entry of a directory listing.
+pub struct DirRow<'a> {
+    pub name: &'a str,
+    /// File size text; ignored for folders.
+    pub size: &'a str,
+    pub dir: bool,
+}
+
+/// DOS-style directory listing (M9-8): one grid row per entry from grid
+/// row `row`, `rows` visible, scrolled to keep `selected` in view. Folders
+/// say `<DIR>`, files their size at the right. `numbered` adds `[1]`-`[9]`
+/// on screens where the digit keys choose an entry.
+pub fn dir_list(
+    c: &mut dyn Canvas,
+    row: i32,
+    rows: i32,
+    entries: &[DirRow],
+    selected: usize,
+    numbered: bool,
+) {
+    use crate::grid;
+    let visible = rows.max(1) as usize;
+    let first = if selected >= visible {
+        selected + 1 - visible
+    } else {
+        0
+    };
+    let x0 = grid::x(0);
+    let width = grid::COLS * grid::CELL_W;
+    let name_col = if numbered { 5 } else { 2 };
+    for (i, e) in entries.iter().enumerate().skip(first).take(visible) {
+        let r = row + (i - first) as i32;
+        let y = grid::y(r);
+        let ty = grid::text_y(&BODY, r, 1);
+        let sel = i == selected;
+        if sel {
+            c.fill_rect(x0 - 4, y + 1, width + 8, grid::CELL_H - 2, ACCENT);
+        }
+        let (fg, dim) = if sel {
+            (ACCENT_TEXT, ACCENT_TEXT)
+        } else {
+            (TEXT, TEXT_DIM)
+        };
+        if sel {
+            BODY.draw(c, x0, ty, ">", ACCENT_TEXT);
+        }
+        if numbered && i < 9 {
+            let n = [b'[', b'1' + i as u8, b']'];
+            BODY.draw(c, grid::x(1), ty, core::str::from_utf8(&n).unwrap_or("?"), dim);
+        }
+        BODY.draw(
+            c,
+            grid::x(name_col),
+            ty,
+            e.name,
+            if e.dir && !sel { BRIGHT } else { fg },
+        );
+        if e.dir {
+            BODY.draw(c, grid::x(grid::COLS - 8), ty, "<DIR>", dim);
+        } else {
+            let w = BODY.text_width(e.size);
+            BODY.draw(c, grid::x(grid::COLS - 1) - w, ty, e.size, dim);
+        }
+    }
+    if entries.len() > visible {
+        let top = grid::y(row);
+        let track_h = visible as i32 * grid::CELL_H;
+        let thumb_h = (track_h * visible as i32 / entries.len() as i32).max(12);
+        let thumb_y = top + (track_h - thumb_h) * first as i32 / (entries.len() - visible) as i32;
+        let x = grid::x(grid::COLS) + 2;
+        c.fill_rect(x, top, 3, track_h, SURFACE_HI);
+        c.fill_rect(x, thumb_y, 3, thumb_h, TEXT_DIM);
+    }
+}
+
 /// Heading plus body lines, horizontally centred, starting at `top`. Lines
 /// wider than the screen wrap.
 pub fn message_at(c: &mut dyn Canvas, top: i32, heading: &str, heading_color: Rgb, lines: &[&str]) -> i32 {

@@ -68,6 +68,12 @@ pub struct SdStrings {
     pub retry: &'static str,
     /// "Cluster {} - Root entries {}"
     pub detail_line: &'static str,
+    /// M9-8 directory listing: "Volume FAT16  16.6 MB", totals line
+    pub volume: &'static str,
+    /// "{files} {bytes} {folders}"
+    pub totals: &'static str,
+    /// Under the file type: how it was decided
+    pub kind_note: &'static str,
     /// Signed screen of a PSBT file.
     pub signed_sd: &'static str,
     pub import_wallet: &'static str,
@@ -189,6 +195,9 @@ pub static EN_SD: SdStrings = SdStrings {
     ],
     retry: "Try again",
     detail_line: "Cluster {} - Root entries {}",
+    volume: "Volume {}  {}",
+    totals: "{} file(s)  {}   {} folder(s)",
+    kind_note: "Judged from the content, not the name.",
     signed_sd: "Save the whole PSBT to the card and open it in your wallet.",
     import_wallet: "Import wallet",
     import_settings: "Import settings",
@@ -303,6 +312,9 @@ pub static KO_SD: SdStrings = SdStrings {
     ],
     retry: "다시 시도",
     detail_line: "클러스터 {} - 루트 항목 {}",
+    volume: "볼륨 {}  {}",
+    totals: "파일 {}개  {}   폴더 {}개",
+    kind_note: "이름이 아니라 내용으로 판별했습니다.",
     signed_sd: "전체 PSBT를 카드에 저장해 지갑 앱에서 여세요.",
     import_wallet: "지갑 가져오기",
     import_settings: "설정 가져오기",

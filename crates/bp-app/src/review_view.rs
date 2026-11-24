@@ -157,6 +157,18 @@ fn prose(c: &mut dyn Canvas, y: i32, text: &str, font: &Font, color: bp_hal::Rgb
     )
 }
 
+/// Text in groups of four characters on one line (UX rule 9).
+pub(crate) fn groups4(text: &str) -> Buf<96> {
+    let mut g = Buf::<96>::new();
+    for (i, q) in text.as_bytes().chunks(4).enumerate() {
+        if i > 0 {
+            g.push_str(" ");
+        }
+        g.push_str(core::str::from_utf8(q).unwrap_or(""));
+    }
+    g
+}
+
 /// An address in groups of four characters, eight groups per line, all
 /// equally bright (UX language rule 9), one line per two grid rows.
 pub(crate) fn address_lines(c: &mut dyn Canvas, x: i32, y: i32, addr: &str) -> i32 {

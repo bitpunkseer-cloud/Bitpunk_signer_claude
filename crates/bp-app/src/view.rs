@@ -1157,7 +1157,7 @@ impl App {
         let path = st.account_path(net, account);
         let path_s = bformat!(32, "{}", path);
         widgets::label(c, MARGIN, STATUS_H + 12, s.fp_label);
-        BODY.draw(c, MARGIN + 110, STATUS_H + 6, fp.as_str(), theme::ACCENT);
+        BODY.draw(c, MARGIN + 110, STATUS_H + 6, fp.as_str(), theme::BRIGHT);
         widgets::label(c, MARGIN + 260, STATUS_H + 12, s.path_label);
         BODY.draw(c, MARGIN + 320, STATUS_H + 6, path_s.as_str(), theme::TEXT);
 
@@ -1188,7 +1188,7 @@ impl App {
                 MARGIN,
                 STATUS_H + 72 + row as i32 * 28,
                 line.as_str(),
-                theme::TEXT,
+                theme::BRIGHT,
             );
         }
 
@@ -1235,12 +1235,13 @@ impl App {
         let path = st.account_path(net, 0);
         let kind = if change { s.change } else { s.receive };
         let head = bformat!(64, "{}  {}/{}/*", kind, path, change as u8);
-        widgets::label(c, MARGIN, STATUS_H + 12, head.as_str());
+        let hy = bp_ui::grid::text_y(&SMALL, 2, 1);
+        widgets::label(c, MARGIN, hy, head.as_str());
         let pg: Buf<48> = fill(s.page_n, &[&(page + 1)]);
         SMALL.draw(
             c,
             800 - MARGIN - SMALL.text_width(pg.as_str()),
-            STATUS_H + 12,
+            hy,
             pg.as_str(),
             theme::TEXT_DIM,
         );
@@ -1251,34 +1252,37 @@ impl App {
         let Ok(chain) = acct.derive_child(change as u32) else {
             return;
         };
+        // M9-8: one row per address, in groups of four (UX rule 9); the
+        // selection is the inverse bar of every list
+        let pitch = 36;
         for row in 0..10u32 {
             let idx = page * 10 + row;
-            let y = STATUS_H + 40 + row as i32 * 33;
+            let y = bp_ui::grid::y(3) + row as i32 * pitch;
             let selected = row == sel as u32;
+            let (fg, dim) = if selected {
+                c.fill_rect(MARGIN - 4, y + 2, 800 - 2 * MARGIN + 8, pitch - 4, theme::ACCENT);
+                (theme::ACCENT_TEXT, theme::ACCENT_TEXT)
+            } else {
+                (theme::TEXT, theme::TEXT_DIM)
+            };
+            let ty = y + (pitch - BODY.height as i32) / 2;
             if selected {
-                bp_ui::draw::round_rect(
-                    c,
-                    MARGIN - 8,
-                    y - 2,
-                    800 - 2 * MARGIN + 16,
-                    30,
-                    6,
-                    theme::SURFACE_HI,
-                );
+                BODY.draw(c, MARGIN, ty, ">", fg);
             }
             let num = bformat!(8, "{:>4}", idx);
-            SMALL.draw(c, MARGIN, y + 3, num.as_str(), theme::TEXT_FAINT);
+            BODY.draw(c, MARGIN + 12, ty, num.as_str(), dim);
             let mut out = [0u8; address::MAX_ADDRESS_LEN];
             if let Ok(k) = chain.derive_child(idx) {
                 let n = address::encode(&k.key, st, net, &mut out);
-                let a = core::str::from_utf8(&out[..n]).unwrap_or("");
-                SMALL.draw(
-                    c,
-                    MARGIN + 52,
-                    y + 3,
-                    a,
-                    if selected { theme::ACCENT } else { theme::TEXT },
-                );
+                let g = crate::review_view::groups4(core::str::from_utf8(&out[..n]).unwrap_or(""));
+                let x = MARGIN + 6 * 12 + 12;
+                // long addresses (Taproot) take the small font to fit
+                let font = if BODY.text_width(g.as_str()) <= 800 - MARGIN - x {
+                    &BODY
+                } else {
+                    &SMALL
+                };
+                font.draw(c, x, y + (pitch - font.height as i32) / 2, g.as_str(), fg);
             }
         }
         widgets::hint_bar(

@@ -180,7 +180,13 @@ impl App {
                         TITLE.draw(c, MARGIN, y, s.sv_valid, theme::OK);
                         y += 48;
                         widgets::label(c, MARGIN, y, s.res_address);
-                        SMALL.draw(c, MARGIN, y + 20, st.addr(), theme::TEXT);
+                        SMALL.draw(
+                            c,
+                            MARGIN,
+                            y + 20,
+                            crate::review_view::groups4(st.addr()).as_str(),
+                            theme::BRIGHT,
+                        );
                         y += 50;
                         let k = match kind {
                             SigKind::Legacy { bip137: false, .. } => s.sv_kinds[0],

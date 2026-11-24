@@ -19,7 +19,7 @@ use bp_bitcoin::qrinput::UrKey;
 use bp_hal::input::{Key, KeyEvent};
 use bp_hal::Canvas;
 use bp_ui::fmt::{fill, Buf};
-use bp_ui::font::{BODY, HUGE, SMALL, TITLE};
+use bp_ui::font::{BODY, DOUBLE, SMALL, TITLE};
 use bp_ui::theme;
 use bp_ui::widgets::{self, MenuItem, MARGIN, STATUS_H};
 
@@ -1406,7 +1406,7 @@ impl App {
                 TITLE.draw(c, MARGIN, top, t.code_title, theme::TEXT);
                 let d = p.code.display();
                 let code = core::str::from_utf8(&d).unwrap_or("");
-                HUGE.draw_centered(c, 0, 800, top + 70, code, theme::ACCENT);
+                DOUBLE.draw_centered(c, 0, 800, top + 81, code, theme::BRIGHT);
                 let mut y = top + 150;
                 for l in t.code_lines {
                     y = BODY.draw_wrapped(c, MARGIN, y, W, 28, 3, l, theme::TEXT) + 8;
@@ -1854,26 +1854,28 @@ impl App {
 /// Height of one row of `options`.
 const OPTION_H: i32 = 36;
 
-/// A compact numbered option list (for screens that need the room).
+/// A compact numbered option list (for screens that need the room): the
+/// common list with shorter rows (M9-8).
 fn options(c: &mut dyn Canvas, top: i32, items: &[&str], sel: u8) {
-    for (i, label) in items.iter().enumerate() {
-        let y = top + i as i32 * OPTION_H;
-        let on = i == sel as usize;
-        if on {
-            bp_ui::draw::round_rect(c, MARGIN, y, W, OPTION_H - 4, 8, theme::ACCENT);
-        }
-        let fg = if on { theme::ACCENT_TEXT } else { theme::TEXT };
-        let ty = y + (OPTION_H - 4 - BODY.height as i32) / 2;
-        let n = [b'1' + i as u8];
-        BODY.draw(
-            c,
-            MARGIN + 14,
-            ty,
-            core::str::from_utf8(&n).unwrap_or(""),
-            if on { fg } else { theme::TEXT_DIM },
-        );
-        BODY.draw(c, MARGIN + 44, ty, label, fg);
+    let mut list: [MenuItem; 4] = core::array::from_fn(|_| MenuItem {
+        label: "",
+        detail: "",
+    });
+    let n = items.len().min(list.len());
+    for (m, label) in list.iter_mut().zip(items) {
+        m.label = label;
     }
+    widgets::list_rows(
+        c,
+        MARGIN,
+        top,
+        W,
+        n as i32 * OPTION_H,
+        &list[..n],
+        sel as usize,
+        false,
+        OPTION_H,
+    );
 }
 
 /// One cosigner page: number, fingerprint, path, xpub in groups.
@@ -1897,7 +1899,7 @@ fn render_cosigner(s: &crate::Strings, c: &mut dyn Canvas, w: &Wallet, i: u8, ou
     let mut y = top + 48;
     widgets::label(c, MARGIN, y, t.fingerprint);
     let fp = fingerprint_hex(&k.fingerprint);
-    TITLE.draw(c, MARGIN, y + 20, fp.as_str(), theme::ACCENT);
+    DOUBLE.draw(c, MARGIN, y + 14, fp.as_str(), theme::BRIGHT);
     widgets::label(c, MARGIN + 260, y, t.path);
     let path: Buf<96> = fill("{}", &[&k.origin]);
     BODY.draw(c, MARGIN + 260, y + 26, path.as_str(), theme::TEXT);
@@ -1913,7 +1915,7 @@ fn render_cosigner(s: &crate::Strings, c: &mut dyn Canvas, w: &Wallet, i: u8, ou
     let mut groups = 0;
     for (gi, chunk) in text.as_bytes().chunks(4).enumerate() {
         if groups == 12 {
-            BODY.draw(c, MARGIN, y, line.as_str(), theme::TEXT);
+            BODY.draw(c, MARGIN, y, line.as_str(), theme::BRIGHT);
             y += 30;
             line = Buf::new();
             groups = 0;
@@ -1926,7 +1928,7 @@ fn render_cosigner(s: &crate::Strings, c: &mut dyn Canvas, w: &Wallet, i: u8, ou
         let _ = gi;
     }
     if groups > 0 {
-        BODY.draw(c, MARGIN, y, line.as_str(), theme::TEXT);
+        BODY.draw(c, MARGIN, y, line.as_str(), theme::BRIGHT);
         y += 30;
     }
     SMALL.draw_wrapped(c, MARGIN, y + 10, W, 22, 2, t.compare, theme::TEXT_DIM);
