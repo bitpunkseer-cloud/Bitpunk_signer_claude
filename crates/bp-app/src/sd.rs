@@ -913,11 +913,12 @@ impl App {
             Some(Err(p)) => {
                 let lines = t.problems[p.index()];
                 BODY.draw(c, MARGIN, top, lines[0], theme::WARN);
-                SMALL.draw(c, MARGIN, top + 36, lines[1], theme::TEXT);
-                SMALL.draw(c, MARGIN, top + 60, lines[2], theme::TEXT);
+                SMALL.draw(c, MARGIN, top + 32, lines[1], theme::TEXT);
+                SMALL.draw(c, MARGIN, top + 54, lines[2], theme::TEXT);
             }
         }
-        SMALL.draw(c, MARGIN, STATUS_H + 92, t.power_note, theme::TEXT_DIM);
+        // (below the problem's three lines: they overlapped before M9)
+        SMALL.draw(c, MARGIN, STATUS_H + 96, t.power_note, theme::TEXT_DIM);
         let items = [
             MenuItem {
                 label: t.sign_psbt,

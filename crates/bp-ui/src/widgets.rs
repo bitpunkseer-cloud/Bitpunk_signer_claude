@@ -195,9 +195,21 @@ pub fn list(
 /// wider than the screen wrap.
 pub fn message_at(c: &mut dyn Canvas, top: i32, heading: &str, heading_color: Rgb, lines: &[&str]) -> i32 {
     let w = c.width() as i32;
-    TITLE.draw_centered(c, 0, w, top, heading, heading_color);
+    // UX language, three levels: caution "[!]", danger "[!!!]" in a double
+    // red frame; the symbol says it without colour
+    let mark = if heading_color == DANGER {
+        "[!!!] "
+    } else if heading_color == WARN {
+        "[!] "
+    } else {
+        ""
+    };
+    let hw = TITLE.text_width(mark) + TITLE.text_width(heading);
+    let hx = ((w - hw) / 2).max(MARGIN);
+    let hx = TITLE.draw(c, hx, top, mark, heading_color);
+    TITLE.draw(c, hx, top, heading, heading_color);
     let mut y = top + TITLE.height as i32 + 14;
-    let max = ((w - 2 * MARGIN) / BODY.width as i32) as usize;
+    let max = ((w - 2 * MARGIN - 16) / BODY.width as i32) as usize;
     for line in lines {
         let mut rest = *line;
         loop {
@@ -210,7 +222,20 @@ pub fn message_at(c: &mut dyn Canvas, top: i32, heading: &str, heading_color: Rg
             rest = tail;
         }
     }
+    if heading_color == DANGER {
+        danger_frame(c, top - 14, y + 14 - (top - 14));
+    }
     y
+}
+
+/// The double red frame of danger messages, across the screen.
+pub fn danger_frame(c: &mut dyn Canvas, y: i32, h: i32) {
+    let w = c.width() as i32;
+    for i in 0..2 {
+        let o = 4 + i * 5;
+        outline(c, o, y + i * 5, w - 2 * o, h - i * 10, DANGER);
+        outline(c, o + 1, y + i * 5 + 1, w - 2 * o - 2, h - i * 10 - 2, DANGER);
+    }
 }
 
 /// Centred message panel with a heading and body lines.
@@ -311,20 +336,87 @@ pub fn check_row(
     y: i32,
     w: i32,
     state: CheckState,
-    pills: &[&str; 3],
+    _pills: &[&str; 3],
     name: &str,
     detail: &str,
 ) {
-    let (txt, bg, fg) = match state {
-        CheckState::Wait => (pills[0], SURFACE_HI, TEXT_DIM),
-        CheckState::Pass => (pills[1], OK, ACCENT_TEXT),
-        CheckState::Fail => (pills[2], DANGER, ACCENT_TEXT),
+    // UX language: checks are log lines with language-neutral tags
+    let tag = match state {
+        CheckState::Wait => Tag::Pending,
+        CheckState::Pass => Tag::Ok,
+        CheckState::Fail => Tag::Fail,
     };
-    round_rect(c, x, y, 52, 22, 5, bg);
-    SMALL.draw_centered(c, x, 52, y + 11 - SMALL.height as i32 / 2, txt, fg);
-    BODY.draw(c, x + 64, y + 11 - BODY.height as i32 / 2, name, TEXT);
-    let dw = SMALL.text_width(detail);
-    SMALL.draw(c, x + w - dw, y + 11 - SMALL.height as i32 / 2, detail, TEXT_DIM);
+    log_line(c, x, y + 11 - BODY.height as i32 / 2, w, tag, name, detail);
+}
+
+/// Log tags (UX language): the symbol says it even without colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tag {
+    Ok,
+    Info,
+    Warn,
+    Fail,
+    /// Not done yet.
+    Pending,
+}
+
+impl Tag {
+    pub fn text(self) -> &'static str {
+        match self {
+            Tag::Ok => "[ OK ]",
+            Tag::Info => "[ i  ]",
+            Tag::Warn => "[WARN]",
+            Tag::Fail => "[FAIL]",
+            Tag::Pending => "[ -- ]",
+        }
+    }
+    pub fn color(self) -> Rgb {
+        match self {
+            Tag::Ok => OK,
+            Tag::Info => TEXT,
+            Tag::Warn => WARN,
+            Tag::Fail => DANGER,
+            Tag::Pending => TEXT_DIM,
+        }
+    }
+}
+
+/// One log line: tag, text, and a detail at the right edge of `w`.
+pub fn log_line(c: &mut dyn Canvas, x: i32, y: i32, w: i32, tag: Tag, text: &str, detail: &str) {
+    let x1 = BODY.draw(c, x, y, tag.text(), tag.color()) + BODY.width as i32;
+    let color = if tag == Tag::Pending { TEXT_DIM } else { TEXT };
+    BODY.draw(c, x1, y, text, color);
+    if !detail.is_empty() {
+        let dw = SMALL.text_width(detail);
+        SMALL.draw(
+            c,
+            x + w - dw,
+            y + (BODY.height as i32 - SMALL.height as i32) / 2,
+            detail,
+            TEXT_DIM,
+        );
+    }
+}
+
+/// Table cell alignment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Align {
+    Left,
+    Right,
+}
+
+/// One table row: cells of fixed widths in grid cells, from column `col`
+/// of grid row `row` (UX language: tables line up on the grid).
+pub fn table_row(c: &mut dyn Canvas, col: i32, row: i32, cells: &[(&str, i32, Align, Rgb)]) {
+    let mut at = col;
+    for (text, width, align, color) in cells {
+        let tx = match align {
+            Align::Left => crate::grid::x(at),
+            Align::Right => crate::grid::x(at + width) - BODY.text_width(text),
+        };
+        BODY.draw(c, tx, crate::grid::text_y(&BODY, row, 1), text, *color);
+        at += width;
+    }
 }
 
 /// Grid of numbered words. `words[i]` empty = not filled yet.
