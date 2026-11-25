@@ -872,6 +872,68 @@
  },
  {
   "group": [
+   "Added in M10 (in progress)",
+   "M10에서 더한 것 (진행 중)"
+  ],
+  "items": [
+   {
+    "id": "F-160",
+    "en": "Set or change a PIN: 4-8 characters then 4 or more, typed twice; two words to remember",
+    "ko": "PIN 정하기·바꾸기: 4~8자 + 4자 이상을 두 번, 기억할 단어 2개",
+    "where": [
+     "Settings > Security > PIN",
+     "설정 > 보안 > PIN"
+    ]
+   },
+   {
+    "id": "F-161",
+    "en": "Lock screen: first part, the two words, second part; or use without the vault",
+    "ko": "잠금 화면: 앞부분 → 단어 2개 → 뒷부분, 또는 보관함 없이 사용",
+    "where": [
+     "Power on (with a vault)",
+     "전원 켜기(보관함이 있을 때)"
+    ]
+   },
+   {
+    "id": "F-162",
+    "en": "Wrong PINs: attempts left, waits from the 4th (kept across power off), erased on the 10th",
+    "ko": "틀린 PIN: 남은 횟수, 4번째부터 대기(전원을 꺼도 유지), 10번째에 지움",
+    "where": [
+     "Lock screen",
+     "잠금 화면"
+    ]
+   },
+   {
+    "id": "F-163",
+    "en": "Lock now; erase the vault (type WIPE)",
+    "ko": "지금 잠그기, 보관함 지우기(WIPE 입력)",
+    "where": [
+     "Settings > Security",
+     "설정 > 보안"
+    ]
+   },
+   {
+    "id": "F-164",
+    "en": "Vault format: survives power cuts, refuses old copies, other devices and changed bytes",
+    "ko": "보관함 형식: 전원이 끊겨도 온전, 옛 사본·다른 기기·변조 거부",
+    "where": [
+     "(inside)",
+     "(내부)"
+    ]
+   },
+   {
+    "id": "F-165",
+    "en": "Secure element or flash problems: an E-VLT code, then use without the vault",
+    "ko": "보안 칩·플래시 문제: E-VLT 코드, 보관함 없이 사용",
+    "where": [
+     "Lock screen",
+     "잠금 화면"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
    "Simulator",
    "시뮬레이터"
   ],
@@ -910,6 +972,15 @@
     "where": [
      "Keyboard under the screen",
      "화면 아래 키보드"
+    ]
+   },
+   {
+    "id": "F-144",
+    "en": "Vault panel: simulated secure element in page memory only (reload = new device), state shown",
+    "ko": "보관함 패널: 모의 보안 칩, 페이지 메모리에만(새로고침 = 새 기기), 상태 표시",
+    "where": [
+     "Vault panel below",
+     "아래 보관함 패널"
     ]
    }
   ]

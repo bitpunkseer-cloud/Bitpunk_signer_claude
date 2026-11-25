@@ -2,7 +2,7 @@
 //   node sim/e2e/smoke.js dist/simulator.html
 // Drives the page like a user: loads a seed through the camera's text input,
 // signs a PSBT and compares the signed bytes with the M8 output baseline,
-// uses the microSD panel and the boot check. Uses only layout-independent
+// uses the microSD panel, the boot check and the simulated vault. Uses only layout-independent
 // keys (Fn+Q opens the scanner from any menu; Enter/Esc/Down inside flows).
 "use strict";
 const { chromium } = require("playwright");
@@ -89,6 +89,43 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   await page.click("#commBtn");
   if ((await page.getAttribute("#commBtn", "aria-pressed")) !== "false") fail("boot check did not turn off");
   else console.log("ok: boot check toggles");
+
+  // 5. vault (M10): set a PIN, power off and on, unlock on the lock screen.
+  // Menu rows are positional here: Settings is row 6 of the main menu and
+  // Security the 13th row of Settings; Power is row 7.
+  const vaultIs = async (want, ms) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      if ((await page.textContent("#vaultState")) === want) return true;
+      await page.waitForTimeout(100);
+    }
+    return false;
+  };
+  const typeText = async t => { for (const ch of t) await key(ch); };
+  if (!(await vaultIs("No vault", 1000))) fail("vault state not shown");
+  for (let i = 0; i < 4; i++) await key("Escape");
+  await key("6");
+  for (let i = 0; i < 12; i++) await key("ArrowDown");
+  await key("Enter"); // Security
+  await key("1"); // PIN
+  await key("Enter"); // the rules
+  for (let i = 0; i < 2; i++) {
+    await typeText("abcd"); await key("Enter");
+    await typeText("efgh"); await key("Enter");
+  }
+  if (!(await vaultIs("Vault open", 30000))) fail("setting a PIN did not open a vault");
+  await key("Enter"); // the words were seen
+  for (let i = 0; i < 4; i++) await key("Escape");
+  await key("7"); await key("1"); // Power off
+  await key("Enter"); // power on
+  await page.waitForTimeout(2500); // splash
+  if (!(await vaultIs("Vault locked", 3000))) fail("no lock screen after power on");
+  await typeText("abcd"); await key("Enter");
+  await page.waitForTimeout(500); // the two words
+  await key("Enter");
+  await typeText("efgh"); await key("Enter");
+  if (!(await vaultIs("Vault open", 30000))) fail("the PIN did not unlock the vault");
+  else console.log("ok: vault PIN set, lock screen after power on, unlocked");
 
   // feature checklist: every inventory item, ticks counted, both languages
   const items = await page.locator("#checkList input[type=checkbox]").count();

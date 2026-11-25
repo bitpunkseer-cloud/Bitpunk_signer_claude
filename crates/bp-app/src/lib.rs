@@ -25,8 +25,10 @@ mod text_b85;
 mod text_help;
 mod text_key;
 mod text_sd;
+mod text_vault;
 pub(crate) mod typed;
 pub mod vault;
+pub mod vaultui;
 mod verify;
 mod view;
 mod wallets;
@@ -300,6 +302,10 @@ pub enum Screen {
     Key {
         step: keys::KeyStep,
     },
+    /// The vault: lock screen, setting or changing the PIN, erasing (M10).
+    Vault {
+        step: vaultui::VStep,
+    },
     /// The boot check found a network chip: nothing else is possible.
     CommDetected,
 }
@@ -375,6 +381,8 @@ pub struct App {
     pub(crate) saver: bool,
     /// The help box is open over the screen (M9-9, C11).
     pub(crate) help: core::cell::Cell<bool>,
+    /// The vault and its lock (M10).
+    pub(crate) vault: vaultui::VaultState,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -459,6 +467,7 @@ impl App {
             idle_ms: 0,
             saver: false,
             help: core::cell::Cell::new(false),
+            vault: vaultui::VaultState::new(),
         }
     }
 
@@ -560,6 +569,10 @@ impl App {
         let busy = self.sd_pending();
         let blocked = match self.current() {
             Screen::Splash | Screen::PoweredOff | Screen::CommDetected | Screen::Scan { .. } => true,
+            // the wait between PIN attempts stays visible (M10-4)
+            Screen::Vault {
+                step: vaultui::VStep::Delay,
+            } => true,
             Screen::QrShow { kind } => !matches!(kind, QrKind::SeedQr { .. } | QrKind::Bip85 { .. }),
             _ => false,
         };
@@ -572,6 +585,9 @@ impl App {
             || matches!(
                 self.current(),
                 Screen::Splash
+                    | Screen::Vault {
+                        step: vaultui::VStep::Working
+                    }
                     | Screen::VerifyAddr {
                         step: verify::VaStep::Searching
                     }
@@ -657,6 +673,7 @@ impl App {
         if self.hides_in() != hides_in {
             self.dirty = true;
         }
+        self.vault_tick(dt_ms);
         if self.rain_shown() && self.rain.tick(dt_ms) {
             self.dirty = true;
         }
@@ -673,7 +690,7 @@ impl App {
                 if matches!(self.comm, bp_hal::CommCheck::Detected(_)) {
                     self.reset_to(Screen::CommDetected);
                 } else {
-                    self.reset_to(Screen::Welcome { sel: 0 });
+                    self.after_boot();
                 }
             }
         }
@@ -966,7 +983,7 @@ impl App {
             Screen::Splash if matches!(self.comm, bp_hal::CommCheck::Detected(_)) => {
                 self.reset_to(Screen::CommDetected)
             }
-            Screen::Splash => self.reset_to(Screen::Welcome { sel: 0 }),
+            Screen::Splash => self.after_boot(),
             Screen::Welcome { sel } => match ev.key {
                 Key::Left | Key::Right if sel > 0 => {
                     let row = if sel == 1 {
@@ -1001,6 +1018,7 @@ impl App {
             },
             Screen::PoweredOff => {
                 self.splash_ms = 0;
+                self.vault.power_on();
                 self.reset_to(Screen::Splash);
             }
             Screen::About => {
@@ -1430,6 +1448,7 @@ impl App {
             Screen::Sd { step } => self.sd_key(step, ev),
             Screen::Bip85 { step } => self.b85_key(step, ev),
             Screen::Key { step } => self.key_key(step, ev),
+            Screen::Vault { step } => self.vault_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1851,20 +1870,30 @@ impl App {
                     self.start_scan(scan::Purpose::Address);
                 }
             }
+            Action::VaultPin => self.vault_pin_action(),
+            Action::VaultLock => self.vault_lock_action(),
+            Action::VaultWipe => self.vault_wipe_action(),
             Action::PowerOff => {
                 self.log.clear();
-                self.flow = None;
-                self.seeds = [None, None, None];
-                self.review = None;
-                self.verify = None;
-                self.msg = None;
-                self.sig = None;
-                self.last_found = None;
-                self.n_session_accounts = 1;
-                self.memory.clear();
+                self.wipe_ram();
+                self.vault.lock();
                 self.reset_to(Screen::PoweredOff);
             }
         }
+    }
+
+    /// Forget everything held in RAM: seeds, flows, reviews, remembered
+    /// amounts (power off, and Lock now).
+    pub(crate) fn wipe_ram(&mut self) {
+        self.flow = None;
+        self.seeds = [None, None, None];
+        self.review = None;
+        self.verify = None;
+        self.msg = None;
+        self.sig = None;
+        self.last_found = None;
+        self.n_session_accounts = 1;
+        self.memory.clear();
     }
 
     /// Tools > Address explorer: pick a seed first if several are loaded.

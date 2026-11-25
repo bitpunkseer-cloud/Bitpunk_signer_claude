@@ -279,6 +279,7 @@ name = "bp-sim-web"
 version = "0.0.1"
 dependencies = [
  "bp-app",
+ "bp-crypto",
  "bp-fat",
  "bp-hal",
  "bp-ui",

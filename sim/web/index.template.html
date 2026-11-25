@@ -255,6 +255,14 @@
     </div>
   </section>
 
+  <section class="cam" aria-label="Vault on a simulated secure element">
+    <div class="cam-head">
+      <h2>Vault · simulated secure element</h2>
+      <span class="cam-state" id="vaultState">No vault</span>
+    </div>
+    <p class="cam-note">Settings &gt; Security &gt; PIN makes a vault (M10). The secure element, the device key and the vault flash are simulated in this page's memory only: nothing is written to browser storage, and reloading the page is a new device without a vault. Power &gt; Power off, then any key, shows the lock screen. Stretching the PIN (Argon2id, 8 MiB) takes a moment here, as on the device.</p>
+  </section>
+
   <div class="info">
     <div class="card">
       <h2>Controls</h2>
@@ -271,8 +279,8 @@
       <p>The layout of the real CardKB v1.1 (50 keys). <kbd>Sym</kbd> types the small symbol beside a letter (<kbd>Sym</kbd>+<kbd>K</kbd> is <kbd>?</kbd>); <kbd>⇧</kbd> once for a capital, twice for caps lock. <kbd>Fn</kbd> + <kbd>Q</kbd> opens the QR scanner from any menu.</p>
     </div>
     <div class="card">
-      <h2>This build · M9</h2>
-      <p id="status">M9 "Bitpunk Phosphor": the same functions as M8, every screen redrawn as a phosphor terminal. Menus by task (Sign · Receive &amp; verify · Seeds &amp; keys · Multisig · SD · Settings · Power), a first-run screen, a session log under the main menu, a boot self-test log, a screen saver that hides secrets, the review with a large amount, a ledger and a log of what was verified, a DOS-style file list, error codes, <kbd>?</kbd> help on every screen, and screen effects (Settings). Every output (QR, files, signatures) is byte-for-byte the M8 one. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
+      <h2>This build · M10 in progress</h2>
+      <p id="status">M10 (secure storage) in progress: a vault locked by a two-part PIN with two anti-phishing words, on a simulated secure element (Settings &gt; Security); keeping seeds in it comes next. Without a vault the device works exactly as in M9. M9 "Bitpunk Phosphor": the same functions as M8, every screen redrawn as a phosphor terminal. Menus by task (Sign · Receive &amp; verify · Seeds &amp; keys · Multisig · SD · Settings · Power), a first-run screen, a session log under the main menu, a boot self-test log, a screen saver that hides secrets, the review with a large amount, a ledger and a log of what was verified, a DOS-style file list, error codes, <kbd>?</kbd> help on every screen, and screen effects (Settings). Every output (QR, files, signatures) is byte-for-byte the M8 one. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
     </div>
   </div>
 
@@ -564,6 +572,7 @@
 
   // ---------- microSD card (the page plays the computer) ----------
   const sdState = document.getElementById("sdState");
+  const vaultState = document.getElementById("vaultState");
   const sdInsert = document.getElementById("sdInsert");
   const sdFiles = document.getElementById("sdFiles");
   const sdDrop = document.getElementById("sdDrop");
@@ -697,6 +706,7 @@
       if (stream) stopWebcam(); // the camera runs only while the device is scanning
     }
     updateState();
+    vaultState.textContent = ["No vault", "Vault locked", "Vault open"][wasm.bp_vault_state()] || "";
   }, 120);
 
   // Boot

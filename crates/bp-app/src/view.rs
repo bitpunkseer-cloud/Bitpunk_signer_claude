@@ -145,6 +145,7 @@ impl App {
         // the key bar's content is measured so the help hint never covers it
         let mut probe = widgets::KeyBarProbe::new(c);
         self.render_screen(&mut probe);
+        self.vault_drawn();
         let (bar, used) = (probe.bar, probe.right);
         // a band of rain while a long search runs (no information there)
         if matches!(
@@ -628,6 +629,7 @@ impl App {
             Screen::Sd { step } => self.render_sd(c, step),
             Screen::Bip85 { step } => self.render_b85(c, step),
             Screen::Key { step } => self.render_key(c, step),
+            Screen::Vault { step } => self.render_vault(c, step),
             Screen::CommDetected => {
                 self.status(c, s.key.comm_title);
                 let (addr, id) = match self.comm {

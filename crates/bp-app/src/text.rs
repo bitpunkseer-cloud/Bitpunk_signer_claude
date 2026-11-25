@@ -456,6 +456,8 @@ pub struct Strings {
     pub key: &'static crate::text_key::KeyStrings,
     // Screen help (M9-9)
     pub help: &'static crate::text_help::HelpStrings,
+    // The vault and its PIN (M10)
+    pub vault: &'static crate::text_vault::VaultStrings,
 }
 
 /// Number of issue kinds (see `review::issue_index`).
@@ -689,7 +691,7 @@ pub static EN: Strings = Strings {
     welcome: [
         "Air-gapped: QR codes and the microSD card only, no radio.",
         "New seeds come from dice and coin flips only.",
-        "Power off wipes seeds and settings (no storage until M10).",
+        "Without a vault, power off wipes seeds and settings.",
     ],
     start: "Start",
     log_title: "Session log · time since power on · wiped at power off",
@@ -705,6 +707,8 @@ pub static EN: Strings = Strings {
         "Wallet registered",
         "File saved to the card",
         "Card formatted",
+        "Vault opened",
+        "Vault saved",
     ],
     seeds: "Seeds",
     tools: "Tools",
@@ -1186,6 +1190,7 @@ pub static EN: Strings = Strings {
     b85: &crate::text_b85::EN_B85,
     key: &crate::text_key::EN_KEY,
     help: &crate::text_help::EN_HELP,
+    vault: &crate::text_vault::EN_VAULT,
 };
 
 pub static KO_REVIEW: ReviewStrings = ReviewStrings {
@@ -1339,7 +1344,7 @@ pub static KO: Strings = Strings {
     welcome: [
         "에어갭: QR 코드와 microSD만 씁니다. 무선 없음.",
         "새 시드는 주사위와 동전으로만 만듭니다.",
-        "전원을 끄면 시드·설정이 지워집니다 (M10 전까지).",
+        "보관함이 없으면 전원을 끌 때 시드·설정이 지워집니다.",
     ],
     start: "시작",
     log_title: "세션 기록 · 켠 뒤 경과 시간 · 전원을 끄면 지워짐",
@@ -1355,6 +1360,8 @@ pub static KO: Strings = Strings {
         "지갑 등록",
         "카드에 파일 저장",
         "카드 포맷",
+        "보관함 열림",
+        "보관함 저장",
     ],
     seeds: "시드",
     tools: "도구",
@@ -1831,6 +1838,7 @@ pub static KO: Strings = Strings {
     b85: &crate::text_b85::KO_B85,
     key: &crate::text_key::KO_KEY,
     help: &crate::text_help::KO_HELP,
+    vault: &crate::text_vault::KO_VAULT,
 };
 
 /// Number of wallet-format error messages (see `wallets::format_error_index`).

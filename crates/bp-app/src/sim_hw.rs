@@ -201,6 +201,24 @@ impl DeviceKey for SimDeviceKey {
 }
 
 /// Bytes per vault slot (two slots).
+/// The simulator's random source for vault salts and keys (the device uses
+/// its TRNG). Never seed material: seeds come only from dice and coins.
+pub struct SimRng(bp_crypto::drbg::Drbg);
+
+impl SimRng {
+    pub fn new(seed: &[u8]) -> Self {
+        let mut d = bp_crypto::drbg::Drbg::new(seed);
+        d.reseed(b"bitpunk sim vault rng");
+        SimRng(d)
+    }
+}
+
+impl bp_hal::Rng for SimRng {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.0.fill(dest);
+    }
+}
+
 pub const SLOT_LEN: usize = 16 * 1024;
 
 /// Simulated vault flash with NOR rules and power cuts.

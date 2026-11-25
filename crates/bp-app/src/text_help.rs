@@ -3,7 +3,7 @@
 //! short paragraphs; the help box wraps them.
 
 /// Topics in `help::Topic` order.
-pub const TOPICS: usize = 18;
+pub const TOPICS: usize = 19;
 
 pub struct HelpStrings {
     /// "Help" (the key bar label)
@@ -179,6 +179,15 @@ pub static EN_HELP: HelpStrings = HelpStrings {
                 "",
             ],
         ),
+        (
+            "Vault and PIN",
+            [
+                "The vault keeps seeds, wallets and settings between power-ons, encrypted.",
+                "Type the first part of the PIN: check the two words, then type the rest.",
+                "Ten wrong PINs erase the vault for good. Your word backups stay the only recovery.",
+                "Esc on the lock screen: use the device without the vault.",
+            ],
+        ),
     ],
 };
 
@@ -346,6 +355,15 @@ pub static KO_HELP: HelpStrings = HelpStrings {
                 "단일 키는 주소 4개로 서명합니다. xpub·멀티시그·BIP-85는 없습니다.",
                 "",
                 "",
+            ],
+        ),
+        (
+            "보관함과 PIN",
+            [
+                "보관함은 시드·지갑·설정을 암호화해 전원을 꺼도 남깁니다.",
+                "PIN 앞부분을 치고 단어 2개를 확인한 뒤 나머지를 치세요.",
+                "PIN을 10번 틀리면 보관함이 영구히 지워집니다. 단어 백업이 유일한 복구 수단입니다.",
+                "잠금 화면에서 Esc: 보관함 없이 기기를 씁니다.",
             ],
         ),
     ],

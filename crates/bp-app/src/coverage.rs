@@ -13,6 +13,7 @@ use crate::review::Step as RvStep;
 use crate::scan::Purpose;
 use crate::sd::SdStep;
 use crate::sigverify::SvStep;
+use crate::vaultui::VStep;
 use crate::verify::VaStep;
 use crate::wallets::WlStep;
 use core::cell::RefCell;
@@ -86,6 +87,7 @@ kinds!(
         Sd,
         Bip85,
         Key,
+        Vault,
         CommDetected,
     ]
 );
@@ -93,7 +95,7 @@ kinds!(
     menu,
     MENUS,
     MenuId,
-    [Main, Sign, Verify, Seeds, NewSeed, LoadSeed, Settings, Power]
+    [Main, Sign, Verify, Seeds, NewSeed, LoadSeed, Settings, Security, Power]
 );
 kinds!(
     qr,
@@ -179,6 +181,27 @@ kinds!(
 );
 kinds!(b85, B85, B85Step, [PickSeed, App, Params, Warning, Result]);
 kinds!(key, KEY, KeyStep, [Method, Type, Confirm, Refused, Addresses]);
+kinds!(
+    vs,
+    VS,
+    VStep,
+    [
+        Prefix,
+        Words,
+        Suffix,
+        Working,
+        Delay,
+        Wiped,
+        Problem,
+        Intro,
+        NewPrefix,
+        NewSuffix,
+        AgainPrefix,
+        AgainSuffix,
+        Remember,
+        Wipe,
+    ]
+);
 
 /// "Screen" or "Screen/Step" for screens that hold a step or a kind.
 pub fn key_of(s: &Screen) -> String {
@@ -195,6 +218,7 @@ pub fn key_of(s: &Screen) -> String {
         Screen::Sd { step } => sd(step),
         Screen::Bip85 { step } => b85(step),
         Screen::Key { step } => key(step),
+        Screen::Vault { step } => vs(step),
         _ => return screen(s).to_string(),
     };
     let mut k = String::from(screen(s));
@@ -218,6 +242,7 @@ pub fn all() -> Vec<String> {
         ("Sd", SD),
         ("Bip85", B85),
         ("Key", KEY),
+        ("Vault", VS),
     ];
     let mut out = Vec::new();
     for s in SCREENS {

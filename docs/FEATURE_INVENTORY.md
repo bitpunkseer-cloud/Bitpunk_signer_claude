@@ -46,9 +46,9 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 
 | # | 변경 | 단위 | 상태 |
 |---|---|---|---|
-| D1 | 보관함이 있으면 부팅 뒤 잠금 화면(앞부분 → 단어 2개 → 뒷부분), "보관함 없이 사용" 선택 가능 | M10-4 | 예정 |
-| D2 | 메뉴 추가: 시드·키 > 시드 보관함, 설정 > 보안(PIN·속임수 PIN·탬퍼 점검 코드·보관함 지우기) | M10-4~7 | 예정 |
-| D3 | 첫 실행 화면 문구: "M10 전까지 저장 없음" → 보관함 안내 | M10-4 | 예정 |
+| D1 | 보관함이 있으면 부팅 뒤 잠금 화면(앞부분 → 단어 2개 → 뒷부분), "보관함 없이 사용" 선택 가능 | M10-4 | 완료 — set_a_pin_then_unlock_after_power_on, esc_on_the_lock_screen_is_a_session_without_the_vault |
+| D2 | 메뉴 추가: 시드·키 > 시드 보관함, 설정 > 보안(PIN·속임수 PIN·탬퍼 점검 코드·보관함 지우기) | M10-4~7 | 일부 — 설정 > 보안(PIN·지금 잠그기·보관함 지우기) M10-4 완료, 나머지 M10-5~7 |
+| D3 | 첫 실행 화면 문구: "M10 전까지 저장 없음" → 보관함 안내 | M10-4 | 완료 — (화면 순회) |
 
 흐름 안의 선택지 순서(확인 대화상자, 퀴즈 답, 내보내기 형식 목록, 지갑 단계, BIP-85 앱 목록 등)는 시험이 아직 위치로 고른다(남은 숫자 키 87회). M9에서 이런 목록의 순서를 바꾸는 단위는 먼저 `nav.rs`에 그 목록의 이름 기반 도우미를 더하고, 시험은 그것만 쓰게 한 뒤 바꾼다.
 
@@ -204,6 +204,16 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-156 | 되돌릴 수 없는 동작의 단어 입력 확인(FORMAT·WIPE) | SD > 카드 포맷, 시드 옵션 > 시드 지우기 | format_asks_twice, discarding_a_seed_needs_the_word_wipe |
 | F-157 | 오류 코드 표시 | 거부·실패 화면 | error_codes_are_documented, refusal_screens_show_their_error_code |
 
+### M10에서 더한 것 (M10)
+| # | 기능 | 위치 | 시험 |
+|---|---|---|---|
+| F-160 | PIN 정하기·바꾸기: 앞부분 4~8자 + 뒷부분 4자 이상을 두 번, 확인 단어 2개 | 설정 > 보안 > PIN | set_a_pin_then_unlock_after_power_on, pin_rules_and_mismatch |
+| F-161 | 잠금 화면: 앞부분 → 확인 단어 2개 → 뒷부분, 보관함 없이 사용 | 전원 켜기(보관함이 있을 때) | set_a_pin_then_unlock_after_power_on, esc_on_the_lock_screen_is_a_session_without_the_vault |
+| F-162 | 틀린 PIN: 남은 횟수, 4번째부터 대기 1분·5분·15분·1시간(전원을 꺼도 유지), 10번째에 영구 삭제 | 잠금 화면 | wrong_pins_count_wait_and_erase_on_the_tenth |
+| F-163 | 지금 잠그기, 보관함 지우기(WIPE 입력) | 설정 > 보안 | lock_now_change_pin_and_erase |
+| F-164 | 보관함 형식: A/B 쓰기, 롤백 거부, 전원이 끊겨도 온전한 보관함 하나, 다른 기기·변조 거부 | (내부) | a_power_cut_anywhere_leaves_one_whole_vault, a_pin_change_survives_a_power_cut, an_older_flash_image_is_refused, another_chip_or_element_cannot_open_it, any_changed_byte_is_refused_without_panicking |
+| F-165 | 보안 칩·플래시 문제는 오류 코드(E-VLT)와 함께 알리고 보관함 없이 사용 | 잠금 화면 | a_broken_secure_element_is_a_problem_with_a_code |
+
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |
 |---|---|---|
@@ -211,3 +221,4 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-141 | microSD 패널: 넣기/빼기·복사·끌어다 놓기·목록·내려받기·지우기·비우기 | sim/e2e/smoke.js (복사·목록·내려받기·빼기) |
 | F-142 | 부팅 점검 버튼 | sim/e2e/smoke.js |
 | F-143 | 화면 위 CardKB(Sym·Shift·Fn) | sim/e2e/smoke.js (Fn+Q) |
+| F-144 | 보관함 패널: 모의 보안 칩, 페이지 메모리에만(새로고침하면 새 기기), 상태 표시 | sim/e2e/smoke.js (PIN 정하기·잠금 화면·열기) |

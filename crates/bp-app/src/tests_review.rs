@@ -1413,6 +1413,9 @@ mod b85_flow;
 #[path = "tests_keys.rs"]
 mod keys_flow;
 
+#[path = "tests_vault.rs"]
+mod vault_flow;
+
 /// A BIP-85 result recorded from embit (see tools/gen_embit_bip85.py).
 pub(crate) fn b85_embit(app: &str, index: u32) -> String {
     let src = include_str!("../../bp-bitcoin/tests/data/embit_bip85.rs");
@@ -1440,6 +1443,7 @@ fn every_screen_and_step_is_drawn() {
     b85_flow::b85_screens_fit();
     keys_flow::key_screens_fit();
     keys_flow::a_network_chip_locks_the_device();
+    vault_flow::vault_screens_fit();
     let seen = crate::coverage::finish();
     let all = crate::coverage::all();
     let missing: std::vec::Vec<_> = all.iter().filter(|k| !seen.contains(*k)).collect();
@@ -1843,6 +1847,7 @@ fn error_codes_are_documented() {
             Area::Sig => s.sv_reasons.to_vec(),
             Area::Settings => s.si_errors.to_vec(),
             Area::Hw => std::vec![s.key.comm_title],
+            Area::Vault => s.vault.problems.to_vec(),
         }
     }
     let mut out = String::from(

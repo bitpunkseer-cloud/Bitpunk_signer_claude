@@ -16,9 +16,13 @@ pub enum Event {
     WalletRegistered,
     FileSaved,
     CardFormatted,
+    /// The vault was unlocked (M10).
+    VaultOpened,
+    /// The vault was created or written (M10).
+    VaultSaved,
 }
 
-pub const EVENTS: usize = 10;
+pub const EVENTS: usize = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Entry {

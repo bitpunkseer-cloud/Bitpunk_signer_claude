@@ -13,4 +13,5 @@ crate-type = ["cdylib", "rlib"]
 bp-hal.workspace = true
 bp-ui.workspace = true
 bp-app.workspace = true
+bp-crypto.workspace = true
 bp-fat.workspace = true

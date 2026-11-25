@@ -30,11 +30,13 @@ pub enum Area {
     Settings,
     /// The board itself: a network chip answered at boot.
     Hw,
+    /// The vault cannot be opened (M10).
+    Vault,
 }
 
 impl Area {
     #[cfg(test)]
-    pub const ALL: [Area; 11] = [
+    pub const ALL: [Area; 12] = [
         Area::Card,
         Area::Save,
         Area::Tx,
@@ -46,6 +48,7 @@ impl Area {
         Area::Sig,
         Area::Settings,
         Area::Hw,
+        Area::Vault,
     ];
 
     pub fn tag(self) -> &'static str {
@@ -61,6 +64,7 @@ impl Area {
             Area::Sig => "SIG",
             Area::Settings => "SET",
             Area::Hw => "HW",
+            Area::Vault => "VLT",
         }
     }
 }

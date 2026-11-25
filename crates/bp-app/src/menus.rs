@@ -15,10 +15,12 @@ pub enum MenuId {
     NewSeed,
     LoadSeed,
     Settings,
+    /// Settings > Security: the vault's PIN, locking, erasing (M10).
+    Security,
     Power,
 }
 
-pub const MAX_ITEMS: usize = 14;
+pub const MAX_ITEMS: usize = 15;
 
 type Label = fn(&Strings) -> &'static str;
 
@@ -67,6 +69,12 @@ pub enum Action {
     PowerOff,
     /// Open the camera scanner.
     Scan(crate::scan::Purpose),
+    /// Settings > Security > PIN (set up, change; unlock first if locked).
+    VaultPin,
+    /// Settings > Security > Lock now.
+    VaultLock,
+    /// Settings > Security > Erase the vault.
+    VaultWipe,
 }
 
 const fn open(label: Label, id: MenuId) -> Entry {
@@ -142,7 +150,7 @@ static LOAD_SEED: [Entry; 3] = [
     action(|s| s.scan_seedqr, Action::Scan(crate::scan::Purpose::Seed)),
 ];
 
-static SETTINGS: [Entry; 14] = [
+static SETTINGS: [Entry; 15] = [
     setting(|s| s.network),
     setting(|s| s.units),
     setting(|s| s.qr_density),
@@ -155,6 +163,7 @@ static SETTINGS: [Entry; 14] = [
     setting(|s| s.sd.wipe_setting),
     setting(|s| s.fx_label),
     setting(|s| s.saver_label),
+    open(|s| s.vault.menu, MenuId::Security),
     Entry {
         label: |s| s.settings_qr,
         detail: ">",
@@ -164,6 +173,24 @@ static SETTINGS: [Entry; 14] = [
         label: |s| s.about,
         detail: ">",
         action: Action::About,
+    },
+];
+
+static SECURITY: [Entry; 3] = [
+    Entry {
+        label: |s| s.vault.row_pin,
+        detail: ">",
+        action: Action::VaultPin,
+    },
+    Entry {
+        label: |s| s.vault.row_lock,
+        detail: "",
+        action: Action::VaultLock,
+    },
+    Entry {
+        label: |s| s.vault.row_wipe,
+        detail: ">",
+        action: Action::VaultWipe,
     },
 ];
 
@@ -182,6 +209,7 @@ pub fn table(id: MenuId) -> &'static [Entry] {
         MenuId::NewSeed => &NEW_SEED,
         MenuId::LoadSeed => &LOAD_SEED,
         MenuId::Settings => &SETTINGS,
+        MenuId::Security => &SECURITY,
         MenuId::Power => &POWER,
     }
 }
@@ -195,6 +223,7 @@ pub fn title(id: MenuId, s: &Strings) -> &'static str {
         MenuId::NewSeed => s.create_seed,
         MenuId::LoadSeed => s.load_seed,
         MenuId::Settings => s.settings,
+        MenuId::Security => s.vault.menu,
         MenuId::Power => s.power,
     }
 }
@@ -226,6 +255,7 @@ mod tests {
             MenuId::NewSeed,
             MenuId::LoadSeed,
             MenuId::Settings,
+            MenuId::Security,
             MenuId::Power,
         ] {
             assert!(!table(id).is_empty() && table(id).len() <= MAX_ITEMS);

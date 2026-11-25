@@ -27,6 +27,7 @@ pub enum Topic {
     Settings,
     Bip85,
     PrivateKey,
+    Vault,
 }
 
 /// The topic for a screen; `None` where help is not offered (start-up,
@@ -38,6 +39,7 @@ pub fn topic(s: &Screen) -> Option<Topic> {
         Screen::Welcome { .. } | Screen::About => Menus,
         Screen::Menu { id, .. } => match id {
             MenuId::Settings => Settings,
+            MenuId::Security => Vault,
             MenuId::NewSeed => MakeSeed,
             MenuId::Seeds | MenuId::LoadSeed => Seeds,
             _ => Menus,
@@ -87,6 +89,7 @@ pub fn topic(s: &Screen) -> Option<Topic> {
         Screen::Sd { .. } => Sd,
         Screen::Bip85 { .. } => Bip85,
         Screen::Key { .. } => PrivateKey,
+        Screen::Vault { .. } => Vault,
     })
 }
 

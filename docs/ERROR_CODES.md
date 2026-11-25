@@ -167,3 +167,11 @@
 | 코드 | English | 한국어 |
 |---|---|---|
 | `E-HW-01` | Network chip detected | 통신 칩 감지 |
+
+## VLT
+
+| 코드 | English | 한국어 |
+|---|---|---|
+| `E-VLT-01` | The vault is damaged or from another device. | 보관함이 손상되었거나 다른 기기의 것입니다. |
+| `E-VLT-02` | The vault on the flash is older than the device expects. | 플래시의 보관함이 기기가 아는 것보다 오래되었습니다. |
+| `E-VLT-03` | The secure element or the flash did not answer. | 보안 칩이나 플래시가 응답하지 않습니다. |

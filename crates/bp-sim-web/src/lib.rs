@@ -18,13 +18,20 @@
 //! | `bp_sd_list() -> u32` / `bp_out_ptr()` | card listing as `path\tsize\n` lines |
 //! | `bp_sd_get(path_len) -> u32` | file contents into the out buffer (`u32::MAX` on error) |
 //! | `bp_sd_delete(path_len) -> u32` / `bp_sd_erase() -> u32` | delete one file / reformat the card |
+//! | `bp_vault_state() -> u32` | simulated vault: 0 none, 1 locked, 2 open (M10) |
+//!
+//! The vault parts (secure element, device key, flash) are simulated in this
+//! page's memory only: reloading the page is a new device with no vault.
 //!
 //! No wasm-bindgen: JS reads the framebuffer straight from linear memory.
 
 mod card;
 mod framebuffer;
 
+use bp_app::sim_hw::{SimDeviceKey, SimFlash, SimRng, SimSecureElement, SLOT_LEN};
+use bp_app::vault::{VaultHw, DEFAULT_KDF};
 use bp_app::App;
+use bp_crypto::argon2::Block;
 use bp_hal::input::KeyEvent;
 use card::VirtualCard;
 use framebuffer::Framebuffer;
@@ -51,9 +58,52 @@ struct Sim {
     card: VirtualCard,
     file: Vec<u8>,
     out: Vec<u8>,
+    vault: VaultParts,
+}
+
+/// The simulated secure storage of the device (M10).
+struct VaultParts {
+    se: SimSecureElement,
+    key: SimDeviceKey,
+    flash: Box<SimFlash>,
+    rng: SimRng,
+    /// Argon2id memory for the device's parameters (8 MiB).
+    mem: Vec<Block>,
+    body: Vec<u8>,
+}
+
+impl VaultParts {
+    fn new(seed: &[u8; 32]) -> Self {
+        let chip = u64::from_le_bytes(seed[..8].try_into().unwrap_or([1; 8]));
+        VaultParts {
+            se: SimSecureElement::new(chip),
+            key: SimDeviceKey::new(chip),
+            flash: Box::new(SimFlash::new()),
+            rng: SimRng::new(seed),
+            mem: vec![[0u64; 128]; DEFAULT_KDF.m_kib as usize],
+            body: vec![0u8; SLOT_LEN],
+        }
+    }
 }
 
 impl Sim {
+    /// Run a vault job once its screen has been drawn (the device firmware
+    /// does the same).
+    fn serve_vault(&mut self) {
+        if !self.app.vault_pending() {
+            return;
+        }
+        let v = &mut self.vault;
+        let mut hw = VaultHw {
+            se: &mut v.se,
+            key: &mut v.key,
+            flash: &mut *v.flash,
+            rng: &mut v.rng,
+            mem: &mut v.mem,
+        };
+        self.app.vault_service(&mut hw, &mut v.body);
+    }
+
     /// Run card jobs the app queued (the device firmware does the same
     /// after every event).
     fn serve_card(&mut self) {
@@ -90,9 +140,11 @@ pub extern "C" fn bp_init() {
         card: VirtualCard::new(&seed),
         file: Vec::new(),
         out: Vec::new(),
+        vault: VaultParts::new(&seed),
     };
     sim.app.set_test_only(true); // a web page is not air-gapped
     sim.app.set_card_present(true);
+    sim.serve_vault(); // the power-on probe
     sim.app.tick(0);
     draw(&mut sim);
     SIM.with(|s| *s.borrow_mut() = Some(sim));
@@ -127,6 +179,7 @@ pub extern "C" fn bp_key(code: u32, ch: u32, mods: u32) {
 pub extern "C" fn bp_tick(ms: u32) -> u32 {
     with_sim(|s| {
         s.serve_card();
+        s.serve_vault();
         if s.app.tick(ms) {
             draw(s);
             1
@@ -295,6 +348,12 @@ pub extern "C" fn bp_comm_check(state: u32) {
 #[no_mangle]
 pub extern "C" fn bp_wants_camera() -> u32 {
     with_sim(|s| s.app.wants_camera() as u32).unwrap_or(0)
+}
+
+/// The simulated vault: 0 none, 1 locked, 2 open.
+#[no_mangle]
+pub extern "C" fn bp_vault_state() -> u32 {
+    with_sim(|s| s.app.vault_state()).unwrap_or(0)
 }
 
 #[cfg(test)]
