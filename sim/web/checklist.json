@@ -1010,6 +1010,33 @@
      "Settings > Security > Trick PINs",
      "설정 > 보안 > 속임수 PIN"
     ]
+   },
+   {
+    "id": "F-175",
+    "en": "Tamper check: a check code (6-16, never stored), the firmware's SHA-256, the device key and the secure element give two words; other firmware or device, other words",
+    "ko": "탬퍼 점검: 점검 코드(6~16자, 저장 안 함)·펌웨어 SHA-256·기기 키·보안 칩 → 단어 2개, 펌웨어·기기가 바뀌면 달라짐",
+    "where": [
+     "Lock screen Tab; Settings > Security > Tamper check",
+     "잠금 화면 Tab, 설정 > 보안 > 탬퍼 점검"
+    ]
+   },
+   {
+    "id": "F-176",
+    "en": "The tamper check looks the same after a silent erase; says so where the firmware cannot be hashed",
+    "ko": "조용히 지운 뒤에도 탬퍼 점검은 같은 모습, 펌웨어 해시가 없으면 알림",
+    "where": [
+     "Lock screen",
+     "잠금 화면"
+    ]
+   },
+   {
+    "id": "F-177",
+    "en": "A menu row that does nothing says why, above the key bar",
+    "ko": "아무것도 하지 않는 메뉴 줄은 키 막대 위에 이유를 보임",
+    "where": [
+     "Any menu",
+     "모든 메뉴"
+    ]
    }
   ]
  },

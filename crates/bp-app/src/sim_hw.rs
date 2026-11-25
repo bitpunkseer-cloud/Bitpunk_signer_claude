@@ -219,9 +219,11 @@ impl bp_hal::Rng for SimRng {
     }
 }
 
-pub const SLOT_LEN: usize = 16 * 1024;
+/// A slot holds the header, the largest body (`vaultdata::BODY_MAX`) and the check.
+pub const SLOT_LEN: usize = 32 * 1024;
 
 /// Simulated vault flash with NOR rules and power cuts.
+#[derive(Clone)]
 pub struct SimFlash {
     pub slots: [[u8; SLOT_LEN]; 2],
     /// Operations left before the power fails (each programmed byte and

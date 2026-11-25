@@ -763,6 +763,47 @@ pub fn phishing_words(hw: &mut VaultHw, found: &Found, prefix: &[u8]) -> Result<
     Ok([w0, w1])
 }
 
+/// Tamper check words (M10-7, decision 12): two BIP-39 word indexes from
+/// the check code (stretched like a PIN, with the device key as Argon2's
+/// secret), the firmware's SHA-256 and the secure element's HMAC key. The
+/// same code on the same firmware and device gives the same words; another
+/// firmware image or another device gives others. The code is never kept,
+/// and the attempt counter is not touched.
+pub fn tamper_words(
+    hw: &mut VaultHw,
+    found: &Found,
+    code: &[u8],
+    firmware: &[u8; 32],
+) -> Result<[u16; 2], VaultError> {
+    let h = &found.header;
+    let mut d = Secret::new(h.wrapped_d);
+    hw.key
+        .decipher(d.expose_mut())
+        .map_err(|_| VaultError::Hardware)?;
+    let mut c = Secret::new([0u8; 32]);
+    argon2id(
+        h.kdf,
+        code,
+        &h.salt,
+        d.expose(),
+        b"bitpunk tamper",
+        hw.mem,
+        c.expose_mut(),
+    )
+    .map_err(|_| VaultError::Hardware)?;
+    let mut inner = HmacSha256::new(c.expose());
+    inner.update(b"bitpunk tamper");
+    inner.update(firmware);
+    let mut m = inner.finalize();
+    let mut out = [0u8; 32];
+    hw!(hw.se.hmac(&m, &mut out))?;
+    wipe(&mut m);
+    let w0 = u16::from_be_bytes([out[0], out[1]]) >> 5;
+    let w1 = u16::from_be_bytes([out[2], out[3]]) >> 5;
+    wipe(&mut out);
+    Ok([w0, w1])
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
@@ -1133,5 +1174,30 @@ mod tests {
         assert!(tricks(&old).iter().all(|t| t.is_none()));
         remove_trick(&mut rng, &mut old, 0);
         assert!(tricks(&old).iter().all(|t| t.is_none()));
+    }
+
+    #[test]
+    fn tamper_words_follow_the_code_the_firmware_and_the_device() {
+        let mut dev = Dev::new(41);
+        let mut b = [0u8; 4096];
+        b[..2].copy_from_slice(b"hi");
+        let _ = create(&mut dev.hw(), b"pin", KDF, 0, &mut b, 2).unwrap();
+        let fw = [0x11u8; 32];
+        let mut words = |dev: &mut Dev, code: &[u8], fw: &[u8; 32]| {
+            let found = scan(&mut dev.flash, &mut b).unwrap().unwrap();
+            tamper_words(&mut dev.hw(), &found, code, fw).unwrap()
+        };
+        let w = words(&mut dev, b"check1", &fw);
+        assert_eq!(words(&mut dev, b"check1", &fw), w, "same code, firmware, device");
+        assert_ne!(words(&mut dev, b"check2", &fw), w, "another code");
+        assert_ne!(words(&mut dev, b"check1", &[0x12; 32]), w, "another firmware");
+        // the same flash in another device (other hidden key and element)
+        let mut other = Dev::new(42);
+        other.flash = dev.flash.clone();
+        assert_ne!(words(&mut other, b"check1", &fw), w, "another device");
+        assert!(matches!(
+            dev.se.state().unwrap(),
+            SeState::Ready { left: MAX_ATTEMPTS }
+        ));
     }
 }

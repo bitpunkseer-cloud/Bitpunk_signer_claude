@@ -632,6 +632,7 @@ impl App {
             Screen::Vault { step } => self.render_vault(c, step),
             Screen::SeedVault { step } => self.render_seed_vault(c, step),
             Screen::Tricks { step } => self.render_tricks(c, step),
+            Screen::Tamper { step } => self.render_tamper(c, step),
             Screen::CommDetected => {
                 self.status(c, s.key.comm_title);
                 let (addr, id) = match self.comm {

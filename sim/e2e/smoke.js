@@ -130,6 +130,10 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   await key("Enter"); // power on
   await page.waitForTimeout(2500); // splash
   if (!(await vaultIs("Vault locked", 3000))) fail("no lock screen after power on");
+  // tamper check before the PIN (M10-7): Tab, a code, the words, back
+  await key("Tab"); await typeText("check1"); await key("Enter");
+  await page.waitForTimeout(800); await key("Enter");
+  if (!(await page.textContent("#fwHash")).startsWith("SHA-256 ")) fail("firmware hash not shown");
   await typeText("abcd"); await key("Enter");
   await page.waitForTimeout(500); // the two words
   await key("Enter");

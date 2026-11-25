@@ -4,6 +4,8 @@
 //! and the settings, back after power on.
 //! M10-6: trick PINs — decoy, erase then "wrong PIN", erase then decoy,
 //! look blank; none uses an attempt.
+//! M10-7: the tamper check — a code, the firmware and the device give two
+//! words; the words change when the firmware does.
 
 use super::*;
 use crate::menus::MenuId;
@@ -14,6 +16,7 @@ use crate::vault::TrickKind;
 use crate::vault::{VaultHw, MAX_ATTEMPTS};
 use crate::vaultdata::StoredSeed;
 use crate::vaultseeds::SeedVaultStep;
+use crate::vaulttamper::TamperStep;
 use crate::vaulttricks::TrickStep;
 use crate::vaultui::VStep;
 use bp_crypto::argon2::{Block, Params};
@@ -92,9 +95,13 @@ const KDF: Params = Params {
 };
 
 /// A device with these parts, past the start screen.
+/// The firmware image's SHA-256, as the platform gives it.
+pub(super) const FIRMWARE: [u8; 32] = [0x5a; 32];
+
 pub(super) fn boot(b: &mut Bench) -> App {
     let mut a = App::new(b"vault tests");
     a.vault.kdf = KDF;
+    a.set_firmware_hash(FIRMWARE);
     b.serve(&mut a); // the probe
     a.tick(SPLASH_MS);
     a
@@ -436,6 +443,17 @@ pub(crate) fn vault_screens_fit() {
         press(&mut a, Key::Char('2'));
         shot(&a, "tr-remove");
         press(&mut a, Key::Esc);
+        // the tamper check (M10-7)
+        nav::go(&mut a, To::VaultTamper);
+        type_str(&mut a, "chk");
+        press(&mut a, Key::Enter);
+        shot(&a, "tc-code");
+        type_str(&mut a, "123");
+        press(&mut a, Key::Enter);
+        shot(&a, "tc-working");
+        b.serve(&mut a);
+        shot(&a, "tc-words");
+        press(&mut a, Key::Enter);
         // the lock screen
         nav::go(&mut a, To::PowerOff);
         let mut a = boot(&mut b);
@@ -1067,4 +1085,110 @@ fn a_menu_row_that_does_nothing_says_why() {
     // the next key clears it
     press(&mut a, Key::Down);
     assert!(!warning_above_keys(&a));
+}
+
+// ---------- M10-7: tamper check ----------
+
+fn tc(a: &App) -> TamperStep {
+    match a.current() {
+        Screen::Tamper { step } => step,
+        s => panic!("not the tamper check: {s:?}"),
+    }
+}
+
+/// Tab on the lock screen, the code, the words; back on the lock screen.
+fn check_words(a: &mut App, b: &mut Bench, code: &str) -> [u16; 2] {
+    press(a, Key::Tab);
+    assert_eq!(tc(a), TamperStep::Code);
+    type_str(a, code);
+    press(a, Key::Enter);
+    assert_eq!(tc(a), TamperStep::Working, "the work is shown before it runs");
+    b.serve(a);
+    assert_eq!(tc(a), TamperStep::Words);
+    let w = a.vault.tamper_words.expect("words");
+    press(a, Key::Enter);
+    w
+}
+
+#[test]
+fn the_tamper_check_words_change_only_with_the_firmware() {
+    let mut b = Bench::new(51);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    // no vault yet: nothing to check against
+    nav::go(&mut a, To::VaultTamper);
+    assert_eq!(a.notice, Some(a.text().vault.no_vault));
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    // first time, from Settings > Security: write the words down
+    nav::go(&mut a, To::VaultTamper);
+    type_str(&mut a, "check1");
+    press(&mut a, Key::Enter);
+    b.serve(&mut a);
+    let first = a.vault.tamper_words.unwrap();
+    press(&mut a, Key::Enter);
+    assert!(matches!(
+        a.current(),
+        Screen::Menu {
+            id: MenuId::Security,
+            ..
+        }
+    ));
+    // on the lock screen, before the PIN: the same words, no attempt used
+    let mut a = power_cycle(&mut a, &mut b);
+    assert_eq!(check_words(&mut a, &mut b, "check1"), first);
+    assert_eq!(step(&a), VStep::Prefix, "back on the lock screen");
+    assert_eq!(se_left(&mut b), Some(MAX_ATTEMPTS));
+    assert_ne!(
+        check_words(&mut a, &mut b, "check2"),
+        first,
+        "a typo gives other words"
+    );
+    // too short
+    press(&mut a, Key::Tab);
+    type_str(&mut a, "abc");
+    press(&mut a, Key::Enter);
+    assert_eq!(tc(&a), TamperStep::Code);
+    assert_eq!(a.notice, Some(a.text().vault.tc_short));
+    press(&mut a, Key::Esc);
+    // another firmware image: other words
+    nav::go(&mut a, To::PowerOff);
+    let mut a = App::new(b"vault tests");
+    a.vault.kdf = KDF;
+    a.set_firmware_hash([0x5b; 32]);
+    b.serve(&mut a);
+    a.tick(SPLASH_MS);
+    assert_ne!(check_words(&mut a, &mut b, "check1"), first);
+    // the wait between attempts offers it too
+    for _ in 0..3 {
+        unlock(&mut a, &mut b, "abcd", "wrong");
+    }
+    assert_eq!(step(&a), VStep::Delay);
+    press(&mut a, Key::Tab);
+    assert_eq!(tc(&a), TamperStep::Code);
+}
+
+#[test]
+fn the_tamper_check_goes_on_after_a_silent_erase_and_needs_a_firmware_hash() {
+    let mut b = Bench::new(52);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    add_trick(&mut a, &mut b, '2', None, "zzzz", "2222");
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "zzzz", "2222");
+    assert_eq!(se_left(&mut b), None, "erased");
+    let w = check_words(&mut a, &mut b, "check1");
+    assert_eq!(
+        check_words(&mut a, &mut b, "check1"),
+        w,
+        "still steady for one code"
+    );
+    // a platform that gives no firmware hash: the check says so
+    let mut c = App::new(b"x");
+    c.tick(SPLASH_MS);
+    nav::home(&mut c);
+    nav::go(&mut c, To::VaultTamper);
+    assert_eq!(c.notice, Some(c.text().vault.tc_no_fw));
 }

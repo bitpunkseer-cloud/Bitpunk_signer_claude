@@ -75,15 +75,18 @@ impl PinBuf {
             len: 0,
         }
     }
-    fn text(&self) -> &[u8] {
+    pub(crate) fn text(&self) -> &[u8] {
         &self.buf[..self.len]
     }
-    fn clear(&mut self) {
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+    pub(crate) fn clear(&mut self) {
         wipe(&mut self.buf);
         self.len = 0;
     }
     /// Edit with a key; true if the key was used.
-    fn key(&mut self, k: Key, max: usize) -> bool {
+    pub(crate) fn key(&mut self, k: Key, max: usize) -> bool {
         match k {
             Key::Char(c) if (' '..='~').contains(&c) && self.len < max => {
                 self.buf[self.len] = c as u8;
@@ -119,6 +122,8 @@ enum Job {
     /// Add the trick PIN being set, or remove trick `n` (M10-6).
     AddTrick,
     RemoveTrick(u8),
+    /// The tamper check words for the code typed (M10-7).
+    Tamper,
 }
 
 /// What the last PIN opened (M10-6).
@@ -176,6 +181,11 @@ pub struct VaultState {
     fake_key: Option<[u8; 32]>,
     /// The trick PIN being set.
     pub(crate) trick: Option<TrickDraft>,
+    /// The tamper check code typed, and its words (M10-7).
+    pub(crate) tamper: PinBuf,
+    pub(crate) tamper_words: Option<[u16; 2]>,
+    /// SHA-256 of the firmware image, from the platform (M10-7).
+    pub(crate) firmware: Option<[u8; 32]>,
 }
 
 impl VaultState {
@@ -204,6 +214,9 @@ impl VaultState {
             mode: Mode::Normal,
             fake_key: None,
             trick: None,
+            tamper: PinBuf::new(),
+            tamper_words: None,
+            firmware: None,
         }
     }
 
@@ -233,6 +246,8 @@ impl VaultState {
         self.saved = [0; 32];
         self.failed = None;
         self.trick = None;
+        self.tamper.clear();
+        self.tamper_words = None;
         if self.mode == Mode::Decoy {
             self.mode = Mode::Normal;
         }
@@ -243,10 +258,11 @@ impl VaultState {
 
     /// Power on: RAM starts empty, the parts are asked again.
     pub(crate) fn power_on(&mut self) {
-        let kdf = self.kdf;
+        let (kdf, firmware) = (self.kdf, self.firmware);
         self.lock();
         *self = VaultState::new();
         self.kdf = kdf;
+        self.firmware = firmware;
     }
 }
 
@@ -286,6 +302,11 @@ impl App {
     /// Queue writing the vault's records (after the next frame).
     pub(crate) fn vault_queue_save(&mut self) {
         self.queue(Job::Save);
+    }
+
+    /// Queue the tamper check (M10-7).
+    pub(crate) fn vault_queue_tamper(&mut self) {
+        self.queue(Job::Tamper);
     }
 
     /// Queue removing trick PIN `i` (M10-6).
@@ -555,6 +576,7 @@ impl App {
                 }
             }
             Job::AddTrick => self.vault_add_trick(hw, body),
+            Job::Tamper => self.vault_tamper_job(hw, body),
             Job::RemoveTrick(i) => {
                 if let Some(u) = self.vault.unlocked.as_mut() {
                     vault::remove_trick(hw.rng, u, i as usize);
@@ -664,6 +686,8 @@ impl App {
                 Key::Enter if self.vault.prefix.len >= PREFIX_MIN => self.queue(Job::Words),
                 Key::Enter => self.notice = Some(t.too_short),
                 Key::Esc => self.use_without_vault(),
+                // check the device before typing the PIN (M10-7)
+                Key::Tab => self.vault_tamper_action(),
                 k => {
                     self.vault.prefix.key(k, PREFIX_MAX);
                 }
@@ -694,11 +718,11 @@ impl App {
                 }
             },
             VStep::Working => {}
-            VStep::Delay => {
-                if ev.key == Key::Esc {
-                    self.use_without_vault();
-                }
-            }
+            VStep::Delay => match ev.key {
+                Key::Esc => self.use_without_vault(),
+                Key::Tab => self.vault_tamper_action(),
+                _ => {}
+            },
             VStep::Wiped | VStep::Problem => {
                 if matches!(ev.key, Key::Enter | Key::Esc) {
                     self.use_without_vault();
@@ -876,7 +900,12 @@ impl App {
                 notice(c, 12);
                 widgets::hint_bar(
                     c,
-                    &[("Enter", s.rv.h_next), ("Del", s.h_delete), ("Esc", t.h_without)],
+                    &[
+                        ("Enter", s.rv.h_next),
+                        ("Del", s.h_delete),
+                        ("Tab", t.h_tamper),
+                        ("Esc", t.h_without),
+                    ],
                 );
             }
             VStep::Words => {
@@ -917,7 +946,7 @@ impl App {
                 widgets::log_line(c, MARGIN, g(10), w, Tag::Info, t.delay_note, "");
                 let left: Buf<128> = fill(t.wrong, &[&self.vault.left]);
                 widgets::log_line(c, MARGIN, g(11), w, Tag::Info, left.as_str(), "");
-                widgets::hint_bar(c, &[("Esc", t.h_without)]);
+                widgets::hint_bar(c, &[("Tab", t.h_tamper), ("Esc", t.h_without)]);
             }
             VStep::Wiped => {
                 widgets::message_at(c, STATUS_H + 70, t.wiped_title, theme::DANGER, &t.wiped_lines);

@@ -75,6 +75,8 @@ pub enum Action {
     SeedVault,
     /// Settings > Security > Trick PINs (M10-6).
     VaultTricks,
+    /// Settings > Security > Tamper check (M10-7).
+    VaultTamper,
     /// Settings > Security > Lock now.
     VaultLock,
     /// Settings > Security > Erase the vault.
@@ -181,7 +183,7 @@ static SETTINGS: [Entry; 15] = [
     },
 ];
 
-static SECURITY: [Entry; 4] = [
+static SECURITY: [Entry; 5] = [
     Entry {
         label: |s| s.vault.row_pin,
         detail: ">",
@@ -191,6 +193,11 @@ static SECURITY: [Entry; 4] = [
         label: |s| s.vault.row_tricks,
         detail: ">",
         action: Action::VaultTricks,
+    },
+    Entry {
+        label: |s| s.vault.row_tamper,
+        detail: ">",
+        action: Action::VaultTamper,
     },
     Entry {
         label: |s| s.vault.row_lock,

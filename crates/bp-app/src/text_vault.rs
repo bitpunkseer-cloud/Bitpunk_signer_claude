@@ -92,6 +92,21 @@ pub struct VaultStrings {
     pub tr_keep: &'static str,
     pub tr_remove: &'static str,
     pub tr_warn: &'static str,
+    // tamper check (M10-7)
+    pub row_tamper: &'static str,
+    pub h_tamper: &'static str,
+    pub tc_title: &'static str,
+    pub tc_label: &'static str,
+    pub tc_lines: [&'static str; 2],
+    pub tc_short: &'static str,
+    pub tc_working: &'static str,
+    pub tc_working_lines: [&'static str; 2],
+    pub tc_words: &'static str,
+    /// "Firmware SHA-256 {}..."
+    pub tc_firmware: &'static str,
+    pub tc_same: &'static str,
+    pub tc_differ: &'static str,
+    pub tc_no_fw: &'static str,
 }
 
 pub static EN_VAULT: VaultStrings = VaultStrings {
@@ -208,6 +223,22 @@ pub static EN_VAULT: VaultStrings = VaultStrings {
     tr_keep: "Keep",
     tr_remove: "Remove this trick PIN",
     tr_warn: "Remember which PIN does what: no screen tells.",
+    row_tamper: "Tamper check",
+    h_tamper: "Check",
+    tc_title: "Tamper check",
+    tc_label: "Check code (6-16 characters)",
+    tc_lines: [
+        "Same code, firmware and device: the same two words.",
+        "First time: write the words down, apart from it.",
+    ],
+    tc_short: "6 characters or more.",
+    tc_working: "Checking the device",
+    tc_working_lines: ["Stretching the code (Argon2id)", "Asking the secure element"],
+    tc_words: "Check words",
+    tc_firmware: "Firmware SHA-256 {}...",
+    tc_same: "Compare them with the words you wrote down.",
+    tc_differ: "Different: firmware or device changed. No PIN!",
+    tc_no_fw: "This build cannot check its firmware.",
 };
 
 pub static KO_VAULT: VaultStrings = VaultStrings {
@@ -324,4 +355,20 @@ pub static KO_VAULT: VaultStrings = VaultStrings {
     tr_keep: "그대로 두기",
     tr_remove: "이 속임수 PIN 지우기",
     tr_warn: "PIN마다 하는 일을 기억하세요. 화면은 알려 주지 않습니다.",
+    row_tamper: "탬퍼 점검",
+    h_tamper: "점검",
+    tc_title: "탬퍼 점검",
+    tc_label: "점검 코드 (6~16자)",
+    tc_lines: [
+        "코드·펌웨어·기기가 같으면 단어 2개도 같습니다.",
+        "처음에는 단어를 적어 기기와 따로 두세요.",
+    ],
+    tc_short: "6자 이상이어야 합니다.",
+    tc_working: "기기 점검 중",
+    tc_working_lines: ["코드 늘이기 (Argon2id)", "보안 칩에 묻는 중"],
+    tc_words: "점검 단어",
+    tc_firmware: "펌웨어 SHA-256 {}...",
+    tc_same: "적어 둔 단어와 비교하세요.",
+    tc_differ: "다르면 펌웨어나 기기가 바뀐 것입니다. PIN 금지!",
+    tc_no_fw: "이 빌드는 펌웨어를 점검할 수 없습니다.",
 };

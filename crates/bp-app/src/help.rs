@@ -89,7 +89,9 @@ pub fn topic(s: &Screen) -> Option<Topic> {
         Screen::Sd { .. } => Sd,
         Screen::Bip85 { .. } => Bip85,
         Screen::Key { .. } => PrivateKey,
-        Screen::Vault { .. } | Screen::SeedVault { .. } | Screen::Tricks { .. } => Vault,
+        Screen::Vault { .. } | Screen::SeedVault { .. } | Screen::Tricks { .. } | Screen::Tamper { .. } => {
+            Vault
+        }
     })
 }
 

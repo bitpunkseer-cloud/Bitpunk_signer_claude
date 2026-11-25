@@ -36,6 +36,7 @@ pub enum To {
     /// Settings > Security rows (M10-4).
     VaultPin,
     VaultTricks,
+    VaultTamper,
     VaultLock,
     VaultWipe,
     /// A settings row, by its English label.
@@ -75,6 +76,7 @@ pub const FEATURES: &[To] = &[
     To::SeedVault,
     To::VaultPin,
     To::VaultTricks,
+    To::VaultTamper,
     To::VaultLock,
     To::VaultWipe,
 ];
@@ -98,6 +100,7 @@ fn is(t: To, action: &Action, label: &str) -> bool {
         | (To::SeedVault, Action::SeedVault)
         | (To::VaultPin, Action::VaultPin)
         | (To::VaultTricks, Action::VaultTricks)
+        | (To::VaultTamper, Action::VaultTamper)
         | (To::VaultLock, Action::VaultLock)
         | (To::VaultWipe, Action::VaultWipe) => true,
         (To::Setting(f), Action::CycleSetting) => f(&crate::text::EN) == label,

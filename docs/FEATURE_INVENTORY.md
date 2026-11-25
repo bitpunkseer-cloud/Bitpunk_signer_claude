@@ -47,7 +47,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | # | 변경 | 단위 | 상태 |
 |---|---|---|---|
 | D1 | 보관함이 있으면 부팅 뒤 잠금 화면(앞부분 → 단어 2개 → 뒷부분), "보관함 없이 사용" 선택 가능 | M10-4 | 완료 — set_a_pin_then_unlock_after_power_on, esc_on_the_lock_screen_is_a_session_without_the_vault |
-| D2 | 메뉴 추가: 시드·키 > 시드 보관함, 설정 > 보안(PIN·속임수 PIN·탬퍼 점검 코드·보관함 지우기) | M10-4~7 | 일부 — 설정 > 보안(PIN·지금 잠그기·보관함 지우기) M10-4, 시드·키 > 시드 보관함 M10-5, 설정 > 보안 > 속임수 PIN M10-6 완료, 탬퍼 점검 코드 M10-7 |
+| D2 | 메뉴 추가: 시드·키 > 시드 보관함, 설정 > 보안(PIN·속임수 PIN·탬퍼 점검 코드·보관함 지우기) | M10-4~7 | 완료 — 설정 > 보안(PIN·지금 잠그기·보관함 지우기) M10-4, 시드·키 > 시드 보관함 M10-5, 설정 > 보안 > 속임수 PIN M10-6, 탬퍼 점검(잠금 화면 Tab·설정 > 보안) M10-7 |
 | D3 | 첫 실행 화면 문구: "M10 전까지 저장 없음" → 보관함 안내 | M10-4 | 완료 — (화면 순회) |
 
 흐름 안의 선택지 순서(확인 대화상자, 퀴즈 답, 내보내기 형식 목록, 지갑 단계, BIP-85 앱 목록 등)는 시험이 아직 위치로 고른다(남은 숫자 키 87회). M9에서 이런 목록의 순서를 바꾸는 단위는 먼저 `nav.rs`에 그 목록의 이름 기반 도우미를 더하고, 시험은 그것만 쓰게 한 뒤 바꾼다.
@@ -222,6 +222,9 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-172 | 속임수 PIN 지운 뒤 'PIN 틀림'·지운 뒤 미끼 지갑: 보관함을 영구히 지우고 잠금 화면이나 미끼로 계속 | 설정 > 보안 > 속임수 PIN | an_erase_trick_erases_then_looks_like_a_wrong_pin, an_erase_then_decoy_trick_opens_the_decoy |
 | F-173 | 속임수 PIN 빈 기기처럼 보이기: 아무것도 지우지 않고 보관함 없는 세션 | 설정 > 보안 > 속임수 PIN | a_blank_trick_starts_like_a_device_without_a_vault |
 | F-174 | 속임수 PIN 규칙: 보관함 PIN·다른 속임수 PIN과 달라야 함, 3개까지, 지우기 | 설정 > 보안 > 속임수 PIN | trick_pins_must_differ_and_are_three_at_most |
+| F-175 | 탬퍼 점검: 점검 코드(6~16자, 저장 안 함) + 펌웨어 SHA-256 + 기기 키 + 보안 칩 → 단어 2개, 펌웨어·기기가 바뀌면 달라짐, 시도 횟수 안 씀 | 잠금 화면 Tab, 설정 > 보안 > 탬퍼 점검 | the_tamper_check_words_change_only_with_the_firmware, tamper_words_follow_the_code_the_firmware_and_the_device |
+| F-176 | 탬퍼 점검은 조용히 지운 뒤에도 같은 모습, 펌웨어 해시가 없는 플랫폼에서는 이유를 알림 | 잠금 화면 | the_tamper_check_goes_on_after_a_silent_erase_and_needs_a_firmware_hash |
+| F-177 | 메뉴에서 아무것도 하지 않는 줄은 이유를 키 막대 위에 보임 | 모든 메뉴 | a_menu_row_that_does_nothing_says_why |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |

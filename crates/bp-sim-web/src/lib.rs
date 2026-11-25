@@ -19,6 +19,7 @@
 //! | `bp_sd_get(path_len) -> u32` | file contents into the out buffer (`u32::MAX` on error) |
 //! | `bp_sd_delete(path_len) -> u32` / `bp_sd_erase() -> u32` | delete one file / reformat the card |
 //! | `bp_vault_state() -> u32` | simulated vault: 0 none, 1 locked, 2 open (M10) |
+//! | `bp_firmware(len)` / `bp_firmware_ptr()` | hash the page's WASM bytes (from `bp_file_buffer`) as the firmware image for the tamper check; its 32-byte SHA-256 (M10-7) |
 //!
 //! The vault parts (secure element, device key, flash) are simulated in this
 //! page's memory only: reloading the page is a new device with no vault.
@@ -59,6 +60,7 @@ struct Sim {
     file: Vec<u8>,
     out: Vec<u8>,
     vault: VaultParts,
+    firmware: [u8; 32],
 }
 
 /// The simulated secure storage of the device (M10).
@@ -141,6 +143,7 @@ pub extern "C" fn bp_init() {
         file: Vec::new(),
         out: Vec::new(),
         vault: VaultParts::new(&seed),
+        firmware: [0; 32],
     };
     sim.app.set_test_only(true); // a web page is not air-gapped
     sim.app.set_card_present(true);
@@ -348,6 +351,26 @@ pub extern "C" fn bp_comm_check(state: u32) {
 #[no_mangle]
 pub extern "C" fn bp_wants_camera() -> u32 {
     with_sim(|s| s.app.wants_camera() as u32).unwrap_or(0)
+}
+
+/// The page hands over its WASM bytes (in the file buffer): their SHA-256
+/// is the "firmware hash" of the tamper check, so another build shows other
+/// words, as another firmware image would on the device.
+#[no_mangle]
+pub extern "C" fn bp_firmware(len: u32) {
+    with_sim(|s| {
+        let n = (len as usize).min(s.file.len());
+        let h = bp_crypto::sha256::Sha256::digest(&s.file[..n]);
+        s.app.set_firmware_hash(h);
+        s.firmware = h;
+        s.file = Vec::new();
+    });
+}
+
+/// The firmware hash (32 bytes) for the page to show.
+#[no_mangle]
+pub extern "C" fn bp_firmware_ptr() -> *const u8 {
+    with_sim(|s| s.firmware.as_ptr()).unwrap_or(core::ptr::null())
 }
 
 /// The simulated vault: 0 none, 1 locked, 2 open.

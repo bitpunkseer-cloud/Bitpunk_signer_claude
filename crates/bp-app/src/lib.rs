@@ -30,6 +30,7 @@ pub(crate) mod typed;
 pub mod vault;
 mod vaultdata;
 pub mod vaultseeds;
+pub mod vaulttamper;
 pub mod vaulttricks;
 pub mod vaultui;
 mod verify;
@@ -317,6 +318,10 @@ pub enum Screen {
     Tricks {
         step: vaulttricks::TrickStep,
     },
+    /// The tamper check: lock screen Tab, Settings > Security (M10-7).
+    Tamper {
+        step: vaulttamper::TamperStep,
+    },
     /// The boot check found a network chip: nothing else is possible.
     CommDetected,
 }
@@ -598,6 +603,9 @@ impl App {
                 Screen::Splash
                     | Screen::Vault {
                         step: vaultui::VStep::Working
+                    }
+                    | Screen::Tamper {
+                        step: vaulttamper::TamperStep::Working
                     }
                     | Screen::VerifyAddr {
                         step: verify::VaStep::Searching
@@ -1464,6 +1472,7 @@ impl App {
             Screen::Vault { step } => self.vault_key(step, ev),
             Screen::SeedVault { step } => self.seed_vault_key(step, ev),
             Screen::Tricks { step } => self.tricks_key(step, ev),
+            Screen::Tamper { step } => self.tamper_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1888,6 +1897,7 @@ impl App {
             Action::VaultPin => self.vault_pin_action(),
             Action::SeedVault => self.seed_vault_action(),
             Action::VaultTricks => self.vault_tricks_action(),
+            Action::VaultTamper => self.vault_tamper_action(),
             Action::VaultLock => self.vault_lock_action(),
             Action::VaultWipe => self.vault_wipe_action(),
             Action::PowerOff => {
