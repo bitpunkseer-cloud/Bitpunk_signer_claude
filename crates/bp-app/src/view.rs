@@ -466,7 +466,7 @@ impl App {
                     .slot(slot as usize)
                     .map_or(crate::seeds::SlotKind::Mnemonic, |s| s.kind);
                 let opts = crate::keys::slot_opts(kind);
-                let mut items: [MenuItem; 7] = core::array::from_fn(|_| MenuItem {
+                let mut items: [MenuItem; 8] = core::array::from_fn(|_| MenuItem {
                     label: "",
                     detail: ">",
                 });
@@ -481,6 +481,7 @@ impl App {
                         Addresses => s.key.addresses,
                         Slip39Shares => s.bk.sl_opt_shares,
                         SeedXor => s.bk.xr_opt,
+                        Metal => s.bk.mt_opt,
                         Discard => s.discard_seed,
                     };
                     if *o == Discard {
@@ -637,6 +638,7 @@ impl App {
             Screen::Tamper { step } => self.render_tamper(c, step),
             Screen::Slip39 { step } => self.render_slip39(c, step),
             Screen::SeedXor { step } => self.render_seed_xor(c, step),
+            Screen::Metal { step } => self.render_metal(c, step),
             Screen::CommDetected => {
                 self.status(c, s.key.comm_title);
                 let (addr, id) = match self.comm {
@@ -2369,6 +2371,7 @@ fn start_title(app: &App, kind: Start) -> &'static str {
         Start::WordNumbers => s.entry_title_numbers,
         Start::FinalWord => s.final_title,
         Start::XorParts => s.bk.xr_title,
+        Start::MetalGrid => s.bk.mt_title,
     }
 }
 

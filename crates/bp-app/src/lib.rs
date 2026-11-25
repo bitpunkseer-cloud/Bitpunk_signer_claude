@@ -8,6 +8,7 @@ mod flow;
 mod help;
 mod keys;
 mod menus;
+pub mod metalui;
 mod msgsign;
 mod qrview;
 pub mod review;
@@ -333,6 +334,10 @@ pub enum Screen {
     SeedXor {
         step: seedxorui::XorStep,
     },
+    /// Metal plates: a seed's dots, entering a plate (M11-4).
+    Metal {
+        step: metalui::MetalStep,
+    },
     /// The boot check found a network chip: nothing else is possible.
     CommDetected,
 }
@@ -414,6 +419,8 @@ pub struct App {
     pub(crate) slip: Option<slip39ui::SlipState>,
     /// The Seed XOR screens' state (wiped when they close).
     pub(crate) xor: Option<seedxorui::XorState>,
+    /// The metal plate screens' state (wiped when they close).
+    pub(crate) metal: Option<metalui::MetalState>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -515,6 +522,7 @@ impl App {
             vault: vaultui::VaultState::new(),
             slip: None,
             xor: None,
+            metal: None,
         }
     }
 
@@ -603,6 +611,7 @@ impl App {
             self.flow = None; // leaving a flow wipes its state
             self.slip = None;
             self.xor = None;
+            self.metal = None;
         }
     }
 
@@ -672,6 +681,11 @@ impl App {
             } => self.set_current(Screen::SeedXor {
                 step: seedxorui::XorStep::Covered { part },
             }),
+            Screen::Metal {
+                step: metalui::MetalStep::View { page },
+            } => self.set_current(Screen::Metal {
+                step: metalui::MetalStep::Covered { page },
+            }),
             _ => {}
         }
     }
@@ -691,6 +705,7 @@ impl App {
         self.flow = None;
         self.slip = None;
         self.xor = None;
+        self.metal = None;
         if let Some(Screen::SeedReady { slot, created }) = then {
             if let Some(s) = self.slot(slot as usize) {
                 let event = match (created, s.kind) {
@@ -1224,6 +1239,7 @@ impl App {
                         self.slip39_reshare_action(slot)
                     }
                     Pick::Choose(o) if o == keys::SlotOpt::SeedXor as u8 => self.seed_xor_split_action(slot),
+                    Pick::Choose(o) if o == keys::SlotOpt::Metal as u8 => self.metal_view_action(slot),
                     Pick::Choose(_) => {
                         self.typed.clear();
                         self.push(Screen::Confirm {
@@ -1534,6 +1550,7 @@ impl App {
             Screen::Tamper { step } => self.tamper_key(step, ev),
             Screen::Slip39 { step } => self.slip39_key(step, ev),
             Screen::SeedXor { step } => self.seed_xor_key(step, ev),
+            Screen::Metal { step } => self.metal_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1978,6 +1995,7 @@ impl App {
         self.flow = None;
         self.slip = None;
         self.xor = None;
+        self.metal = None;
         self.seeds = [None, None, None];
         self.review = None;
         self.verify = None;
@@ -2020,6 +2038,7 @@ impl App {
         match kind {
             Start::Dice | Start::Coin | Start::D20 => self.push(Screen::EntropyIntro),
             Start::TypeWords | Start::WordNumbers | Start::XorParts => self.push(Screen::WordEntry),
+            Start::MetalGrid => self.metal_enter_start(words),
             Start::FinalWord => self.push(Screen::FinalIntro),
         }
     }

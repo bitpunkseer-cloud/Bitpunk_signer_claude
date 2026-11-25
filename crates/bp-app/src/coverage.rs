@@ -8,6 +8,7 @@ extern crate std;
 use super::*;
 use crate::b85::B85Step;
 use crate::keys::KeyStep;
+use crate::metalui::MetalStep;
 use crate::msgsign::MsStep;
 use crate::review::Step as RvStep;
 use crate::scan::Purpose;
@@ -98,6 +99,7 @@ kinds!(
         Tamper,
         Slip39,
         SeedXor,
+        Metal,
         CommDetected,
     ]
 );
@@ -232,6 +234,7 @@ kinds!(
     XorStep,
     [Parts, Mode, Dice, Show, Covered, Check, Done, Combined]
 );
+kinds!(mt, MT, MetalStep, [Format, View, Covered, Grid]);
 
 /// "Screen" or "Screen/Step" for screens that hold a step or a kind.
 pub fn key_of(s: &Screen) -> String {
@@ -254,6 +257,7 @@ pub fn key_of(s: &Screen) -> String {
         Screen::Tamper { step } => tc(step),
         Screen::Slip39 { step } => sl(step),
         Screen::SeedXor { step } => xr(step),
+        Screen::Metal { step } => mt(step),
         _ => return screen(s).to_string(),
     };
     let mut k = String::from(screen(s));
@@ -283,6 +287,7 @@ pub fn all() -> Vec<String> {
         ("Tamper", TC),
         ("Slip39", SL),
         ("SeedXor", XR),
+        ("Metal", MT),
     ];
     let mut out = Vec::new();
     for s in SCREENS {

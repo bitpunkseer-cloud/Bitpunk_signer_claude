@@ -3,7 +3,7 @@
 //! short paragraphs; the help box wraps them.
 
 /// Topics in `help::Topic` order.
-pub const TOPICS: usize = 21;
+pub const TOPICS: usize = 22;
 
 pub struct HelpStrings {
     /// "Help" (the key bar label)
@@ -206,6 +206,15 @@ pub static EN_HELP: HelpStrings = HelpStrings {
                 "To load: type the parts one after another, in any order.",
             ],
         ),
+        (
+            "Metal plates",
+            [
+                "Tinyseed: each word's number (1-2048) in binary, 12 dots.",
+                "Stackbit 1248: each digit of the number as dots worth 1, 2, 4, 8.",
+                "Entering a plate: arrows move, Space sets a dot, Enter checks.",
+                "The last word is not filled in: a wrong dot shows as a checksum error.",
+            ],
+        ),
     ],
 };
 
@@ -400,6 +409,15 @@ pub static KO_HELP: HelpStrings = HelpStrings {
                 "조각이 모두 있어야 합니다. 조각의 XOR이 시드이고, 모자라면 아무것도 모릅니다.",
                 "Coldcard 공식은 이 기기나 Coldcard에서 같은 조각을 다시 만듭니다.",
                 "불러오기: 조각을 하나씩, 순서 없이 입력하세요.",
+            ],
+        ),
+        (
+            "금속판",
+            [
+                "Tinyseed: 단어 번호(1~2048)를 이진수 점 12개로.",
+                "Stackbit 1248: 번호의 자리마다 1, 2, 4, 8의 점으로.",
+                "옮겨 적기: 화살표로 이동, Space로 점, Enter로 검사.",
+                "마지막 단어를 채워 주지 않습니다. 틀린 점은 체크섬 오류로 드러납니다.",
             ],
         ),
     ],

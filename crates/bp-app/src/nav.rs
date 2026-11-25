@@ -85,6 +85,7 @@ pub const FEATURES: &[To] = &[
     To::Slip39New,
     To::Slip39Load,
     To::Start(Start::XorParts),
+    To::Start(Start::MetalGrid),
 ];
 
 fn is(t: To, action: &Action, label: &str) -> bool {

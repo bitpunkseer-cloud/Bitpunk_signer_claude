@@ -112,6 +112,25 @@ pub struct BackupStrings {
     pub xr_load: &'static str,
     pub xr_two: &'static str,
     pub xr_full: &'static str,
+    // metal plates (M11-4)
+    pub mt_title: &'static str,
+    pub mt_load_menu: &'static str,
+    pub mt_opt: &'static str,
+    pub mt_view_q: &'static str,
+    pub mt_enter_q: &'static str,
+    pub mt_formats: [&'static str; 2],
+    pub mt_format_notes: [&'static str; 2],
+    /// "Page {} of {}"
+    pub mt_page: &'static str,
+    pub mt_next_page: &'static str,
+    pub mt_prev_page: &'static str,
+    pub mt_covered: &'static str,
+    pub mt_show: &'static str,
+    /// "Page {} of {}: copy every dot, then Enter."
+    pub mt_grid_line: &'static str,
+    pub mt_punch: &'static str,
+    pub mt_clear: &'static str,
+    pub mt_not_word: &'static str,
 }
 
 pub static EN_BACKUP: BackupStrings = BackupStrings {
@@ -226,6 +245,25 @@ pub static EN_BACKUP: BackupStrings = BackupStrings {
     xr_load: "Load this seed",
     xr_two: "At least two parts are needed.",
     xr_full: "No more parts can be added.",
+    mt_title: "Metal plate",
+    mt_load_menu: "Metal plate dots",
+    mt_opt: "Metal plate",
+    mt_view_q: "Show the dots for which plate?",
+    mt_enter_q: "Which plate are you copying?",
+    mt_formats: ["Tinyseed", "Stackbit 1248"],
+    mt_format_notes: [
+        "Each word's number in binary: dots worth 2048 down to 1.",
+        "Each digit of the word's number: dots worth 1, 2, 4, 8.",
+    ],
+    mt_page: "Page {} of {}",
+    mt_next_page: "next page",
+    mt_prev_page: "previous",
+    mt_covered: "The screen saver hid the dots. Enter shows them.",
+    mt_show: "show",
+    mt_grid_line: "Page {} of {}: copy every dot, then Enter.",
+    mt_punch: "dot",
+    mt_clear: "clear row",
+    mt_not_word: "A row is not a word: check its dots.",
 };
 
 pub static KO_BACKUP: BackupStrings = BackupStrings {
@@ -340,4 +378,23 @@ pub static KO_BACKUP: BackupStrings = BackupStrings {
     xr_load: "이 시드 불러오기",
     xr_two: "조각이 2개 이상 있어야 합니다.",
     xr_full: "조각을 더 넣을 수 없습니다.",
+    mt_title: "금속판",
+    mt_load_menu: "금속판 점",
+    mt_opt: "금속판",
+    mt_view_q: "어느 금속판의 점을 볼까요?",
+    mt_enter_q: "어느 금속판을 옮겨 적습니까?",
+    mt_formats: ["Tinyseed", "Stackbit 1248"],
+    mt_format_notes: [
+        "단어 번호의 이진수: 2048부터 1까지의 점.",
+        "단어 번호의 자리마다: 1, 2, 4, 8의 점.",
+    ],
+    mt_page: "{}/{}쪽",
+    mt_next_page: "다음 쪽",
+    mt_prev_page: "이전",
+    mt_covered: "화면 보호기가 점을 가렸습니다. Enter로 다시 봅니다.",
+    mt_show: "보기",
+    mt_grid_line: "{}/{}쪽: 점을 모두 옮긴 뒤 Enter.",
+    mt_punch: "점",
+    mt_clear: "줄 지우기",
+    mt_not_word: "단어가 아닌 줄이 있습니다. 점을 확인하세요.",
 };

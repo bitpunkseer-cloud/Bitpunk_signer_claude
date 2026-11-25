@@ -42,6 +42,8 @@ pub enum Start {
     FinalWord,
     /// Seed XOR parts, typed one after another (M11-3).
     XorParts,
+    /// A metal plate's dots, entered cell by cell (M11-4).
+    MetalGrid,
 }
 
 #[derive(Clone, Copy)]
@@ -158,12 +160,13 @@ static NEW_SEED: [Entry; 5] = [
     action(|s| s.bk.sl_new_menu, Action::Slip39New),
 ];
 
-static LOAD_SEED: [Entry; 5] = [
+static LOAD_SEED: [Entry; 6] = [
     start(|s| s.type_words, Start::TypeWords),
     start(|s| s.word_numbers, Start::WordNumbers),
     action(|s| s.scan_seedqr, Action::Scan(crate::scan::Purpose::Seed)),
     action(|s| s.bk.sl_load_menu, Action::Slip39Load),
     start(|s| s.bk.xr_load_menu, Start::XorParts),
+    start(|s| s.bk.mt_load_menu, Start::MetalGrid),
 ];
 
 static SETTINGS: [Entry; 15] = [

@@ -1117,6 +1117,24 @@
      "Seeds & keys > Load a seed > Seed XOR parts",
      "시드·키 > 시드 불러오기 > Seed XOR 조각"
     ]
+   },
+   {
+    "id": "F-187",
+    "en": "Metal plate dots of a words seed: Tinyseed (12 binary dots) or Stackbit 1248 (1-2-4-8 dots per digit), 12 words a page",
+    "ko": "단어 시드의 금속판 점: Tinyseed(이진수 점 12개) 또는 Stackbit 1248(자리마다 1·2·4·8 점), 12단어씩 쪽",
+    "where": [
+     "Seed options > Metal plate",
+     "시드 옵션 > 금속판"
+    ]
+   },
+   {
+    "id": "F-188",
+    "en": "Load a seed from a plate's dots: copy them on a grid; a row that is no word is pointed at; a wrong dot ends on the checksum screen",
+    "ko": "금속판 점으로 불러오기: 격자에 옮겨 적기, 단어가 아닌 줄을 가리킴, 틀린 점은 체크섬 화면으로",
+    "where": [
+     "Seeds & keys > Load a seed > Metal plate dots",
+     "시드·키 > 시드 불러오기 > 금속판 점"
+    ]
    }
   ]
  },

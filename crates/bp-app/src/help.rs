@@ -32,6 +32,8 @@ pub enum Topic {
     Slip39,
     /// Seed XOR (M11-3).
     SeedXor,
+    /// Metal plates (M11-4).
+    Metal,
 }
 
 /// The topic for a screen; `None` where help is not offered (start-up,
@@ -98,6 +100,7 @@ pub fn topic(s: &Screen) -> Option<Topic> {
         }
         Screen::Slip39 { .. } => Slip39,
         Screen::SeedXor { .. } => SeedXor,
+        Screen::Metal { .. } => Metal,
     })
 }
 
