@@ -735,10 +735,31 @@ impl App {
             };
             n += 1;
         }
+        // why a row did nothing (no vault yet, ...): one line above the keys
+        let note_h = BODY.height as i32 + 8;
+        let note_y = c.height() as i32 - widgets::HINT_H - note_h;
         if id == MenuId::Main {
             self.render_main_menu(c, &items[..n], sel);
+        } else if self.notice.is_some() {
+            let top = STATUS_H + 8;
+            let w = c.width() as i32 - 2 * MARGIN;
+            widgets::list(
+                c,
+                MARGIN,
+                top,
+                w,
+                note_y - 8 - top,
+                &items[..n],
+                sel as usize,
+                true,
+            );
         } else {
             widgets::menu_list(c, &items[..n], sel as usize);
+        }
+        if let Some(note) = self.notice {
+            let w = c.width() as i32;
+            c.fill_rect(0, note_y - 4, w, note_h, theme::BG);
+            widgets::log_line(c, MARGIN, note_y, w - 2 * MARGIN, widgets::Tag::Warn, note, "");
         }
         if menus::is_settings(id) {
             widgets::hint_bar(c, &[("^v", s.h_move), ("<>", s.h_change), ("Esc", s.h_back)]);

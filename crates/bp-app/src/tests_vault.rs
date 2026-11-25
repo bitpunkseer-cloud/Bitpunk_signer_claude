@@ -1009,3 +1009,62 @@ fn trick_pins_must_differ_and_are_three_at_most() {
     unlock(&mut a, &mut b, "abcd", "efgh");
     assert_eq!(tricks_set(&a), 2);
 }
+
+/// Draws nothing; notes whether the warning colour lands in a band of rows.
+struct Band {
+    y0: i32,
+    y1: i32,
+    hit: bool,
+}
+impl bp_hal::Canvas for Band {
+    fn width(&self) -> u16 {
+        800
+    }
+    fn height(&self) -> u16 {
+        480
+    }
+    fn fill_rect(&mut self, _: i32, y: i32, _: i32, h: i32, c: bp_hal::Rgb) {
+        if c == bp_ui::theme::WARN && y < self.y1 && y + h > self.y0 {
+            self.hit = true;
+        }
+    }
+    fn blend_pixel(&mut self, _: i32, y: i32, c: bp_hal::Rgb, _: u8) {
+        if c == bp_ui::theme::WARN && (self.y0..self.y1).contains(&y) {
+            self.hit = true;
+        }
+    }
+}
+
+fn warning_above_keys(a: &App) -> bool {
+    let hint = bp_ui::widgets::HINT_H;
+    let mut c = Band {
+        y0: 480 - hint - 40,
+        y1: 480 - hint,
+        hit: false,
+    };
+    a.render(&mut c);
+    c.hit
+}
+
+#[test]
+fn a_menu_row_that_does_nothing_says_why() {
+    // no vault yet: Trick PINs, Lock now, Erase and the seed vault say so
+    let mut b = Bench::new(26);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    for (to, menu) in [
+        (To::VaultTricks, MenuId::Security),
+        (To::VaultLock, MenuId::Security),
+        (To::VaultWipe, MenuId::Security),
+        (To::SeedVault, MenuId::Seeds),
+    ] {
+        nav::go(&mut a, to);
+        assert!(matches!(a.current(), Screen::Menu { id, .. } if id == menu));
+        assert!(a.notice.is_some(), "{to:?} gave no reason");
+        assert!(warning_above_keys(&a), "{to:?}: the reason is not on screen");
+    }
+    assert_eq!(a.notice, Some(a.text().vault.sv_no_vault));
+    // the next key clears it
+    press(&mut a, Key::Down);
+    assert!(!warning_above_keys(&a));
+}
