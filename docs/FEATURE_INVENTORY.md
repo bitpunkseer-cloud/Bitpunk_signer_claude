@@ -47,7 +47,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | # | 변경 | 단위 | 상태 |
 |---|---|---|---|
 | D1 | 보관함이 있으면 부팅 뒤 잠금 화면(앞부분 → 단어 2개 → 뒷부분), "보관함 없이 사용" 선택 가능 | M10-4 | 완료 — set_a_pin_then_unlock_after_power_on, esc_on_the_lock_screen_is_a_session_without_the_vault |
-| D2 | 메뉴 추가: 시드·키 > 시드 보관함, 설정 > 보안(PIN·속임수 PIN·탬퍼 점검 코드·보관함 지우기) | M10-4~7 | 일부 — 설정 > 보안(PIN·지금 잠그기·보관함 지우기) M10-4 완료, 나머지 M10-5~7 |
+| D2 | 메뉴 추가: 시드·키 > 시드 보관함, 설정 > 보안(PIN·속임수 PIN·탬퍼 점검 코드·보관함 지우기) | M10-4~7 | 일부 — 설정 > 보안(PIN·지금 잠그기·보관함 지우기) M10-4, 시드·키 > 시드 보관함 M10-5 완료, 속임수 PIN·탬퍼 점검 코드 M10-6~7 |
 | D3 | 첫 실행 화면 문구: "M10 전까지 저장 없음" → 보관함 안내 | M10-4 | 완료 — (화면 순회) |
 
 흐름 안의 선택지 순서(확인 대화상자, 퀴즈 답, 내보내기 형식 목록, 지갑 단계, BIP-85 앱 목록 등)는 시험이 아직 위치로 고른다(남은 숫자 키 87회). M9에서 이런 목록의 순서를 바꾸는 단위는 먼저 `nav.rs`에 그 목록의 이름 기반 도우미를 더하고, 시험은 그것만 쓰게 한 뒤 바꾼다.
@@ -211,8 +211,13 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-161 | 잠금 화면: 앞부분 → 확인 단어 2개 → 뒷부분, 보관함 없이 사용 | 전원 켜기(보관함이 있을 때) | set_a_pin_then_unlock_after_power_on, esc_on_the_lock_screen_is_a_session_without_the_vault |
 | F-162 | 틀린 PIN: 남은 횟수, 4번째부터 대기 1분·5분·15분·1시간(전원을 꺼도 유지), 10번째에 영구 삭제 | 잠금 화면 | wrong_pins_count_wait_and_erase_on_the_tenth |
 | F-163 | 지금 잠그기, 보관함 지우기(WIPE 입력) | 설정 > 보안 | lock_now_change_pin_and_erase |
-| F-164 | 보관함 형식: A/B 쓰기, 롤백 거부, 전원이 끊겨도 온전한 보관함 하나, 다른 기기·변조 거부 | (내부) | a_power_cut_anywhere_leaves_one_whole_vault, a_pin_change_survives_a_power_cut, an_older_flash_image_is_refused, another_chip_or_element_cannot_open_it, any_changed_byte_is_refused_without_panicking |
+| F-164 | 보관함 형식: A/B 쓰기, 롤백 거부, 전원이 끊겨도 온전한 보관함 하나, 다른 기기·변조 거부 | (내부) | a_power_cut_anywhere_leaves_one_whole_vault, a_pin_change_survives_a_power_cut, an_older_flash_image_is_refused, another_chip_or_element_cannot_open_it, any_changed_byte_is_refused_without_panicking, seeds_settings_and_wallets_round_trip, a_passphrase_is_never_stored, full_vault_and_wrong_fingerprint, bad_bodies_are_refused_without_panicking |
 | F-165 | 보안 칩·플래시 문제는 오류 코드(E-VLT)와 함께 알리고 보관함 없이 사용 | 잠금 화면 | a_broken_secure_element_is_a_problem_with_a_code |
+| F-166 | 시드 보관함: 불러온 시드 넣기(단어·XPRV·WIF, 최대 8개, 패스프레이즈는 넣지 않음), 목록, 슬롯에 불러오기, 빼기(WIPE 입력) | 시드·키 > 시드 보관함 | stored_seeds_come_back_after_power_on, keys_and_passphrase_seeds_keep_their_fingerprint, the_list_loads_removes_and_counts_eight |
+| F-167 | 보관함이 열리면 설정을 적용하고 앞의 시드를 빈 슬롯에 불러옴 | 잠금 해제 | stored_seeds_come_back_after_power_on, the_list_loads_removes_and_counts_eight |
+| F-168 | 등록한 멀티시그 지갑을 보관, 그 시드가 들어오면 코드 없이 다시 등록(등록 규칙 재검사) | 멀티시그 지갑 | wallets_register_again_for_their_seed |
+| F-169 | 설정을 보관(설정 메뉴를 떠날 때), 잠금 화면은 보관함의 언어로 | 설정 | settings_are_kept_and_the_lock_screen_speaks_their_language |
+| F-170 | 보관함 저장 실패 알림, 내용이 바뀌면 다시 시도 | 모든 화면 | a_failed_save_is_reported_once_and_retried_on_the_next_change |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |

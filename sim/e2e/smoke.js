@@ -103,6 +103,11 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   };
   const typeText = async t => { for (const ch of t) await key(ch); };
   if (!(await vaultIs("No vault", 1000))) fail("vault state not shown");
+  // the boot check wiped RAM: load the test seed again
+  await scanner();
+  await paste(ABANDON);
+  await key("Enter");
+  await key("Enter");
   for (let i = 0; i < 4; i++) await key("Escape");
   await key("6");
   for (let i = 0; i < 12; i++) await key("ArrowDown");
@@ -115,6 +120,11 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   }
   if (!(await vaultIs("Vault open", 30000))) fail("setting a PIN did not open a vault");
   await key("Enter"); // the words were seen
+  // store the loaded seed: Seeds & keys (3), Seed vault (the row after the
+  // loaded seed and the four fixed rows), Store a loaded seed, the seed
+  for (let i = 0; i < 4; i++) await key("Escape");
+  await key("3"); await key("6"); await key("1"); await key("Enter");
+  await page.waitForTimeout(300);
   for (let i = 0; i < 4; i++) await key("Escape");
   await key("7"); await key("1"); // Power off
   await key("Enter"); // power on
@@ -126,6 +136,16 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   await typeText("efgh"); await key("Enter");
   if (!(await vaultIs("Vault open", 30000))) fail("the PIN did not unlock the vault");
   else console.log("ok: vault PIN set, lock screen after power on, unlocked");
+  // the stored seed is back: the same PSBT signs to the same bytes
+  await scanner();
+  await paste(psbtB64);
+  for (let i = 0; i < 4; i++) await key("Enter");
+  await key("ArrowDown");
+  await key("Enter");
+  await page.waitForTimeout(300);
+  const again = await page.inputValue("#signedText").catch(() => "");
+  if (Buffer.from(again, "base64").toString("hex") !== signedHex) fail("the seed from the vault did not sign the same PSBT");
+  else console.log("ok: seed stored in the vault, back after power on, signs the M8 baseline");
 
   // feature checklist: every inventory item, ticks counted, both languages
   const items = await page.locator("#checkList input[type=checkbox]").count();

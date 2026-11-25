@@ -929,6 +929,51 @@
      "Lock screen",
      "잠금 화면"
     ]
+   },
+   {
+    "id": "F-166",
+    "en": "Seed vault: store a loaded seed (words, XPRV or WIF; up to 8; never the passphrase), list, load into a slot, remove (type WIPE)",
+    "ko": "시드 보관함: 불러온 시드 넣기(단어·XPRV·WIF, 8개까지, 패스프레이즈 제외), 목록, 슬롯에 불러오기, 빼기(WIPE 입력)",
+    "where": [
+     "Seeds & keys > Seed vault",
+     "시드·키 > 시드 보관함"
+    ]
+   },
+   {
+    "id": "F-167",
+    "en": "Opening the vault applies its settings and loads its first seeds into free slots",
+    "ko": "보관함을 열면 설정 적용, 앞의 시드를 빈 슬롯에 불러옴",
+    "where": [
+     "Unlock",
+     "잠금 해제"
+    ]
+   },
+   {
+    "id": "F-168",
+    "en": "Registered multisig wallets kept; registered again without the code when their seed is loaded",
+    "ko": "등록한 멀티시그 지갑 보관, 그 시드가 들어오면 코드 없이 다시 등록",
+    "where": [
+     "Multisig wallets",
+     "멀티시그 지갑"
+    ]
+   },
+   {
+    "id": "F-169",
+    "en": "Settings kept (when the Settings menu is left); the lock screen in the vault's language",
+    "ko": "설정 보관(설정 메뉴를 떠날 때), 잠금 화면은 보관함의 언어",
+    "where": [
+     "Settings",
+     "설정"
+    ]
+   },
+   {
+    "id": "F-170",
+    "en": "A failed vault save is reported, and tried again when something changes",
+    "ko": "보관함 저장 실패 알림, 내용이 바뀌면 다시 시도",
+    "where": [
+     "Any screen",
+     "모든 화면"
+    ]
    }
   ]
  },

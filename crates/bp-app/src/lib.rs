@@ -28,6 +28,8 @@ mod text_sd;
 mod text_vault;
 pub(crate) mod typed;
 pub mod vault;
+mod vaultdata;
+pub mod vaultseeds;
 pub mod vaultui;
 mod verify;
 mod view;
@@ -305,6 +307,10 @@ pub enum Screen {
     /// The vault: lock screen, setting or changing the PIN, erasing (M10).
     Vault {
         step: vaultui::VStep,
+    },
+    /// Seeds & keys > Seed vault (M10-5).
+    SeedVault {
+        step: vaultseeds::SeedVaultStep,
     },
     /// The boot check found a network chip: nothing else is possible.
     CommDetected,
@@ -789,6 +795,8 @@ impl App {
             self.sd.saved = None;
         }
         self.end_scan_if_left();
+        // the open vault follows the session (M10-5)
+        self.vault_after_event();
         #[cfg(test)]
         crate::taskcount::seen(&self.current());
     }
@@ -1449,6 +1457,7 @@ impl App {
             Screen::Bip85 { step } => self.b85_key(step, ev),
             Screen::Key { step } => self.key_key(step, ev),
             Screen::Vault { step } => self.vault_key(step, ev),
+            Screen::SeedVault { step } => self.seed_vault_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1871,6 +1880,7 @@ impl App {
                 }
             }
             Action::VaultPin => self.vault_pin_action(),
+            Action::SeedVault => self.seed_vault_action(),
             Action::VaultLock => self.vault_lock_action(),
             Action::VaultWipe => self.vault_wipe_action(),
             Action::PowerOff => {

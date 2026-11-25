@@ -71,6 +71,8 @@ pub enum Action {
     Scan(crate::scan::Purpose),
     /// Settings > Security > PIN (set up, change; unlock first if locked).
     VaultPin,
+    /// Seeds & keys > Seed vault (unlock first if locked).
+    SeedVault,
     /// Settings > Security > Lock now.
     VaultLock,
     /// Settings > Security > Erase the vault.
@@ -130,11 +132,12 @@ static VERIFY: [Entry; 3] = [
     action(|s| s.verify_sig, Action::VerifySignature),
 ];
 
-static SEEDS: [Entry; 4] = [
+static SEEDS: [Entry; 5] = [
     open(|s| s.create_seed, MenuId::NewSeed),
     open(|s| s.load_seed, MenuId::LoadSeed),
     action(|s| s.import_key, Action::ImportKey),
     action(|s| s.bip85, Action::Bip85),
+    action(|s| s.vault.sv_menu, Action::SeedVault),
 ];
 
 static NEW_SEED: [Entry; 4] = [

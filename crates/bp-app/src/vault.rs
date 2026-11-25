@@ -171,6 +171,10 @@ impl Unlocked {
     pub fn lang(&self) -> u8 {
         self.lang
     }
+    /// The language the next write puts in the header (for the lock screen).
+    pub fn set_lang(&mut self, lang: u8) {
+        self.lang = lang;
+    }
     pub fn generation(&self) -> u32 {
         self.gen
     }

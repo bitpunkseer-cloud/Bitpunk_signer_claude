@@ -13,6 +13,7 @@ use crate::review::Step as RvStep;
 use crate::scan::Purpose;
 use crate::sd::SdStep;
 use crate::sigverify::SvStep;
+use crate::vaultseeds::SeedVaultStep;
 use crate::vaultui::VStep;
 use crate::verify::VaStep;
 use crate::wallets::WlStep;
@@ -88,6 +89,7 @@ kinds!(
         Bip85,
         Key,
         Vault,
+        SeedVault,
         CommDetected,
     ]
 );
@@ -203,6 +205,8 @@ kinds!(
     ]
 );
 
+kinds!(svt, SVT, SeedVaultStep, [List, Seed, Pick, Remove]);
+
 /// "Screen" or "Screen/Step" for screens that hold a step or a kind.
 pub fn key_of(s: &Screen) -> String {
     let sub = match s {
@@ -219,6 +223,7 @@ pub fn key_of(s: &Screen) -> String {
         Screen::Bip85 { step } => b85(step),
         Screen::Key { step } => key(step),
         Screen::Vault { step } => vs(step),
+        Screen::SeedVault { step } => svt(step),
         _ => return screen(s).to_string(),
     };
     let mut k = String::from(screen(s));
@@ -243,6 +248,7 @@ pub fn all() -> Vec<String> {
         ("Bip85", B85),
         ("Key", KEY),
         ("Vault", VS),
+        ("SeedVault", SVT),
     ];
     let mut out = Vec::new();
     for s in SCREENS {

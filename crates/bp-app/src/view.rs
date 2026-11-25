@@ -630,6 +630,7 @@ impl App {
             Screen::Bip85 { step } => self.render_b85(c, step),
             Screen::Key { step } => self.render_key(c, step),
             Screen::Vault { step } => self.render_vault(c, step),
+            Screen::SeedVault { step } => self.render_seed_vault(c, step),
             Screen::CommDetected => {
                 self.status(c, s.key.comm_title);
                 let (addr, id) = match self.comm {

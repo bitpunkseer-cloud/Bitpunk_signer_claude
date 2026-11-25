@@ -114,6 +114,8 @@ enum Job {
     Create,
     Change,
     Erase,
+    /// Write the vault's records again (M10-5).
+    Save,
 }
 
 pub struct VaultState {
@@ -137,6 +139,14 @@ pub struct VaultState {
     delay_ms: u32,
     /// The KDF cost for new vaults (tests use a small one).
     pub kdf: Params,
+    /// The vault's contents while it is open (M10-5).
+    pub(crate) data: crate::vaultdata::VaultData,
+    /// Digest of the body last read or written.
+    pub(crate) saved: [u8; 32],
+    /// Digest of a body that failed to save (not retried until it changes).
+    pub(crate) failed: Option<[u8; 32]>,
+    pub(crate) seen_slots: crate::vaultseeds::SlotsSeen,
+    pub(crate) seen_wallets: crate::vaultseeds::WalletsSeen,
 }
 
 impl VaultState {
@@ -157,7 +167,17 @@ impl VaultState {
             problem: None,
             delay_ms: 0,
             kdf: vault::DEFAULT_KDF,
+            data: crate::vaultdata::VaultData::new(),
+            saved: [0; 32],
+            failed: None,
+            seen_slots: [None; crate::SEED_SLOTS],
+            seen_wallets: ([[0; 32]; bp_bitcoin::multisig::register::MAX_WALLETS], 0),
         }
+    }
+
+    /// A job other than the power-on probe is queued.
+    pub(crate) fn pending_job(&self) -> bool {
+        self.job.is_some()
     }
 
     fn clear_pins(&mut self) {
@@ -172,6 +192,12 @@ impl VaultState {
         self.unlocked = None;
         self.clear_pins();
         self.words = None;
+        self.data.clear();
+        self.saved = [0; 32];
+        self.failed = None;
+        if self.job == Some(Job::Save) {
+            self.job = None;
+        }
     }
 
     /// Power on: RAM starts empty, the parts are asked again.
@@ -214,6 +240,11 @@ impl App {
     fn queue(&mut self, job: Job) {
         self.vault.job = Some(job);
         self.vault.drawn.set(false);
+    }
+
+    /// Queue writing the vault's records (after the next frame).
+    pub(crate) fn vault_queue_save(&mut self) {
+        self.queue(Job::Save);
     }
 
     /// Called by `render`: a queued job may run once its screen is shown.
@@ -294,10 +325,21 @@ impl App {
     pub fn vault_service(&mut self, hw: &mut VaultHw, body: &mut [u8]) {
         let Some(job) = self.vault.job.take() else { return };
         self.dirty = true;
+        self.vault_run(job, hw, body);
+        self.vault_after_event();
+    }
+
+    fn vault_run(&mut self, job: Job, hw: &mut VaultHw, body: &mut [u8]) {
         match job {
             Job::Probe => {
                 let state = hw.se.state();
                 let found = vault::scan(hw.flash, body);
+                if let Ok(Some(f)) = &found {
+                    // the lock screen speaks the vault's language
+                    if let Some(&l) = crate::settings::Lang::ALL.get(f.header.lang as usize) {
+                        self.settings.lang = l;
+                    }
+                }
                 match (state, found) {
                     (Ok(SeState::Ready { left }), Ok(Some(_))) => {
                         self.vault.exists = Some(true);
@@ -335,15 +377,22 @@ impl App {
                 self.vault.clear_pins();
                 match r {
                     Ok((u, len)) => {
-                        wipe(&mut body[..len]);
                         self.vault.unlocked = Some(u);
                         self.vault.left = MAX_ATTEMPTS;
                         self.vault.wrong_left = None;
-                        self.log.push(session::Event::VaultOpened, None);
-                        self.reset_to(Screen::Menu {
-                            id: MenuId::Main,
-                            sel: 0,
-                        });
+                        let ok = self.vault_opened(&body[..len]);
+                        wipe(&mut body[..len]);
+                        if ok {
+                            self.log.push(session::Event::VaultOpened, None);
+                            self.reset_to(Screen::Menu {
+                                id: MenuId::Main,
+                                sel: 0,
+                            });
+                        } else {
+                            self.vault.lock();
+                            self.vault.problem = Some(VaultError::Corrupt);
+                            self.vstep(VStep::Problem);
+                        }
                     }
                     Err(VaultError::WrongPin { left }) => {
                         self.vault.left = left;
@@ -368,19 +417,31 @@ impl App {
             Job::Create | Job::Change => {
                 let mut pin = [0u8; PREFIX_MAX + 1 + SUFFIX_MAX];
                 let n = joined(self.vault.prefix.text(), self.vault.suffix.text(), &mut pin);
-                let len = self.vault_body(body);
+                if job == Job::Create {
+                    // a new vault keeps the settings and the registered
+                    // wallets; seeds go in through the seed vault
+                    self.vault.data.clear();
+                    self.vault.seen_wallets.1 = usize::MAX;
+                }
+                self.vault_records();
+                let len = self.vault.data.to_body(body).unwrap_or(0);
+                let lang = self.settings.lang as u8;
                 let r = match (job, self.vault.unlocked.as_mut()) {
-                    (Job::Change, Some(u)) => vault::change_pin(hw, u, &pin[..n], body, len),
-                    _ => {
-                        let lang = self.settings.lang as u8;
-                        vault::create(hw, &pin[..n], self.vault.kdf, lang, body, len).map(|u| {
-                            self.vault.unlocked = Some(u);
-                        })
+                    _ if len == 0 => Err(VaultError::TooLarge),
+                    (Job::Change, Some(u)) => {
+                        u.set_lang(lang);
+                        vault::change_pin(hw, u, &pin[..n], body, len)
                     }
+                    _ => vault::create(hw, &pin[..n], self.vault.kdf, lang, body, len).map(|u| {
+                        self.vault.unlocked = Some(u);
+                    }),
                 };
                 wipe(&mut pin);
+                wipe(&mut body[..len]);
                 match r {
                     Ok(()) => {
+                        self.vault.saved = self.vault.data.digest();
+                        self.vault.failed = None;
                         self.vault.exists = Some(true);
                         self.vault.left = MAX_ATTEMPTS;
                         self.vault.words = vault::scan(hw.flash, body).ok().flatten().and_then(|found| {
@@ -394,6 +455,32 @@ impl App {
                         self.vault.clear_pins();
                         self.vault.problem = Some(e);
                         self.vstep(VStep::Problem);
+                    }
+                }
+            }
+            Job::Save => {
+                let digest = self.vault.data.digest();
+                let Some(u) = self.vault.unlocked.as_mut() else {
+                    return;
+                };
+                u.set_lang(self.settings.lang as u8);
+                let r = match self.vault.data.to_body(body) {
+                    Some(n) => {
+                        let r = vault::save(hw, u, body, n);
+                        wipe(&mut body[..n]);
+                        r
+                    }
+                    None => Err(VaultError::TooLarge),
+                };
+                match r {
+                    Ok(()) => {
+                        self.vault.saved = digest;
+                        self.vault.failed = None;
+                        self.log.push(session::Event::VaultSaved, None);
+                    }
+                    Err(_) => {
+                        self.vault.failed = Some(digest);
+                        self.notice = Some(self.text().vault.save_failed);
                     }
                 }
             }
@@ -416,12 +503,11 @@ impl App {
         }
     }
 
-    /// The vault's contents (M10-4: no records yet; M10-5 adds seeds,
-    /// wallets and settings).
-    pub(crate) fn vault_body(&self, out: &mut [u8]) -> usize {
-        let head = b"BPVB\x01\x00";
-        out[..head.len()].copy_from_slice(head);
-        head.len()
+    /// Bring the vault's records up to date with the session (wallets and
+    /// settings; seeds change only through the seed vault).
+    fn vault_records(&mut self) {
+        self.vault.data.settings = Some(self.settings);
+        self.vault_sync_now();
     }
 
     // ---------- menu actions (Settings > Security) ----------

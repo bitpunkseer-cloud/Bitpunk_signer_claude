@@ -260,7 +260,7 @@
       <h2>Vault · simulated secure element</h2>
       <span class="cam-state" id="vaultState">No vault</span>
     </div>
-    <p class="cam-note">Settings &gt; Security &gt; PIN makes a vault (M10). The secure element, the device key and the vault flash are simulated in this page's memory only: nothing is written to browser storage, and reloading the page is a new device without a vault. Power &gt; Power off, then any key, shows the lock screen. Stretching the PIN (Argon2id, 8 MiB) takes a moment here, as on the device.</p>
+    <p class="cam-note">Settings &gt; Security &gt; PIN makes a vault (M10). The secure element, the device key and the vault flash are simulated in this page's memory only: nothing is written to browser storage, and reloading the page is a new device without a vault. Store a seed in Seeds &amp; keys &gt; Seed vault, then Power &gt; Power off and any key: the lock screen, and after the PIN the seed is loaded again. Stretching the PIN (Argon2id, 8 MiB) takes a moment here, as on the device.</p>
   </section>
 
   <div class="info">
@@ -280,7 +280,7 @@
     </div>
     <div class="card">
       <h2>This build · M10 in progress</h2>
-      <p id="status">M10 (secure storage) in progress: a vault locked by a two-part PIN with two anti-phishing words, on a simulated secure element (Settings &gt; Security); keeping seeds in it comes next. Without a vault the device works exactly as in M9. M9 "Bitpunk Phosphor": the same functions as M8, every screen redrawn as a phosphor terminal. Menus by task (Sign · Receive &amp; verify · Seeds &amp; keys · Multisig · SD · Settings · Power), a first-run screen, a session log under the main menu, a boot self-test log, a screen saver that hides secrets, the review with a large amount, a ledger and a log of what was verified, a DOS-style file list, error codes, <kbd>?</kbd> help on every screen, and screen effects (Settings). Every output (QR, files, signatures) is byte-for-byte the M8 one. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
+      <p id="status">M10 (secure storage) in progress: a vault locked by a two-part PIN with two anti-phishing words, on a simulated secure element (Settings &gt; Security). Seeds you store (Seeds &amp; keys &gt; Seed vault; never the passphrase), registered multisig wallets and the settings come back after power off and on. Without a vault the device works exactly as in M9. M9 "Bitpunk Phosphor": the same functions as M8, every screen redrawn as a phosphor terminal. Menus by task (Sign · Receive &amp; verify · Seeds &amp; keys · Multisig · SD · Settings · Power), a first-run screen, a session log under the main menu, a boot self-test log, a screen saver that hides secrets, the review with a large amount, a ledger and a log of what was verified, a DOS-style file list, error codes, <kbd>?</kbd> help on every screen, and screen effects (Settings). Every output (QR, files, signatures) is byte-for-byte the M8 one. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
     </div>
   </div>
 

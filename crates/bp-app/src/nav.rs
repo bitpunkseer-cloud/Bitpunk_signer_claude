@@ -31,6 +31,12 @@ pub enum To {
     SettingsQr,
     About,
     PowerOff,
+    /// Seeds & keys > Seed vault (M10-5).
+    SeedVault,
+    /// Settings > Security rows (M10-4).
+    VaultPin,
+    VaultLock,
+    VaultWipe,
     /// A settings row, by its English label.
     Setting(fn(&crate::text::Strings) -> &'static str),
 }
@@ -64,6 +70,11 @@ pub const FEATURES: &[To] = &[
     To::SettingsQr,
     To::About,
     To::PowerOff,
+    To::Menu(MenuId::Security),
+    To::SeedVault,
+    To::VaultPin,
+    To::VaultLock,
+    To::VaultWipe,
 ];
 
 fn is(t: To, action: &Action, label: &str) -> bool {
@@ -81,7 +92,11 @@ fn is(t: To, action: &Action, label: &str) -> bool {
         | (To::ImportKey, Action::ImportKey)
         | (To::SettingsQr, Action::SettingsQr)
         | (To::About, Action::About)
-        | (To::PowerOff, Action::PowerOff) => true,
+        | (To::PowerOff, Action::PowerOff)
+        | (To::SeedVault, Action::SeedVault)
+        | (To::VaultPin, Action::VaultPin)
+        | (To::VaultLock, Action::VaultLock)
+        | (To::VaultWipe, Action::VaultWipe) => true,
         (To::Setting(f), Action::CycleSetting) => f(&crate::text::EN) == label,
         _ => false,
     }

@@ -1,11 +1,16 @@
 //! M10-4: the vault on screen — setting a PIN, the lock screen, wrong PINs,
 //! the wait, erasing after ten, locking, changing and erasing (D1, D2).
+//! M10-5: what it keeps — seeds stored by the user, the registered wallets
+//! and the settings, back after power on.
 
 use super::*;
 use crate::menus::MenuId;
 use crate::nav::{self, To};
+use crate::seeds::{SeedSlot, SlotKind};
 use crate::sim_hw::{SimDeviceKey, SimFlash, SimSecureElement, SLOT_LEN};
 use crate::vault::{VaultHw, MAX_ATTEMPTS};
+use crate::vaultdata::StoredSeed;
+use crate::vaultseeds::SeedVaultStep;
 use crate::vaultui::VStep;
 use bp_crypto::argon2::{Block, Params};
 use std::vec;
@@ -395,6 +400,22 @@ pub(crate) fn vault_screens_fit() {
         type_str(&mut a, "WI");
         shot(&a, "wipe");
         press(&mut a, Key::Esc);
+        // the seed vault (M10-5)
+        load_abandon(&mut a);
+        nav::go(&mut a, To::SeedVault);
+        shot(&a, "sv-list-empty");
+        press(&mut a, Key::Enter);
+        assert_eq!(sv(&a), SeedVaultStep::Pick { sel: 0 });
+        shot(&a, "sv-pick");
+        press(&mut a, Key::Enter);
+        shot(&a, "sv-list");
+        b.serve(&mut a);
+        press(&mut a, Key::Char('1'));
+        shot(&a, "sv-seed");
+        press(&mut a, Key::Char('2'));
+        type_str(&mut a, "WI");
+        shot(&a, "sv-remove");
+        press(&mut a, Key::Esc);
         // the lock screen
         nav::go(&mut a, To::PowerOff);
         let mut a = boot(&mut b);
@@ -437,4 +458,265 @@ pub(crate) fn vault_screens_fit() {
         a.set_current(Screen::Vault { step: VStep::Wiped });
         shot(&a, "wiped");
     }
+}
+
+// ---------- M10-5: what the vault keeps ----------
+
+fn sv(a: &App) -> SeedVaultStep {
+    match a.current() {
+        Screen::SeedVault { step } => step,
+        s => panic!("not the seed vault: {s:?}"),
+    }
+}
+
+/// Seed vault > Store a loaded seed > the first one offered.
+fn store_first(a: &mut App, b: &mut Bench) {
+    nav::go(a, To::SeedVault);
+    let n = a.vault.data.seed_count();
+    press(a, Key::Char((b'1' + n as u8) as char));
+    assert_eq!(sv(a), SeedVaultStep::Pick { sel: 0 });
+    press(a, Key::Enter);
+    b.serve(a);
+}
+
+fn xprv_slot(i: u8) -> SeedSlot {
+    SeedSlot::from_xprv(bp_bitcoin::bip32::Xpriv::master(&[i; 32]).unwrap())
+}
+
+#[test]
+fn stored_seeds_come_back_after_power_on() {
+    let mut b = Bench::new(11);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    // no vault yet
+    nav::go(&mut a, To::SeedVault);
+    assert_eq!(a.notice, Some(a.text().vault.sv_no_vault));
+    load_abandon(&mut a);
+    let fp = a.slot(0).unwrap().fingerprint;
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    assert_eq!(a.vault.data.seed_count(), 0, "seeds go in only when stored");
+    store_first(&mut a, &mut b);
+    assert_eq!(sv(&a), SeedVaultStep::List { sel: 0 });
+    assert_eq!(a.vault.data.seed_count(), 1);
+    assert_eq!(
+        a.log.latest().next().unwrap().event,
+        crate::session::Event::VaultSaved
+    );
+    // nothing more to store
+    press(&mut a, Key::Char('2'));
+    assert_eq!(a.notice, Some(a.text().vault.sv_nothing));
+    // power off and on: the seed is loaded again once the vault opens
+    let mut a = power_cycle(&mut a, &mut b);
+    assert_eq!(a.seed_count(), 0);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(a.seed_count(), 1);
+    assert_eq!(a.slot(0).unwrap().fingerprint, fp);
+    // locked again: the seed vault asks for the PIN first
+    nav::go(&mut a, To::VaultLock);
+    assert_eq!(a.seed_count(), 0);
+    nav::go(&mut a, To::SeedVault);
+    assert_eq!(step(&a), VStep::Prefix);
+}
+
+#[test]
+fn keys_and_passphrase_seeds_keep_their_fingerprint() {
+    let mut b = Bench::new(12);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    let m = bp_bitcoin::bip39::Mnemonic::from_entropy(&[0u8; 16]).unwrap();
+    a.seeds[0] = SeedSlot::new(m, b"my passphrase");
+    a.seeds[1] = Some(xprv_slot(7));
+    a.seeds[2] = SeedSlot::from_wif(&bp_crypto::secp256k1::SecretKey::from_bytes(&[9u8; 32]).unwrap());
+    let fps: Vec<[u8; 4]> = a.seeds.iter().flatten().map(|s| s.fingerprint).collect();
+    store_first(&mut a, &mut b);
+    assert_eq!(
+        a.notice,
+        Some(a.text().vault.sv_stored_pass),
+        "the passphrase is not stored"
+    );
+    store_first(&mut a, &mut b);
+    store_first(&mut a, &mut b);
+    assert_eq!(a.vault.data.seed_count(), 3);
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    let m = bp_bitcoin::bip39::Mnemonic::from_entropy(&[0u8; 16]).unwrap();
+    let words_only = SeedSlot::new(m, b"").unwrap().fingerprint;
+    let back: Vec<([u8; 4], SlotKind, bool)> = a
+        .seeds
+        .iter()
+        .flatten()
+        .map(|s| (s.fingerprint, s.kind, s.has_passphrase()))
+        .collect();
+    assert_eq!(
+        back,
+        vec![
+            (words_only, SlotKind::Mnemonic, false),
+            (fps[1], SlotKind::Xprv, false),
+            (fps[2], SlotKind::Wif, false),
+        ]
+    );
+    assert_ne!(words_only, fps[0]);
+}
+
+#[test]
+fn the_list_loads_removes_and_counts_eight() {
+    let mut b = Bench::new(13);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    for i in 0..8 {
+        assert!(a
+            .vault
+            .data
+            .add_seed(StoredSeed::from_slot(&xprv_slot(i + 1)).unwrap()));
+    }
+    nav::home(&mut a); // any key: the change is saved
+    b.serve(&mut a);
+    // full: nothing more goes in
+    a.seeds[0] = Some(xprv_slot(50));
+    nav::go(&mut a, To::SeedVault);
+    press(&mut a, Key::Char('9'));
+    assert_eq!(a.notice, Some(a.text().vault.sv_full));
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(a.seed_count(), 3, "the first three fill the slots");
+    nav::go(&mut a, To::SeedVault);
+    // the fourth: no free slot
+    press(&mut a, Key::Char('4'));
+    press(&mut a, Key::Char('1'));
+    assert_eq!(a.current(), Screen::SlotsFull);
+    // the first: already loaded
+    nav::go(&mut a, To::SeedVault);
+    press(&mut a, Key::Char('1'));
+    press(&mut a, Key::Char('1'));
+    assert_eq!(a.notice, Some(a.text().vault.sv_already));
+    // remove the fourth (type WIPE); the others keep their order
+    press(&mut a, Key::Esc);
+    press(&mut a, Key::Char('4'));
+    press(&mut a, Key::Char('2'));
+    assert_eq!(sv(&a), SeedVaultStep::Remove { idx: 3 });
+    type_str(&mut a, "WIPE");
+    press(&mut a, Key::Enter);
+    b.serve(&mut a);
+    assert_eq!(a.vault.data.seed_count(), 7);
+    let want = xprv_slot(5).fingerprint;
+    assert_eq!(a.vault.data.seed(3).unwrap().fp, want);
+    // a free slot: the list loads a stored seed
+    a.seeds[2] = None;
+    nav::go(&mut a, To::SeedVault);
+    press(&mut a, Key::Char('4'));
+    press(&mut a, Key::Char('1'));
+    assert!(matches!(a.current(), Screen::SeedReady { .. }));
+    assert_eq!(a.slot(2).unwrap().fingerprint, want);
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(a.vault.data.seed_count(), 7, "the removal was saved");
+}
+
+#[test]
+fn settings_are_kept_and_the_lock_screen_speaks_their_language() {
+    let mut b = Bench::new(14);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    let units = a.settings.units;
+    nav::go(&mut a, To::Setting(|s| s.units));
+    assert_ne!(a.settings.units, units);
+    a.settings.lang = crate::settings::Lang::Ko;
+    a.render(&mut NullCanvas);
+    assert!(
+        !a.vault_pending(),
+        "nothing is written while in the Settings menu"
+    );
+    press(&mut a, Key::Esc);
+    a.render(&mut NullCanvas);
+    assert!(a.vault_pending(), "leaving the Settings menu saves them");
+    b.serve(&mut a);
+    let mut a = power_cycle(&mut a, &mut b);
+    assert_eq!(
+        a.settings.lang,
+        crate::settings::Lang::Ko,
+        "the lock screen in Korean"
+    );
+    assert_eq!(a.settings.units, units, "the rest waits for the PIN");
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_ne!(a.settings.units, units);
+}
+
+#[test]
+fn wallets_register_again_for_their_seed() {
+    use super::wallets_flow::{register_quick, wallet_of};
+    use bp_bitcoin::multisig::MsScript;
+    let mut b = Bench::new(15);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    store_first(&mut a, &mut b);
+    let w = wallet_of(&a, MsScript::Wsh, 2, 3);
+    register_quick(&mut a, &w);
+    b.serve(&mut a);
+    assert_eq!(a.vault.data.wallets().count(), 1);
+    let (tag, code) = {
+        let e = a.wallets.get(0).unwrap();
+        (e.tag, e.code)
+    };
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(a.wallets.len(), 1, "registered again without the code");
+    let e = a.wallets.iter().next().unwrap().1;
+    assert_eq!((e.tag, e.code, e.slot), (tag, code, 0));
+    // the seed leaves RAM: its wallet stays in the vault
+    a.push(Screen::Confirm {
+        what: Confirm::DiscardSeed(0),
+        sel: 1,
+    });
+    type_str(&mut a, "wipe");
+    press(&mut a, Key::Enter);
+    b.serve(&mut a);
+    assert!(a.wallets.is_empty());
+    assert_eq!(a.vault.data.wallets().count(), 1);
+    // loading the seed from the vault brings the wallet back
+    nav::go(&mut a, To::SeedVault);
+    press(&mut a, Key::Char('1'));
+    press(&mut a, Key::Char('1'));
+    b.serve(&mut a);
+    assert_eq!(a.wallets.len(), 1);
+    // removed while its seed is loaded: it leaves the vault
+    let idx = a.wallets.iter().next().unwrap().0 as u8;
+    a.wallets.remove(idx);
+    nav::home(&mut a);
+    b.serve(&mut a);
+    assert_eq!(a.vault.data.wallets().count(), 0);
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert!(a.wallets.is_empty());
+}
+
+#[test]
+fn a_failed_save_is_reported_once_and_retried_on_the_next_change() {
+    let mut b = Bench::new(16);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    b.se.broken = true;
+    store_first(&mut a, &mut b);
+    assert_eq!(a.notice, Some(a.text().vault.save_failed));
+    nav::home(&mut a);
+    a.render(&mut NullCanvas);
+    assert!(!a.vault_pending(), "not retried until something changes");
+    b.se.broken = false;
+    a.seeds[1] = Some(xprv_slot(3));
+    store_first(&mut a, &mut b);
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(a.vault.data.seed_count(), 2);
 }
