@@ -103,6 +103,14 @@ impl PinBuf {
     }
 }
 
+#[cfg(test)]
+impl PinBuf {
+    /// Nothing typed is left in it.
+    pub(crate) fn is_wiped(&self) -> bool {
+        self.len == 0 && self.buf.iter().all(|&b| b == 0)
+    }
+}
+
 impl Drop for PinBuf {
     fn drop(&mut self) {
         wipe(&mut self.buf);
@@ -218,6 +226,20 @@ impl VaultState {
             tamper_words: None,
             firmware: None,
         }
+    }
+
+    /// No PIN, trick PIN or check code typed is left in RAM (M10-9).
+    #[cfg(test)]
+    pub(crate) fn pins_wiped(&self) -> bool {
+        [
+            &self.prefix,
+            &self.suffix,
+            &self.again_prefix,
+            &self.again_suffix,
+            &self.tamper,
+        ]
+        .iter()
+        .all(|b| b.is_wiped())
     }
 
     /// The vault is open (or a decoy PIN made it look open).

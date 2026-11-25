@@ -1,6 +1,6 @@
 # M10 구현 계획 (v1) — 보안 저장 · PIN · 시드 보관함
 
-상태: **승인 (2026-11-25, 결정 1~12 권장안)** — 진행 중: M10-0~M10-8 완료 ([SE050 드라이버](../M10_SE050.md)) · 근거: [M10_SURVEY.md](../M10_SURVEY.md) (Coldcard·Passport·Keystone·OneKey·Specter·Krux·Jade·SeedSigner 코드, STM32N6 HAL 드라이버) · 화면은 [UX 언어 v1.0](../UX_LANGUAGE.md)을 따른다.
+상태: **구현 완료 (2026-11-25)** — 승인 (결정 1~12 권장안), 단위 M10-0~M10-9 완료, 실기기 연결은 H 트랙 ([SE050 드라이버](../M10_SE050.md) 5절) · 이전 상태: 진행 중: M10-0~M10-8 완료 ([SE050 드라이버](../M10_SE050.md)) · 근거: [M10_SURVEY.md](../M10_SURVEY.md) (Coldcard·Passport·Keystone·OneKey·Specter·Krux·Jade·SeedSigner 코드, STM32N6 HAL 드라이버) · 화면은 [UX 언어 v1.0](../UX_LANGUAGE.md)을 따른다.
 
 ## 1. 목표
 
@@ -152,3 +152,49 @@ MCU: 기기 키 D (32 B) ── SAES DHUK로 감싸 플래시에 ── 이 칩�
 | 피싱 방지 단어 | 같은 기기·같은 앞부분 → 같은 단어, 다른 기기 → 다른 단어 |
 | 기능 보존 | 보관함 없이 M9 시험 전부 + 골든 출력 + 과제 효율 그대로 |
 | 화면 | UX 언어 8장 점검표(전수 등록·도움말·색·넘침·대장·점검표) |
+
+## 9. 구현 결과 (2026-11-25)
+
+| 단위 | 내용 |
+|---|---|
+| M10-0 | 파일 단위 동결(`tools/check_freeze.sh`), 기능 대장 M10 절(D1~D3) |
+| M10-1 | BLAKE2b·Argon2id·ChaCha20-Poly1305·HKDF (새 파일, RFC 벡터 + 참조 크레이트 수천 건) |
+| M10-2 | HAL 트레이트(`SecureElement`·`DeviceKey`·`VaultFlash`)와 같은 규칙의 모의 구현 |
+| M10-3 | 보관함 형식: 머리말 352바이트, A/B 슬롯, 검사값 마지막 쓰기, 보안 칩 카운터로 롤백 거부 |
+| M10-4 | 두 부분 PIN, 확인 단어 2개, 잠금 화면, 대기(1분·5분·15분·1시간), 10회 암호 소거 |
+| M10-5 | 시드 보관함(단어·XPRV·WIF 8개, 패스프레이즈 제외), 멀티시그 지갑(`.bpw`, 시드가 태그를 다시 계산해야 재등록)·설정 자동 보관 |
+| M10-6 | 속임수 PIN 4종(미끼·지운 뒤 틀림·지운 뒤 미끼·빈 기기), 보안 칩보다 먼저 상수 시간 비교, 시도 횟수 안 씀 |
+| M10-7 | 탬퍼 점검: 점검 코드(저장 안 함) + 펌웨어 SHA-256 + 기기 키 + 보안 칩 → 단어 2개 |
+| M10-8 | SE050 드라이버(`bp-se050`): T=1 over I2C, SCP03(KAT 일치), SE05x 명령(참조 드라이버와 바이트 일치), I2C 수준 모의 칩. 시뮬레이터 보관함이 이 드라이버로 동작 |
+| M10-9 | 공격 시험·퍼징(아래 표), 문서, 배포 |
+
+### 9-1. 위협별 시험
+
+| 위협 | 시험 |
+|---|---|
+| T1 분실·도난 | `wrong_pins_count_wait_and_erase_on_the_tenth`, `the_vault_runs_on_the_se050_driver` (10회 → 보안 칩 잠김 → 보관함 소거) |
+| T2 플래시 탈취 | `attack_the_flash_in_another_device_opens_nothing`, `another_chip_or_element_cannot_open_it` |
+| T3 롤백 | `attack_an_old_flash_copy_opens_nothing_after_a_pin_change`, `attack_restoring_the_flash_does_not_give_attempts_back`, `an_older_flash_image_is_refused` |
+| T4 무차별 대입 | `attack_the_wait_cannot_be_typed_through`, 시도 한도는 칩이 셈(`the_vault_rules_hold_through_the_driver`) |
+| T5 가짜 펌웨어·바꿔치기 | 확인 단어(`phishing_words_are_per_device_and_prefix`), 탬퍼 점검(`tamper_words_follow_the_code_the_firmware_and_the_device`), 다른 SCP 키의 칩 거부(`wrong_channel_keys_or_no_channel_are_refused`) |
+| T6 강요 | 속임수 PIN 5개 흐름, `attack_a_decoy_looks_like_the_vault`, `attack_a_changed_trick_area_is_refused_not_obeyed` |
+| T7 PIN 분실 | 새 시드는 단어 확인(퀴즈)을 통과해야만 슬롯에 들어가고, 불러온 시드·키는 이미 백업에서 온 것 — 보관함에 들어가는 모든 시드는 단어 백업으로 되살릴 수 있다 |
+| 버스 엿듣기 | `nothing_secret_crosses_the_bus_in_the_clear` (I2C에 오간 모든 바이트에 A·S 없음) |
+| 메모리 잔여물 | `attack_nothing_typed_or_loaded_stays_in_ram` (PIN·속임수 PIN·점검 코드 버퍼 0, 잠그면 키·내용·시드·단어 없음) |
+| 위조 데이터 | `attack_forged_wallet_records_register_nothing`, `bad_bodies_are_refused_without_panicking`, `any_changed_byte_is_refused_without_panicking`, `random_flash_contents_never_panic` |
+| 전원 끊김 | `a_power_cut_anywhere_leaves_one_whole_vault`, `a_pin_change_survives_a_power_cut`, `a_power_cut_on_the_se050_leaves_one_whole_vault`, `a_power_cut_anywhere_in_provision_leaves_blank_or_ready` |
+| 퍼징 | `fuzz_random_keys_on_the_vault_screens` (6×1,500키, 작업까지 처리), `fuzz_garbage_on_the_bus_never_panics`, `fuzz_responses_apdus_and_frames_never_panic` |
+
+상수 시간 비교는 코드에서 확인했다: PIN 두 번 입력 비교, 속임수 검증값(모든 항목을 끝까지 비교), 카드 암호문·응답 MAC(SCP03), 저장 시드 일치 검사에 `ct_eq`를 쓰고, AES S-박스는 표 전체를 읽는다.
+
+### 9-2. 알려진 한계
+
+- **플래시 변조 = 지우기와 같음.** 머리말·속임수 칸·본문은 인증되므로 바뀌면 열리지 않는다. 시드는 단어 백업으로 되살린다.
+- **SE050 기본 SCP 키 교체**(PUT KEY)와 "SCP 필수" 설정은 실기기에서 해야 실제로 안전하다(H 트랙, [M10_SE050](../M10_SE050.md) 3절).
+- **탬퍼 점검의 범위**: 서명 부팅(M12) 전까지는 기기 키와 보안 칩에 닿는 정교한 악성 펌웨어가 진짜 단어를 계산할 수 있다.
+- **미끼 상태에서 바꾼 것**은 전원을 끄면 사라진다. **조용히 지운 뒤** 다시 켜면 보관함이 없는 기기로 보인다.
+- **Argon2id 비용**(8 MiB, t=3)은 실기기에서 잠금 해제 약 2초가 되게 조정한다.
+
+### 9-3. 결과
+
+시험 627개(M9 끝 542개), 시뮬레이터 E2E(보관함 만들기 → 시드 넣기 → 전원 → 잠금 해제 → 같은 PSBT 서명이 M8 기준과 같음, 탬퍼 점검, 속임수 PIN), 기능 대장 F-160~F-178. 화면: [영어](m10/screens-en.png) · [한국어](m10/screens-ko.png).

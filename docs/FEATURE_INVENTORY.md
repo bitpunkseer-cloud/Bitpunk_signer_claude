@@ -208,24 +208,24 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | # | 기능 | 위치 | 시험 |
 |---|---|---|---|
 | F-160 | PIN 정하기·바꾸기: 앞부분 4~8자 + 뒷부분 4자 이상을 두 번, 확인 단어 2개 | 설정 > 보안 > PIN | set_a_pin_then_unlock_after_power_on, pin_rules_and_mismatch |
-| F-161 | 잠금 화면: 앞부분 → 확인 단어 2개 → 뒷부분, 보관함 없이 사용 | 전원 켜기(보관함이 있을 때) | set_a_pin_then_unlock_after_power_on, esc_on_the_lock_screen_is_a_session_without_the_vault |
-| F-162 | 틀린 PIN: 남은 횟수, 4번째부터 대기 1분·5분·15분·1시간(전원을 꺼도 유지), 10번째에 영구 삭제 | 잠금 화면 | wrong_pins_count_wait_and_erase_on_the_tenth |
+| F-161 | 잠금 화면: 앞부분 → 확인 단어 2개 → 뒷부분, 보관함 없이 사용 | 전원 켜기(보관함이 있을 때) | set_a_pin_then_unlock_after_power_on, esc_on_the_lock_screen_is_a_session_without_the_vault, attack_nothing_typed_or_loaded_stays_in_ram, fuzz_random_keys_on_the_vault_screens |
+| F-162 | 틀린 PIN: 남은 횟수, 4번째부터 대기 1분·5분·15분·1시간(전원을 꺼도 유지), 10번째에 영구 삭제 | 잠금 화면 | wrong_pins_count_wait_and_erase_on_the_tenth, attack_the_wait_cannot_be_typed_through, attack_restoring_the_flash_does_not_give_attempts_back |
 | F-163 | 지금 잠그기, 보관함 지우기(WIPE 입력) | 설정 > 보안 | lock_now_change_pin_and_erase |
-| F-164 | 보관함 형식: A/B 쓰기, 롤백 거부, 전원이 끊겨도 온전한 보관함 하나, 다른 기기·변조 거부 | (내부) | a_power_cut_anywhere_leaves_one_whole_vault, a_pin_change_survives_a_power_cut, an_older_flash_image_is_refused, another_chip_or_element_cannot_open_it, any_changed_byte_is_refused_without_panicking, seeds_settings_and_wallets_round_trip, a_passphrase_is_never_stored, full_vault_and_wrong_fingerprint, bad_bodies_are_refused_without_panicking |
+| F-164 | 보관함 형식: A/B 쓰기, 롤백 거부, 전원이 끊겨도 온전한 보관함 하나, 다른 기기·변조 거부 | (내부) | a_power_cut_anywhere_leaves_one_whole_vault, a_pin_change_survives_a_power_cut, an_older_flash_image_is_refused, another_chip_or_element_cannot_open_it, any_changed_byte_is_refused_without_panicking, seeds_settings_and_wallets_round_trip, a_passphrase_is_never_stored, full_vault_and_wrong_fingerprint, bad_bodies_are_refused_without_panicking, attack_an_old_flash_copy_opens_nothing_after_a_pin_change, attack_the_flash_in_another_device_opens_nothing, attack_a_changed_trick_area_is_refused_not_obeyed |
 | F-165 | 보안 칩·플래시 문제는 오류 코드(E-VLT)와 함께 알리고 보관함 없이 사용 | 잠금 화면 | a_broken_secure_element_is_a_problem_with_a_code |
 | F-166 | 시드 보관함: 불러온 시드 넣기(단어·XPRV·WIF, 최대 8개, 패스프레이즈는 넣지 않음), 목록, 슬롯에 불러오기, 빼기(WIPE 입력) | 시드·키 > 시드 보관함 | stored_seeds_come_back_after_power_on, keys_and_passphrase_seeds_keep_their_fingerprint, the_list_loads_removes_and_counts_eight |
 | F-167 | 보관함이 열리면 설정을 적용하고 앞의 시드를 빈 슬롯에 불러옴 | 잠금 해제 | stored_seeds_come_back_after_power_on, the_list_loads_removes_and_counts_eight |
-| F-168 | 등록한 멀티시그 지갑을 보관, 그 시드가 들어오면 코드 없이 다시 등록(등록 규칙 재검사) | 멀티시그 지갑 | wallets_register_again_for_their_seed |
+| F-168 | 등록한 멀티시그 지갑을 보관, 그 시드가 들어오면 코드 없이 다시 등록(등록 규칙 재검사) | 멀티시그 지갑 | wallets_register_again_for_their_seed, attack_forged_wallet_records_register_nothing |
 | F-169 | 설정을 보관(설정 메뉴를 떠날 때), 잠금 화면은 보관함의 언어로 | 설정 | settings_are_kept_and_the_lock_screen_speaks_their_language |
 | F-170 | 보관함 저장 실패 알림, 내용이 바뀌면 다시 시도 | 모든 화면 | a_failed_save_is_reported_once_and_retried_on_the_next_change |
-| F-171 | 속임수 PIN 미끼 지갑: 불러온 시드의 BIP-85 자식(1001~1003)이 보관함처럼 열림, 아무것도 쓰지 않음, 시도 횟수를 쓰지 않음 | 설정 > 보안 > 속임수 PIN | a_decoy_pin_opens_a_decoy_seed_and_uses_no_attempt, trick_pins_open_before_the_secure_element_and_stay_hidden |
+| F-171 | 속임수 PIN 미끼 지갑: 불러온 시드의 BIP-85 자식(1001~1003)이 보관함처럼 열림, 아무것도 쓰지 않음, 시도 횟수를 쓰지 않음 | 설정 > 보안 > 속임수 PIN | a_decoy_pin_opens_a_decoy_seed_and_uses_no_attempt, trick_pins_open_before_the_secure_element_and_stay_hidden, attack_a_decoy_looks_like_the_vault |
 | F-172 | 속임수 PIN 지운 뒤 'PIN 틀림'·지운 뒤 미끼 지갑: 보관함을 영구히 지우고 잠금 화면이나 미끼로 계속 | 설정 > 보안 > 속임수 PIN | an_erase_trick_erases_then_looks_like_a_wrong_pin, an_erase_then_decoy_trick_opens_the_decoy |
 | F-173 | 속임수 PIN 빈 기기처럼 보이기: 아무것도 지우지 않고 보관함 없는 세션 | 설정 > 보안 > 속임수 PIN | a_blank_trick_starts_like_a_device_without_a_vault |
 | F-174 | 속임수 PIN 규칙: 보관함 PIN·다른 속임수 PIN과 달라야 함, 3개까지, 지우기 | 설정 > 보안 > 속임수 PIN | trick_pins_must_differ_and_are_three_at_most |
 | F-175 | 탬퍼 점검: 점검 코드(6~16자, 저장 안 함) + 펌웨어 SHA-256 + 기기 키 + 보안 칩 → 단어 2개, 펌웨어·기기가 바뀌면 달라짐, 시도 횟수 안 씀 | 잠금 화면 Tab, 설정 > 보안 > 탬퍼 점검 | the_tamper_check_words_change_only_with_the_firmware, tamper_words_follow_the_code_the_firmware_and_the_device |
 | F-176 | 탬퍼 점검은 조용히 지운 뒤에도 같은 모습, 펌웨어 해시가 없는 플랫폼에서는 이유를 알림 | 잠금 화면 | the_tamper_check_goes_on_after_a_silent_erase_and_needs_a_firmware_hash |
 | F-177 | 메뉴에서 아무것도 하지 않는 줄은 이유를 키 막대 위에 보임 | 모든 메뉴 | a_menu_row_that_does_nothing_says_why |
-| F-178 | SE050 드라이버: T=1 over I2C, SCP03(전부 암호화·MAC), SE05x 명령 — 보관함이 그 위에서 동작, 버스에 비밀 평문 없음 ([M10_SE050](M10_SE050.md)) | (내부) | the_vault_runs_on_the_se050_driver, a_power_cut_on_the_se050_leaves_one_whole_vault, nothing_secret_crosses_the_bus_in_the_clear, published_known_answers, commands_match_the_reference_driver |
+| F-178 | SE050 드라이버: T=1 over I2C, SCP03(전부 암호화·MAC), SE05x 명령 — 보관함이 그 위에서 동작, 버스에 비밀 평문 없음 ([M10_SE050](M10_SE050.md)) | (내부) | the_vault_runs_on_the_se050_driver, a_power_cut_on_the_se050_leaves_one_whole_vault, nothing_secret_crosses_the_bus_in_the_clear, published_known_answers, commands_match_the_reference_driver, fuzz_garbage_on_the_bus_never_panics, fuzz_responses_apdus_and_frames_never_panic |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |

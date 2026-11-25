@@ -218,3 +218,110 @@ fn a_power_cut_anywhere_in_provision_leaves_blank_or_ready() {
             .unwrap_or_else(|e| panic!("cut {cut}: {e:?}"));
     }
 }
+
+// ---------- fuzzing (M10-9) ----------
+
+struct Xs(u64);
+impl Xs {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+    fn bytes(&mut self, n: usize) -> Vec<u8> {
+        (0..n).map(|_| self.next() as u8).collect()
+    }
+}
+
+/// A bus where anything may come back: garbage, short frames, NACKs.
+struct Garbage(Xs);
+impl I2c for Garbage {
+    fn write(&mut self, _: &[u8]) -> Result<(), Nack> {
+        if self.0.next().is_multiple_of(5) {
+            Err(Nack)
+        } else {
+            Ok(())
+        }
+    }
+    fn read(&mut self, buf: &mut [u8]) -> Result<(), Nack> {
+        if self.0.next().is_multiple_of(4) {
+            return Err(Nack);
+        }
+        for b in buf.iter_mut() {
+            *b = self.0.next() as u8;
+        }
+        // now and then a frame that looks right at first sight
+        if buf.len() == 3 && self.0.next().is_multiple_of(3) {
+            buf[0] = crate::t1::NAD_SE;
+            buf[2] %= 32;
+        }
+        Ok(())
+    }
+    fn delay_us(&mut self, _: u32) {}
+}
+
+#[test]
+fn fuzz_garbage_on_the_bus_never_panics() {
+    for seed in 1..200u64 {
+        let mut se = Se050::new(Garbage(Xs(seed)), keys(), TestRng(seed));
+        let _ = se.state();
+        let _ = se.unlock(&A, &mut [0; 32]);
+        let _ = se.counter();
+        let mut t = crate::t1::T1::new(Garbage(Xs(seed ^ 0xFF)));
+        let mut r = [0u8; 600];
+        if let Ok(n) = t.transceive(&[0x80, 4, 0, 0x27, 0], &mut r) {
+            assert!(n <= r.len());
+        }
+    }
+}
+
+#[test]
+fn fuzz_responses_apdus_and_frames_never_panic() {
+    use crate::scp03::Session;
+    let mut x = Xs(0xC0FFEE);
+    // SCP03 answers and wrapped responses
+    let host = [1u8; 8];
+    for _ in 0..3000 {
+        let n = (x.next() % 64) as usize;
+        let junk = x.bytes(n);
+        let _ = Session::begin(&keys(), &host, &junk);
+        let _ = crate::apdu::parse(&junk);
+        let _ = crate::apdu::find(&junk, 0x41);
+        let _ = crate::t1::atr_timings(&junk);
+    }
+    // a real session (the published vector), then random responses to unwrap
+    let kat = StaticKeys {
+        enc: [
+            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+        ],
+        mac: [
+            0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+        ],
+        dek: [0; 16],
+        version: 0,
+    };
+    let mut answer = std::vec![0u8; 10];
+    answer.extend_from_slice(&[0x30, 0x03, 0x70, 8, 9, 10, 11, 12, 13, 14, 15]);
+    answer.extend_from_slice(&[0x11, 0x4f, 0x6b, 0xc5, 0x05, 0x2c, 0x52, 0x28]);
+    let (mut s, hc) = Session::begin(&kat, &[0, 1, 2, 3, 4, 5, 6, 7], &answer).unwrap();
+    s.external_authenticate(crate::scp03::LEVEL_FULL, &hc, &mut [0u8; 32]);
+    for _ in 0..3000 {
+        let n = (x.next() % 80) as usize;
+        let mut junk = x.bytes(n);
+        assert!(s.unwrap(&mut junk).map_or(true, |(len, _)| len <= n));
+    }
+    // the simulated chip itself, fed random frames
+    let mut chip = MockSe050::new(9, keys());
+    for _ in 0..3000 {
+        let n = (x.next() % 300) as usize;
+        let mut f = x.bytes(n);
+        if n > 5 && x.next().is_multiple_of(2) {
+            f[0] = crate::t1::NAD_HOST;
+            f[2] = (n - 5).min(254) as u8;
+        }
+        let _ = chip.write(&f);
+        let mut r = [0u8; 8];
+        let _ = chip.read(&mut r);
+    }
+}

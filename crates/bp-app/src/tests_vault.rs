@@ -1192,3 +1192,298 @@ fn the_tamper_check_goes_on_after_a_silent_erase_and_needs_a_firmware_hash() {
     nav::go(&mut c, To::VaultTamper);
     assert_eq!(c.notice, Some(c.text().vault.tc_no_fw));
 }
+
+// ---------- M10-9: attacks and fuzzing ----------
+
+fn se_state(b: &mut Bench) -> bp_hal::secure::SeState {
+    use bp_hal::secure::SecureElement;
+    b.se.state().unwrap()
+}
+
+#[test]
+fn attack_an_old_flash_copy_opens_nothing_after_a_pin_change() {
+    let mut b = Bench::new(61);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    store_first(&mut a, &mut b);
+    // the attacker copies the flash while the old PIN is in use
+    let copy = b.flash.clone();
+    nav::go(&mut a, To::Menu(MenuId::Security));
+    set_pin(&mut a, &mut b, "wxyz", "9876");
+    press(&mut a, Key::Enter);
+    // ... and writes it back later
+    b.flash = copy;
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(a.vault.wrong_left, Some(9), "the old PIN is a wrong PIN now");
+    unlock(&mut a, &mut b, "wxyz", "9876");
+    assert_eq!(step(&a), VStep::Problem, "the new PIN finds only an old copy");
+    assert_eq!(a.vault.problem, Some(crate::vault::VaultError::Rollback));
+    assert_eq!(a.seed_count(), 0);
+}
+
+#[test]
+fn attack_restoring_the_flash_does_not_give_attempts_back() {
+    let mut b = Bench::new(62);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    let copy = b.flash.clone();
+    let mut a = power_cycle(&mut a, &mut b);
+    for _ in 0..3 {
+        unlock(&mut a, &mut b, "abcd", "nope");
+    }
+    b.flash = copy;
+    let a = power_cycle(&mut a, &mut b);
+    assert_eq!(se_state(&mut b), bp_hal::secure::SeState::Ready { left: 7 });
+    assert_eq!(step(&a), VStep::Delay, "the wait comes back too");
+}
+
+#[test]
+fn attack_the_flash_in_another_device_opens_nothing() {
+    let mut b = Bench::new(63);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    store_first(&mut a, &mut b);
+    // the same flash, another board (its own element and hidden key)
+    let mut other = Bench::new(64);
+    other.flash = b.flash.clone();
+    let mut c = boot(&mut other);
+    // no secret there: the element is blank, so no vault is offered
+    assert!(matches!(c.current(), Screen::Welcome { .. }));
+    // even forcing the lock screen, the right PIN opens nothing
+    c.vault.exists = Some(true);
+    c.push(Screen::Vault { step: VStep::Prefix });
+    type_str(&mut c, "abcd");
+    press(&mut c, Key::Enter);
+    other.serve(&mut c);
+    assert_eq!(c.seed_count(), 0);
+}
+
+#[test]
+fn attack_a_changed_trick_area_is_refused_not_obeyed() {
+    let mut b = Bench::new(65);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    add_trick(&mut a, &mut b, '2', None, "zzzz", "2222");
+    // flip one byte of the trick area (header offset 80..336) and, like a
+    // capable attacker, recompute the slot's unkeyed check
+    for slot in b.flash.slots.iter_mut() {
+        let n = u16::from_le_bytes([slot[76], slot[77]]) as usize;
+        if &slot[..4] != b"BPV1" {
+            continue;
+        }
+        slot[100] ^= 0x40;
+        let end = crate::vault::HEADER_LEN + n;
+        let check = bp_crypto::sha256::Sha256::digest(&slot[..end]);
+        slot[end..end + crate::vault::CHECK_LEN].copy_from_slice(&check[..crate::vault::CHECK_LEN]);
+    }
+    let mut a = power_cycle(&mut a, &mut b);
+    // the erase trick no longer fires: it is an ordinary wrong PIN
+    unlock(&mut a, &mut b, "zzzz", "2222");
+    assert_ne!(se_left(&mut b), None, "nothing was erased");
+    // and the vault refuses its changed header rather than trusting it
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(step(&a), VStep::Problem);
+}
+
+#[test]
+fn attack_nothing_typed_or_loaded_stays_in_ram() {
+    let mut b = Bench::new(66);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    assert!(a.vault.pins_wiped(), "after setting the PIN");
+    press(&mut a, Key::Enter);
+    store_first(&mut a, &mut b);
+    add_trick(&mut a, &mut b, '4', None, "zzzz", "4444");
+    assert!(a.vault.pins_wiped(), "after a trick PIN");
+    nav::go(&mut a, To::VaultTamper);
+    type_str(&mut a, "check1");
+    press(&mut a, Key::Enter);
+    b.serve(&mut a);
+    assert!(a.vault.pins_wiped(), "after the tamper check");
+    press(&mut a, Key::Enter);
+    // Lock now: keys, contents, seeds and words are gone
+    nav::go(&mut a, To::VaultLock);
+    assert!(a.vault.unlocked.is_none());
+    assert_eq!(a.vault.data.seed_count(), 0);
+    assert_eq!(a.seed_count(), 0);
+    assert!(a.vault.words.is_none() && a.vault.tamper_words.is_none());
+    // a wrong PIN and a half-typed one leave nothing either
+    unlock(&mut a, &mut b, "abcd", "nope");
+    assert!(a.vault.pins_wiped(), "after a wrong PIN");
+    type_str(&mut a, "abc");
+    press(&mut a, Key::Esc);
+    assert!(a.vault.pins_wiped(), "after leaving the lock screen");
+}
+
+#[test]
+fn attack_a_decoy_looks_like_the_vault() {
+    // what the screen and the session log show after the decoy PIN and
+    // after the vault's PIN: the same kinds of things in the same order
+    let mut b = Bench::new(67);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    store_first(&mut a, &mut b);
+    add_trick(&mut a, &mut b, '1', Some('1'), "zzzz", "1111");
+    let mut seen = Vec::new();
+    for (p, s) in [("abcd", "efgh"), ("zzzz", "1111")] {
+        let mut c = power_cycle(&mut a, &mut b);
+        unlock(&mut c, &mut b, p, s);
+        let log: Vec<_> = c.log.latest().map(|e| e.event).collect();
+        nav::go(&mut c, To::SeedVault);
+        let listed = c.vault.data.seed_count();
+        nav::go(&mut c, To::VaultTricks);
+        let menu = c.current();
+        seen.push((
+            c.vault_state(),
+            c.seed_count(),
+            log,
+            listed,
+            matches!(menu, Screen::Tricks { .. }),
+        ));
+        a = c;
+    }
+    assert_eq!(seen[0], seen[1]);
+}
+
+#[test]
+fn attack_the_wait_cannot_be_typed_through() {
+    let mut b = Bench::new(68);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    let mut a = power_cycle(&mut a, &mut b);
+    for _ in 0..3 {
+        unlock(&mut a, &mut b, "abcd", "nope");
+    }
+    assert_eq!(step(&a), VStep::Delay);
+    type_str(&mut a, "abcd");
+    for k in [Key::Enter, Key::Backspace, Key::Down, Key::Char('1')] {
+        press(&mut a, k);
+    }
+    a.render(&mut NullCanvas);
+    assert_eq!(step(&a), VStep::Delay);
+    assert!(!a.vault_pending(), "no attempt can start during the wait");
+    assert_eq!(se_state(&mut b), bp_hal::secure::SeState::Ready { left: 7 });
+}
+
+#[test]
+fn attack_forged_wallet_records_register_nothing() {
+    let mut b = Bench::new(69);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    // records that a loaded seed does not recompute (a forged tag), and junk
+    let forged = b"# Bitpunk wallet v1\nname: x\ncode: ABCD-EFGH\ntag: 0000000000000000000000000000000000000000000000000000000000000000\nwsh(sortedmulti(1,[73c5da0a/48h/0h/0h/2h]xpub6DkFAXWQ2dHxq2vatrt9qyA3bXYU4ToWQwCHbf5XB2mSTexcHZCeKS1VZYcPoBd5X8yVcbXFHJR9R8UCVpt82VX1VhR28mCyxUFL4r6KFrf/<0;1>/*))\n";
+    let mut x = 9u64;
+    let mut junk = || {
+        (0..200)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u8
+            })
+            .collect::<Vec<u8>>()
+    };
+    let j1 = junk();
+    let j2 = junk();
+    a.vault
+        .data
+        .set_wallets([&forged[..], &j1[..], &j2[..]].into_iter());
+    a.vault.seen_slots = [None; crate::SEED_SLOTS];
+    nav::home(&mut a);
+    b.serve(&mut a);
+    assert!(a.wallets.is_empty(), "nothing registered without a matching seed");
+}
+
+/// Random keys on the vault screens, the jobs served as on the device:
+/// nothing panics, and afterwards the vault still opens with its PIN.
+#[test]
+fn fuzz_random_keys_on_the_vault_screens() {
+    use bp_hal::secure::SeState;
+    let keys = [
+        Key::Enter,
+        Key::Esc,
+        Key::Tab,
+        Key::Backspace,
+        Key::Up,
+        Key::Down,
+        Key::Left,
+        Key::Right,
+        Key::Char('1'),
+        Key::Char('2'),
+        Key::Char('3'),
+        Key::Char('4'),
+        Key::Char('a'),
+        Key::Char('b'),
+        Key::Char('W'),
+        Key::Char('z'),
+    ];
+    for round in 0..6u64 {
+        let mut b = Bench::new(70 + round);
+        let mut a = boot(&mut b);
+        nav::home(&mut a);
+        load_abandon(&mut a);
+        set_pin(&mut a, &mut b, "abcd", "efgh");
+        press(&mut a, Key::Enter);
+        let mut x = 0x1234_5678 ^ round;
+        for i in 0..1500 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            if i % 300 == 0 {
+                // back to somewhere in the vault's screens (the monkey may
+                // have wandered into a seed flow)
+                if a.vault.is_open() {
+                    a.reset_to(Screen::Menu {
+                        id: MenuId::Main,
+                        sel: 0,
+                    });
+                    let to = [
+                        To::VaultPin,
+                        To::VaultTricks,
+                        To::SeedVault,
+                        To::VaultTamper,
+                        To::VaultLock,
+                    ];
+                    nav::go(&mut a, to[(x % 5) as usize]);
+                }
+            }
+            press(&mut a, keys[(x >> 8) as usize % keys.len()]);
+            if x % 7 == 0 {
+                a.tick(700);
+            }
+            b.serve(&mut a);
+        }
+        // the element never counts more than it allows, and the PIN (if it
+        // was not changed by chance) or a wipe leaves a usable device
+        match se_state(&mut b) {
+            SeState::Ready { left } => assert!(left <= MAX_ATTEMPTS),
+            SeState::Blank | SeState::Locked => {}
+        }
+        a.reset_to(Screen::Menu {
+            id: MenuId::Main,
+            sel: 0,
+        });
+        let _ = power_cycle(&mut a, &mut b);
+    }
+}
