@@ -31,9 +31,9 @@ jobs:
       - name: Test
         run: cargo test --all
       - name: no_std build (Cortex-M7, thumbv7em)
-        run: cargo build --target thumbv7em-none-eabihf -p bp-crypto -p bp-bitcoin -p bp-qr -p bp-hal -p bp-ui -p bp-app -p bp-fat
+        run: cargo build --target thumbv7em-none-eabihf -p bp-crypto -p bp-bitcoin -p bp-qr -p bp-hal -p bp-ui -p bp-app -p bp-fat -p bp-se050
       - name: no_std build (Cortex-M55/M33, thumbv8m.main; STM32N6570-DK)
-        run: cargo build --target thumbv8m.main-none-eabihf -p bp-crypto -p bp-bitcoin -p bp-qr -p bp-hal -p bp-ui -p bp-app -p bp-fat
+        run: cargo build --target thumbv8m.main-none-eabihf -p bp-crypto -p bp-bitcoin -p bp-qr -p bp-hal -p bp-ui -p bp-app -p bp-fat -p bp-se050
 
   simulator:
     needs: check

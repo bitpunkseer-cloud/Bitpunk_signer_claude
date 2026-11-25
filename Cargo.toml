@@ -17,6 +17,7 @@ bp-hal = { path = "crates/bp-hal" }
 bp-ui = { path = "crates/bp-ui" }
 bp-app = { path = "crates/bp-app" }
 bp-fat = { path = "crates/bp-fat" }
+bp-se050 = { path = "crates/bp-se050" }
 
 [profile.release]
 opt-level = "s"

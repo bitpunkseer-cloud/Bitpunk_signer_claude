@@ -23,3 +23,5 @@ rxing = { version = "=0.9.3", default-features = false, features = ["qrcode", "d
 bitcoin = { version = "0.32", features = ["secp-recovery"] }
 # Test-only reference for building SD card images with folders.
 fatfs = "0.3.6"
+# M10-8: the vault on the SE050 driver over a simulated chip.
+bp-se050 = { workspace = true, features = ["mock"] }

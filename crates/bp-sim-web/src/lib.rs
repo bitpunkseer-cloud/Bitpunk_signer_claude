@@ -29,11 +29,14 @@
 mod card;
 mod framebuffer;
 
-use bp_app::sim_hw::{SimDeviceKey, SimFlash, SimRng, SimSecureElement, SLOT_LEN};
+use bp_app::sim_hw::{SimDeviceKey, SimFlash, SimRng, SLOT_LEN};
 use bp_app::vault::{VaultHw, DEFAULT_KDF};
 use bp_app::App;
 use bp_crypto::argon2::Block;
 use bp_hal::input::KeyEvent;
+use bp_se050::mock::MockSe050;
+use bp_se050::scp03::StaticKeys;
+use bp_se050::Se050;
 use card::VirtualCard;
 use framebuffer::Framebuffer;
 use std::cell::RefCell;
@@ -65,7 +68,9 @@ struct Sim {
 
 /// The simulated secure storage of the device (M10).
 struct VaultParts {
-    se: SimSecureElement,
+    /// The SE050 driver (T=1 over I2C, SCP03, SE05x APDUs) talking to a
+    /// simulated chip (M10-8).
+    se: Se050<MockSe050, SimRng>,
     key: SimDeviceKey,
     flash: Box<SimFlash>,
     rng: SimRng,
@@ -78,7 +83,17 @@ impl VaultParts {
     fn new(seed: &[u8; 32]) -> Self {
         let chip = u64::from_le_bytes(seed[..8].try_into().unwrap_or([1; 8]));
         VaultParts {
-            se: SimSecureElement::new(chip),
+            se: {
+                // this page's own channel keys (a device's are its own, M10-8)
+                let k = bp_crypto::sha256::Sha256::digest(&[&seed[..], b"scp03"].concat());
+                let keys = || StaticKeys {
+                    enc: k[..16].try_into().unwrap_or([0; 16]),
+                    mac: k[16..].try_into().unwrap_or([0; 16]),
+                    dek: k[..16].try_into().unwrap_or([0; 16]),
+                    version: 1,
+                };
+                Se050::new(MockSe050::new(chip, keys()), keys(), SimRng::new(&k))
+            },
             key: SimDeviceKey::new(chip),
             flash: Box::new(SimFlash::new()),
             rng: SimRng::new(seed),

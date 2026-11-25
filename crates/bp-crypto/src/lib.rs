@@ -5,6 +5,7 @@
 #![no_std]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod aes;
 pub mod argon2;
 pub mod blake2b;
 pub mod chacha20poly1305;

@@ -1,0 +1,21 @@
+[package]
+name = "bp-se050"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "NXP SE050 secure element driver for Bitpunk Signer (T=1 over I2C, ISO 7816 APDUs, GlobalPlatform SCP03)"
+
+[features]
+# A simulated SE050 at the I2C level (tests, simulator): std only.
+mock = []
+
+[dependencies]
+bp-crypto.workspace = true
+bp-hal.workspace = true
+
+[dev-dependencies]
+# Reference driver (LGPL-3.0, tests only, never in firmware): our frames
+# and APDUs are compared byte for byte with what it sends.
+se05x = { version = "=0.4.2", default-features = false }
+iso7816 = "0.2"

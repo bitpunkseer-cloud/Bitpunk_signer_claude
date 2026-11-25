@@ -1037,6 +1037,15 @@
      "Any menu",
      "모든 메뉴"
     ]
+   },
+   {
+    "id": "F-178",
+    "en": "SE050 driver: T=1 over I2C, SCP03 (all encrypted and MACed), SE05x commands; the vault runs on it, no secret in the clear on the bus",
+    "ko": "SE050 드라이버: T=1 over I2C, SCP03(전부 암호화·MAC), SE05x 명령 — 보관함이 그 위에서 동작, 버스에 비밀 평문 없음",
+    "where": [
+     "(inside; the simulator runs it)",
+     "(내부, 시뮬레이터가 실행)"
+    ]
    }
   ]
  },
@@ -1084,8 +1093,8 @@
    },
    {
     "id": "F-144",
-    "en": "Vault panel: simulated secure element in page memory only (reload = new device), state shown",
-    "ko": "보관함 패널: 모의 보안 칩, 페이지 메모리에만(새로고침 = 새 기기), 상태 표시",
+    "en": "Vault panel: the SE050 driver over a simulated chip, in page memory only (reload = new device), state shown",
+    "ko": "보관함 패널: SE050 드라이버 + 모의 칩, 페이지 메모리에만(새로고침 = 새 기기), 상태 표시",
     "where": [
      "Vault panel below",
      "아래 보관함 패널"

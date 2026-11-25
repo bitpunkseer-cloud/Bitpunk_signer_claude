@@ -225,6 +225,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-175 | 탬퍼 점검: 점검 코드(6~16자, 저장 안 함) + 펌웨어 SHA-256 + 기기 키 + 보안 칩 → 단어 2개, 펌웨어·기기가 바뀌면 달라짐, 시도 횟수 안 씀 | 잠금 화면 Tab, 설정 > 보안 > 탬퍼 점검 | the_tamper_check_words_change_only_with_the_firmware, tamper_words_follow_the_code_the_firmware_and_the_device |
 | F-176 | 탬퍼 점검은 조용히 지운 뒤에도 같은 모습, 펌웨어 해시가 없는 플랫폼에서는 이유를 알림 | 잠금 화면 | the_tamper_check_goes_on_after_a_silent_erase_and_needs_a_firmware_hash |
 | F-177 | 메뉴에서 아무것도 하지 않는 줄은 이유를 키 막대 위에 보임 | 모든 메뉴 | a_menu_row_that_does_nothing_says_why |
+| F-178 | SE050 드라이버: T=1 over I2C, SCP03(전부 암호화·MAC), SE05x 명령 — 보관함이 그 위에서 동작, 버스에 비밀 평문 없음 ([M10_SE050](M10_SE050.md)) | (내부) | the_vault_runs_on_the_se050_driver, a_power_cut_on_the_se050_leaves_one_whole_vault, nothing_secret_crosses_the_bus_in_the_clear, published_known_answers, commands_match_the_reference_driver |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |
@@ -233,4 +234,4 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-141 | microSD 패널: 넣기/빼기·복사·끌어다 놓기·목록·내려받기·지우기·비우기 | sim/e2e/smoke.js (복사·목록·내려받기·빼기) |
 | F-142 | 부팅 점검 버튼 | sim/e2e/smoke.js |
 | F-143 | 화면 위 CardKB(Sym·Shift·Fn) | sim/e2e/smoke.js (Fn+Q) |
-| F-144 | 보관함 패널: 모의 보안 칩, 페이지 메모리에만(새로고침하면 새 기기), 상태 표시 | sim/e2e/smoke.js (PIN 정하기·잠금 화면·열기) |
+| F-144 | 보관함 패널: SE050 드라이버 + 모의 칩(M10-8), 페이지 메모리에만(새로고침하면 새 기기), 상태 표시 | sim/e2e/smoke.js (PIN 정하기·잠금 화면·열기) |

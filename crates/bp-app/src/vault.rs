@@ -1200,4 +1200,138 @@ mod tests {
             SeState::Ready { left: MAX_ATTEMPTS }
         ));
     }
+
+    /// The vault on the SE050 driver (T=1 over I2C, SCP03, SE05x APDUs)
+    /// over the simulated chip instead of the simulated element (M10-8).
+    #[test]
+    fn the_vault_runs_on_the_se050_driver() {
+        use bp_se050::mock::{MockSe050, TestRng as SeRng};
+        use bp_se050::scp03::StaticKeys;
+        let keys = || StaticKeys {
+            enc: [0x31; 16],
+            mac: [0x32; 16],
+            dek: [0x33; 16],
+            version: 1,
+        };
+        let mut se = bp_se050::Se050::new(MockSe050::new(5, keys()), keys(), SeRng(77));
+        let mut key = SimDeviceKey::new(5);
+        let mut flash = SimFlash::new();
+        let mut rng = TestRng(5);
+        let mut mem = vec![[0u64; 128]; 64];
+        macro_rules! hw {
+            () => {
+                VaultHw {
+                    se: &mut se,
+                    key: &mut key,
+                    flash: &mut flash,
+                    rng: &mut rng,
+                    mem: &mut mem,
+                }
+            };
+        }
+        let mut b = body(b"seeds");
+        let mut u = create(&mut hw!(), b"pin", KDF, 0, &mut b, 5).unwrap();
+        // the words for a prefix are steady (the element's HMAC key)
+        let mut sb = vec![0u8; SLOT_LEN];
+        let found = scan(&mut flash, &mut sb).unwrap().unwrap();
+        let w1 = phishing_words(&mut hw!(), &found, b"abcd").unwrap();
+        assert_eq!(phishing_words(&mut hw!(), &found, b"abcd").unwrap(), w1);
+        // saves, wrong PINs counted by the element, a right one resets them
+        let mut b = body(b"seeds v2");
+        save(&mut hw!(), &mut u, &mut b, 8).unwrap();
+        let mut b = vec![0u8; SLOT_LEN];
+        assert!(matches!(
+            open(&mut hw!(), b"nope", &mut b),
+            Err(VaultError::WrongPin { left: 9 })
+        ));
+        assert!(matches!(
+            open(&mut hw!(), b"nope", &mut b),
+            Err(VaultError::WrongPin { left: 8 })
+        ));
+        let (mut u, n) = open(&mut hw!(), b"pin", &mut b).unwrap().vault().unwrap();
+        assert_eq!(&b[..n], b"seeds v2");
+        // a trick PIN, recognised before the element is asked
+        add_trick(&mut hw!(), &mut u, b"trick", TrickKind::Blank, [0; 4], 0, None).unwrap();
+        let mut b = body(b"seeds v2");
+        save(&mut hw!(), &mut u, &mut b, 8).unwrap();
+        let mut b = vec![0u8; SLOT_LEN];
+        assert!(matches!(
+            open(&mut hw!(), b"trick", &mut b),
+            Ok(Opened::Trick {
+                kind: TrickKind::Blank,
+                ..
+            })
+        ));
+        assert_eq!(se.state(), Ok(SeState::Ready { left: MAX_ATTEMPTS }));
+        // a new PIN
+        let mut b = body(b"seeds v3");
+        change_pin(&mut hw!(), &mut u, b"new pin", &mut b, 8).unwrap();
+        let mut b = vec![0u8; SLOT_LEN];
+        assert!(matches!(
+            open(&mut hw!(), b"pin", &mut b),
+            Err(VaultError::WrongPin { .. })
+        ));
+        let (_, n) = open(&mut hw!(), b"new pin", &mut b).unwrap().vault().unwrap();
+        assert_eq!(&b[..n], b"seeds v3");
+        // ten wrong: the element locks the secret, the vault is erased
+        let mut last = None;
+        for _ in 0..MAX_ATTEMPTS {
+            last = Some(open(&mut hw!(), b"wrong", &mut b).err());
+        }
+        assert_eq!(last, Some(Some(VaultError::Wiped)));
+        assert_eq!(se.state(), Ok(SeState::Blank));
+        assert!(matches!(
+            open(&mut hw!(), b"new pin", &mut b),
+            Err(VaultError::NoVault)
+        ));
+    }
+
+    /// Power cut in the middle of a save, at every APDU, on the driver:
+    /// one whole vault always opens afterwards.
+    #[test]
+    fn a_power_cut_on_the_se050_leaves_one_whole_vault() {
+        use bp_se050::mock::{MockSe050, TestRng as SeRng};
+        use bp_se050::scp03::StaticKeys;
+        let keys = || StaticKeys {
+            enc: [0x31; 16],
+            mac: [0x32; 16],
+            dek: [0x33; 16],
+            version: 1,
+        };
+        for cut in 0..30 {
+            let mut se = bp_se050::Se050::new(MockSe050::new(6, keys()), keys(), SeRng(78));
+            let mut key = SimDeviceKey::new(6);
+            let mut flash = SimFlash::new();
+            let mut rng = TestRng(6);
+            let mut mem = vec![[0u64; 128]; 64];
+            macro_rules! hw {
+                () => {
+                    VaultHw {
+                        se: &mut se,
+                        key: &mut key,
+                        flash: &mut flash,
+                        rng: &mut rng,
+                        mem: &mut mem,
+                    }
+                };
+            }
+            let mut b = body(b"old");
+            let mut u = create(&mut hw!(), b"pin", KDF, 0, &mut b, 3).unwrap();
+            se.bus().apdus_left = Some(cut);
+            let mut b = body(b"new");
+            let saved = save(&mut hw!(), &mut u, &mut b, 3).is_ok();
+            se.bus().power_on();
+            se.reset();
+            let mut b = vec![0u8; SLOT_LEN];
+            let (_, n) = open(&mut hw!(), b"pin", &mut b)
+                .unwrap_or_else(|e| panic!("cut {cut}: {e:?}"))
+                .vault()
+                .unwrap();
+            if saved {
+                assert_eq!(&b[..n], b"new", "cut {cut}");
+            } else {
+                assert!(&b[..n] == b"old" || &b[..n] == b"new", "cut {cut}");
+            }
+        }
+    }
 }
