@@ -6,7 +6,7 @@
 //!
 //! The code is never stored and the attempt counter is not touched. Tab on
 //! the lock screen (or its wait) opens it; so does Settings > Security >
-//! Tamper check. What it proves is limited until signed boot (M12): a
+//! Tamper check. What it proves is limited until signed boot (M13): a
 //! malicious firmware that can reach the device key and the secure element
 //! could still compute the genuine words, so the words chiefly catch a
 //! swapped device and firmware that was changed without that care.

@@ -1,6 +1,6 @@
 //! Error codes (M9, UX language C8): every refusal and failure screen shows
 //! a short, stable code at the right of the key bar — `E-<AREA>-<NN>`, NN =
-//! the message's place in its table, from 01 — so the user guide (M14) can
+//! the message's place in its table, from 01 — so the user guide (M15) can
 //! explain each one. The full list is docs/ERROR_CODES.md, kept in step with
 //! the message tables by a test.
 
