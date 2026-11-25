@@ -19,6 +19,7 @@ mod seeds;
 pub(crate) mod session;
 mod settings;
 mod sigverify;
+pub mod sim_hw;
 mod text;
 mod text_b85;
 mod text_help;

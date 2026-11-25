@@ -6,6 +6,7 @@
 
 pub mod input;
 pub mod mdio;
+pub mod secure;
 
 /// 24-bit RGB colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
