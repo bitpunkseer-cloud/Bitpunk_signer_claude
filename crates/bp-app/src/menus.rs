@@ -81,6 +81,10 @@ pub enum Action {
     VaultLock,
     /// Settings > Security > Erase the vault.
     VaultWipe,
+    /// Seeds & keys > New seed > SLIP-39 wallet (M11-2).
+    Slip39New,
+    /// Seeds & keys > Load a seed > SLIP-39 shares (M11-2).
+    Slip39Load,
 }
 
 const fn open(label: Label, id: MenuId) -> Entry {
@@ -144,17 +148,19 @@ static SEEDS: [Entry; 5] = [
     action(|s| s.vault.sv_menu, Action::SeedVault),
 ];
 
-static NEW_SEED: [Entry; 4] = [
+static NEW_SEED: [Entry; 5] = [
     start(|s| s.dice_rolls, Start::Dice),
     start(|s| s.coin_flips, Start::Coin),
     start(|s| s.d20_rolls, Start::D20),
     start(|s| s.final_word, Start::FinalWord),
+    action(|s| s.bk.sl_new_menu, Action::Slip39New),
 ];
 
-static LOAD_SEED: [Entry; 3] = [
+static LOAD_SEED: [Entry; 4] = [
     start(|s| s.type_words, Start::TypeWords),
     start(|s| s.word_numbers, Start::WordNumbers),
     action(|s| s.scan_seedqr, Action::Scan(crate::scan::Purpose::Seed)),
+    action(|s| s.bk.sl_load_menu, Action::Slip39Load),
 ];
 
 static SETTINGS: [Entry; 15] = [

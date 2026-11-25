@@ -20,8 +20,10 @@ pub(crate) mod session;
 mod settings;
 mod sigverify;
 pub mod sim_hw;
+pub mod slip39ui;
 mod text;
 mod text_b85;
+mod text_backup;
 mod text_help;
 mod text_key;
 mod text_sd;
@@ -322,6 +324,10 @@ pub enum Screen {
     Tamper {
         step: vaulttamper::TamperStep,
     },
+    /// SLIP-39 shares: opening, making a wallet, another set (M11-2).
+    Slip39 {
+        step: slip39ui::SlStep,
+    },
     /// The boot check found a network chip: nothing else is possible.
     CommDetected,
 }
@@ -399,6 +405,8 @@ pub struct App {
     pub(crate) help: core::cell::Cell<bool>,
     /// The vault and its lock (M10).
     pub(crate) vault: vaultui::VaultState,
+    /// The SLIP-39 screens' state (wiped when they close).
+    pub(crate) slip: Option<slip39ui::SlipState>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -416,6 +424,20 @@ impl PassInput {
             show: true,
         }
     }
+    fn push(&mut self, b: u8) {
+        if self.len < self.buf.len() {
+            self.buf[self.len] = b;
+            self.len += 1;
+        }
+    }
+
+    fn backspace(&mut self) {
+        if self.len > 0 {
+            self.len -= 1;
+            self.buf[self.len] = 0;
+        }
+    }
+
     fn text(&self) -> &[u8] {
         &self.buf[..self.len]
     }
@@ -484,6 +506,7 @@ impl App {
             saver: false,
             help: core::cell::Cell::new(false),
             vault: vaultui::VaultState::new(),
+            slip: None,
         }
     }
 
@@ -570,6 +593,7 @@ impl App {
         }
         if matches!(self.current(), Screen::Menu { .. } | Screen::ChooseWords { .. }) {
             self.flow = None; // leaving a flow wipes its state
+            self.slip = None;
         }
     }
 
@@ -629,6 +653,11 @@ impl App {
             Screen::Bip85 {
                 step: b85::B85Step::Result { .. },
             } => self.handle_key(KeyEvent::new(Key::Esc)),
+            Screen::Slip39 {
+                step: slip39ui::SlStep::Show { idx },
+            } => self.set_current(Screen::Slip39 {
+                step: slip39ui::SlStep::Covered { idx },
+            }),
             _ => {}
         }
     }
@@ -646,11 +675,14 @@ impl App {
     /// Return to Main > Seeds and optionally show `then` on top.
     fn go_seeds(&mut self, then: Option<Screen>) {
         self.flow = None;
+        self.slip = None;
         if let Some(Screen::SeedReady { slot, created }) = then {
             if let Some(s) = self.slot(slot as usize) {
                 let event = match (created, s.kind) {
                     (true, _) => session::Event::SeedCreated,
-                    (false, seeds::SlotKind::Mnemonic) => session::Event::SeedLoaded,
+                    (false, seeds::SlotKind::Mnemonic | seeds::SlotKind::Slip39) => {
+                        session::Event::SeedLoaded
+                    }
                     (false, _) => session::Event::KeyImported,
                 };
                 self.log.push(event, Some(s.fingerprint));
@@ -1061,6 +1093,7 @@ impl App {
             },
             Screen::EntropyEntry => self.entropy_key(ev),
             Screen::EntropySummary => match ev.key {
+                Key::Enter if self.flow.as_ref().is_some_and(|f| f.slip39) => self.slip39_from_entropy(),
                 Key::Enter => self.push(Screen::WordsWarning { view: None }),
                 Key::Esc | Key::Backspace => {
                     if let Some(f) = self.flow.as_mut() {
@@ -1172,6 +1205,9 @@ impl App {
                     Pick::Choose(o) if o == keys::SlotOpt::SeedQr as u8 => {
                         self.push(Screen::SeedQrSelect { slot, sel: 0 })
                     }
+                    Pick::Choose(o) if o == keys::SlotOpt::Slip39Shares as u8 => {
+                        self.slip39_reshare_action(slot)
+                    }
                     Pick::Choose(_) => {
                         self.typed.clear();
                         self.push(Screen::Confirm {
@@ -1191,7 +1227,14 @@ impl App {
                         self.seeds[slot as usize] = Some(p);
                     }
                     self.pass_in.clear();
-                    self.go_seeds(Some(Screen::SeedOptions { slot, sel: 3 }));
+                    let kind = self
+                        .slot(slot as usize)
+                        .map_or(seeds::SlotKind::Mnemonic, |s| s.kind);
+                    let sel = keys::slot_opts(kind)
+                        .iter()
+                        .position(|o| *o == keys::SlotOpt::Passphrase)
+                        .unwrap_or(0) as u8;
+                    self.go_seeds(Some(Screen::SeedOptions { slot, sel }));
                 }
                 Pick::Choose(_) | Pick::Back => {
                     self.pending = None;
@@ -1473,6 +1516,7 @@ impl App {
             Screen::SeedVault { step } => self.seed_vault_key(step, ev),
             Screen::Tricks { step } => self.tricks_key(step, ev),
             Screen::Tamper { step } => self.tamper_key(step, ev),
+            Screen::Slip39 { step } => self.slip39_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1533,10 +1577,10 @@ impl App {
             }
             Key::Tab => self.pass_in.show = !self.pass_in.show,
             Key::Enter => {
-                let Some(m) = self.seed(slot as usize).cloned() else {
+                let Some(s) = self.slot(slot as usize) else {
                     return;
                 };
-                self.pending = seeds::SeedSlot::new(m, self.pass_in.text());
+                self.pending = s.with_passphrase(self.pass_in.text());
                 if self.pending.is_some() {
                     self.push(Screen::PassphraseReview { slot, sel: 0 });
                 }
@@ -1896,6 +1940,8 @@ impl App {
             }
             Action::VaultPin => self.vault_pin_action(),
             Action::SeedVault => self.seed_vault_action(),
+            Action::Slip39New => self.slip39_new_action(),
+            Action::Slip39Load => self.slip39_load_action(),
             Action::VaultTricks => self.vault_tricks_action(),
             Action::VaultTamper => self.vault_tamper_action(),
             Action::VaultLock => self.vault_lock_action(),
@@ -1913,6 +1959,7 @@ impl App {
     /// amounts (power off, and Lock now).
     pub(crate) fn wipe_ram(&mut self) {
         self.flow = None;
+        self.slip = None;
         self.seeds = [None, None, None];
         self.review = None;
         self.verify = None;

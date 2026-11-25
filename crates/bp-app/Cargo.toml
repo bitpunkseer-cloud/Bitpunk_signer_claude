@@ -12,6 +12,7 @@ bp-bitcoin.workspace = true
 bp-crypto.workspace = true
 bp-qr.workspace = true
 bp-fat.workspace = true
+bp-backup.workspace = true
 
 [dev-dependencies]
 # Flow tests fail when any screen's text overflows (see bp-ui layout-check).

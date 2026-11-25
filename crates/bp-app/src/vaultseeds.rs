@@ -44,6 +44,7 @@ fn stored_label(s: &StoredSeed) -> Buf<40> {
     let what: Buf<8> = match s.kind {
         crate::seeds::SlotKind::Xprv => fill("XPRV", &[]),
         crate::seeds::SlotKind::Wif => fill("WIF", &[]),
+        crate::seeds::SlotKind::Slip39 => fill("SLIP-39", &[]),
         crate::seeds::SlotKind::Mnemonic => fill("{}", &[&s.words()]),
     };
     fill(crate::text::EN.seed_label, &[&fp, &what.as_str(), &""])

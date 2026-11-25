@@ -57,9 +57,9 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | # | 변경 | 단위 | 상태 |
 |---|---|---|---|
 | E1 | 주 메뉴에 **[6] 백업·도구**(암호화 백업·보안 노트·OTP·데이터 보기), 설정 [6]→[7]·전원 [7]→[8] | M11-6 | 예정 |
-| E2 | 시드·키 메뉴 줄 추가: 새 시드 > SLIP-39 새 지갑, 시드 불러오기 > SLIP-39 조각·Seed XOR 조각·금속판 격자, 시드 옵션 > Seed XOR 나누기·금속판 형식(SLIP-39 슬롯은 SLIP-39 조각) | M11-2~4 | 예정 |
+| E2 | 시드·키 메뉴 줄 추가: 새 시드 > SLIP-39 새 지갑, 시드 불러오기 > SLIP-39 조각·Seed XOR 조각·금속판 격자, 시드 옵션 > Seed XOR 나누기·금속판 형식(SLIP-39 슬롯은 SLIP-39 조각) | M11-2~4 | SLIP-39 줄 완료(M11-2, 기존 줄 뒤에 붙여 번호 그대로) — every_feature_is_reachable |
 | E3 | 단어 입력을 마치면(체크섬이 맞아도) 전체 단어 검토 화면을 한 번 보임 — 과제 효율에 Enter 1회 늘어남 | M11-5 | 예정 |
-| E4 | 보관함 본문의 새 레코드(SLIP-39 시드·노트·OTP·백업 암호). M10 보관함은 그대로 열림 | M11-2·6·7·8 | 예정 |
+| E4 | 보관함 본문의 새 레코드(SLIP-39 시드·노트·OTP·백업 암호). M10 보관함은 그대로 열림 | M11-2·6·7·8 | SLIP-39 시드 완료(M11-2: 시드 레코드 type 3) — a_slip39_wallet_is_kept_without_its_passphrase |
 | E5 | 부팅 점검의 펌웨어 줄 "(M12)" → "(M13)" (로드맵 v4 번호) | M11-0 | 완료 |
 
 흐름 안의 선택지 순서(확인 대화상자, 퀴즈 답, 내보내기 형식 목록, 지갑 단계, BIP-85 앱 목록 등)는 시험이 아직 위치로 고른다(남은 숫자 키 87회). M9에서 이런 목록의 순서를 바꾸는 단위는 먼저 `nav.rs`에 그 목록의 이름 기반 도우미를 더하고, 시험은 그것만 쓰게 한 뒤 바꾼다.
@@ -244,6 +244,10 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | # | 기능 | 위치 | 시험 |
 |---|---|---|---|
 | F-180 | SLIP-39 엔진: 조각 읽기·쓰기(RS1024), 두 단계 Shamir(GF(256), 상수 시간 곱셈), 패스프레이즈 Feistel 암호, 조각을 하나씩 받으며 검사(다른 묶음·같은 번호·다이제스트), 비밀·패스프레이즈·구성·주사위에서 유도한 값으로 새 묶음 — 공식 벡터 45개 전부, 참조 구현과 바이트 단위로 같음 | (내부, `bp-backup`) | published_vectors, published_invalid_vectors_fail_for_the_right_reason, splits_match_the_reference_byte_for_byte, any_enough_shares_recover_the_reference_secret, shares_are_checked_as_they_come, a_wrong_share_empties_its_group_to_be_typed_again, the_same_choices_make_the_same_set_and_others_an_unrelated_one, fuzz_words_and_share_sequences_never_panic |
+| F-181 | SLIP-39 조각으로 지갑 열기: 20·33단어, 조각마다 바로 검사(체크섬 오류는 틀린 단어를 골라 다시 입력, 다른 묶음·같은 번호·다이제스트·두 번 입력 알림), 그룹 진행 표시, 패스프레이즈, 지문 확인 뒤 불러오기 | 시드·키 > 시드 불러오기 > SLIP-39 조각 | published_shares_open_their_wallet, typos_other_sets_and_repeats_are_reported, shares_that_take_too_long_are_refused |
+| F-182 | 주사위·동전·D20으로 새 SLIP-39 지갑: 엔트로피가 마스터 비밀, 나누기(1개·3중 2·5중 3·그룹 직접), 조각 무작위 값은 비밀에서(선택: 주사위 50번 이상 섞기), 조각마다 단어 표시 + 3단어 확인, 화면 보호 시 가림 | 시드·키 > 새 시드 > SLIP-39 지갑 | a_wallet_from_dice_is_its_entropy_and_opens_from_its_shares, a_wrong_check_shows_the_share_again, dice_mixed_in_make_another_set_of_the_same_wallet, custom_groups_keep_to_the_rules |
+| F-183 | SLIP-39 슬롯: xpub·주소·패스프레이즈(나중에 바꾸기)·같은 지갑의 다른 조각 묶음(같은 식별자) | 시드 옵션 | the_passphrase_can_be_set_later_like_seed_words, another_set_of_a_loaded_wallet_opens_it_too |
+| F-184 | 보관함이 SLIP-39 지갑을 보관(암호화된 마스터 비밀, 패스프레이즈 없이), SLIP-39 화면 상태는 메뉴로 나가거나 전원을 끄면 지움 | 시드 보관함 | a_slip39_wallet_is_kept_without_its_passphrase, power_off_and_menus_wipe_the_shares |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |

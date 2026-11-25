@@ -13,6 +13,7 @@ use crate::review::Step as RvStep;
 use crate::scan::Purpose;
 use crate::sd::SdStep;
 use crate::sigverify::SvStep;
+use crate::slip39ui::SlStep;
 use crate::vaultseeds::SeedVaultStep;
 use crate::vaulttamper::TamperStep;
 use crate::vaulttricks::TrickStep;
@@ -94,6 +95,7 @@ kinds!(
         SeedVault,
         Tricks,
         Tamper,
+        Slip39,
         CommDetected,
     ]
 );
@@ -212,6 +214,15 @@ kinds!(
 kinds!(svt, SVT, SeedVaultStep, [List, Seed, Pick, Remove]);
 kinds!(tr, TR, TrickStep, [List, Kind, Seed, Remove]);
 kinds!(tc, TC, TamperStep, [Code, Working, Words]);
+kinds!(
+    sl,
+    SL,
+    SlStep,
+    [
+        Length, Words, Fix, Status, Passphrase, Ready, Source, Strength, Groups, Custom, Mix, Dice, Show,
+        Covered, Check
+    ]
+);
 
 /// "Screen" or "Screen/Step" for screens that hold a step or a kind.
 pub fn key_of(s: &Screen) -> String {
@@ -232,6 +243,7 @@ pub fn key_of(s: &Screen) -> String {
         Screen::SeedVault { step } => svt(step),
         Screen::Tricks { step } => tr(step),
         Screen::Tamper { step } => tc(step),
+        Screen::Slip39 { step } => sl(step),
         _ => return screen(s).to_string(),
     };
     let mut k = String::from(screen(s));
@@ -259,6 +271,7 @@ pub fn all() -> Vec<String> {
         ("SeedVault", SVT),
         ("Tricks", TR),
         ("Tamper", TC),
+        ("Slip39", SL),
     ];
     let mut out = Vec::new();
     for s in SCREENS {

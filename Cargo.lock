@@ -220,6 +220,7 @@ name = "bp-app"
 version = "0.0.1"
 dependencies = [
  "bitcoin",
+ "bp-backup",
  "bp-bitcoin",
  "bp-crypto",
  "bp-fat",

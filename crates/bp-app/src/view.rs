@@ -50,6 +50,7 @@ pub fn seed_label(slot: &crate::seeds::SeedSlot) -> Buf<40> {
     let what: Buf<8> = match (slot.kind, slot.mnemonic.as_ref()) {
         (crate::seeds::SlotKind::Xprv, _) => fill("XPRV", &[]),
         (crate::seeds::SlotKind::Wif, _) => fill("WIF", &[]),
+        (crate::seeds::SlotKind::Slip39, _) => fill("SLIP-39", &[]),
         (_, m) => fill("{}", &[&m.map_or(0, |m| m.len())]),
     };
     fill(crate::text::EN.seed_label, &[&fp, &what.as_str(), &pp])
@@ -293,11 +294,9 @@ impl App {
                 // M9-4 (C2): features not built yet live here, not in the menus
                 let y = STATUS_H + 20 + rows.len() as i32 * (BODY.height as i32 + 8) + 10;
                 SMALL.draw(c, MARGIN, y, s.planned, theme::TEXT_DIM);
-                let m10: Buf<96> = fill("M10 · {}", &[&s.seed_vault]);
                 let m11: Buf<320> = fill(
-                    "M11 · {} · {} · {} · {} · {} · {}",
+                    "M11 · {} · {} · {} · {} · {}",
                     &[
-                        &s.slip39,
                         &s.tinyseed,
                         &s.seed_xor,
                         &s.encrypted_backup,
@@ -305,17 +304,18 @@ impl App {
                         &s.totp,
                     ],
                 );
-                SMALL.draw(c, MARGIN, y + 22, m10.as_str(), theme::TEXT);
-                SMALL.draw_wrapped(
+                let m12: Buf<96> = fill("M12 · {}", &[&s.bk.miniscript]);
+                let y2 = SMALL.draw_wrapped(
                     c,
                     MARGIN,
-                    y + 44,
+                    y + 22,
                     w - 2 * MARGIN,
                     22,
                     2,
                     m11.as_str(),
                     theme::TEXT,
                 );
+                SMALL.draw(c, MARGIN, y2, m12.as_str(), theme::TEXT);
                 widgets::hint_bar(c, &[("Esc", s.h_back)]);
             }
             Screen::ChooseWords { kind, sel } => {
@@ -479,6 +479,7 @@ impl App {
                         Passphrase => s.passphrase,
                         SeedQr => s.backup_seedqr,
                         Addresses => s.key.addresses,
+                        Slip39Shares => s.bk.sl_opt_shares,
                         Discard => s.discard_seed,
                     };
                     if *o == Discard {
@@ -633,6 +634,7 @@ impl App {
             Screen::SeedVault { step } => self.render_seed_vault(c, step),
             Screen::Tricks { step } => self.render_tricks(c, step),
             Screen::Tamper { step } => self.render_tamper(c, step),
+            Screen::Slip39 { step } => self.render_slip39(c, step),
             Screen::CommDetected => {
                 self.status(c, s.key.comm_title);
                 let (addr, id) = match self.comm {

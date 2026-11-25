@@ -4,7 +4,12 @@
 //! A slot can also hold an imported key (M8 plan §8): an XPRV, used as the
 //! root (its own fingerprint, every feature but the words), or a WIF, a
 //! single key (its four scripts only: no xpub, multisig or BIP-85).
+//!
+//! A SLIP-39 wallet (M11-2) keeps its encrypted master secret, as a words
+//! slot keeps its words: the passphrase decrypts it into the BIP-32 seed,
+//! and further share sets are made from it.
 
+use bp_backup::slip39::Ems;
 use bp_bitcoin::address::{self, ScriptType};
 use bp_bitcoin::bip32::{Xpriv, Xpub};
 use bp_bitcoin::bip39::Mnemonic;
@@ -19,12 +24,16 @@ pub enum SlotKind {
     Mnemonic,
     Xprv,
     Wif,
+    /// A SLIP-39 wallet (M11-2).
+    Slip39,
 }
 
 pub struct SeedSlot {
     /// `None` for an imported key.
     pub mnemonic: Option<Mnemonic>,
     pub kind: SlotKind,
+    /// A SLIP-39 wallet's encrypted master secret.
+    pub ems: Option<Ems>,
     passphrase: [u8; MAX_PASSPHRASE],
     passphrase_len: usize,
     master: Xpriv,
@@ -47,6 +56,7 @@ impl SeedSlot {
         Some(SeedSlot {
             mnemonic: Some(mnemonic),
             kind: SlotKind::Mnemonic,
+            ems: None,
             passphrase: p,
             passphrase_len: passphrase.len(),
             master,
@@ -60,6 +70,7 @@ impl SeedSlot {
         SeedSlot {
             mnemonic: None,
             kind: SlotKind::Xprv,
+            ems: None,
             passphrase: [0; MAX_PASSPHRASE],
             passphrase_len: 0,
             master,
@@ -79,11 +90,50 @@ impl SeedSlot {
         Some(SeedSlot {
             mnemonic: None,
             kind: SlotKind::Wif,
+            ems: None,
             passphrase: [0; MAX_PASSPHRASE],
             passphrase_len: 0,
             master,
             fingerprint,
         })
+    }
+
+    /// A SLIP-39 wallet: the encrypted master secret decrypted with
+    /// `passphrase` (printable ASCII) is the BIP-32 seed.
+    pub fn from_slip39(ems: Ems, passphrase: &[u8]) -> Option<SeedSlot> {
+        if passphrase.len() > MAX_PASSPHRASE {
+            return None;
+        }
+        let ms = ems.decrypt(passphrase).ok()?;
+        let master = Xpriv::master(ms.expose()).ok()?;
+        let fingerprint = master.fingerprint();
+        let mut p = [0u8; MAX_PASSPHRASE];
+        p[..passphrase.len()].copy_from_slice(passphrase);
+        Some(SeedSlot {
+            mnemonic: None,
+            kind: SlotKind::Slip39,
+            ems: Some(ems),
+            passphrase: p,
+            passphrase_len: passphrase.len(),
+            master,
+            fingerprint,
+        })
+    }
+
+    /// The same words or SLIP-39 wallet with another passphrase.
+    pub fn with_passphrase(&self, passphrase: &[u8]) -> Option<SeedSlot> {
+        match self.kind {
+            SlotKind::Mnemonic => SeedSlot::new(self.mnemonic.clone()?, passphrase),
+            SlotKind::Slip39 => SeedSlot::from_slip39(self.ems.clone()?, passphrase),
+            SlotKind::Xprv | SlotKind::Wif => None,
+        }
+    }
+
+    /// Words in each share of a SLIP-39 wallet (20 or 33).
+    pub fn share_words(&self) -> usize {
+        self.ems
+            .as_ref()
+            .map_or(0, |e| bp_backup::slip39::share_words(e.len()))
     }
 
     /// A single imported key (WIF).

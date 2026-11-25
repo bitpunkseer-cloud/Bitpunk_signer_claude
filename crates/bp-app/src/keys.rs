@@ -92,6 +92,8 @@ pub enum SlotOpt {
     SeedQr,
     Discard,
     Addresses,
+    /// Another set of SLIP-39 shares of this wallet (M11-2).
+    Slip39Shares,
 }
 
 /// The options a slot of this kind offers.
@@ -101,6 +103,7 @@ pub fn slot_opts(kind: SlotKind) -> &'static [SlotOpt] {
         SlotKind::Mnemonic => &[Words, Xpub, Explorer, Passphrase, SeedQr, Discard],
         SlotKind::Xprv => &[Xpub, Explorer, Discard],
         SlotKind::Wif => &[Addresses, Discard],
+        SlotKind::Slip39 => &[Xpub, Explorer, Passphrase, Slip39Shares, Discard],
     }
 }
 

@@ -28,6 +28,8 @@ pub enum Topic {
     Bip85,
     PrivateKey,
     Vault,
+    /// SLIP-39 shares (M11-2).
+    Slip39,
 }
 
 /// The topic for a screen; `None` where help is not offered (start-up,
@@ -92,6 +94,7 @@ pub fn topic(s: &Screen) -> Option<Topic> {
         Screen::Vault { .. } | Screen::SeedVault { .. } | Screen::Tricks { .. } | Screen::Tamper { .. } => {
             Vault
         }
+        Screen::Slip39 { .. } => Slip39,
     })
 }
 
@@ -105,6 +108,9 @@ fn types_text(s: &Screen) -> bool {
             }
             | Screen::SigVerify {
                 step: sigverify::SvStep::Type
+            }
+            | Screen::Slip39 {
+                step: crate::slip39ui::SlStep::Passphrase
             }
     )
 }

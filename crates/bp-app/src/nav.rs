@@ -39,6 +39,9 @@ pub enum To {
     VaultTamper,
     VaultLock,
     VaultWipe,
+    /// Seeds & keys > New seed / Load a seed > SLIP-39 (M11-2).
+    Slip39New,
+    Slip39Load,
     /// A settings row, by its English label.
     Setting(fn(&crate::text::Strings) -> &'static str),
 }
@@ -79,6 +82,8 @@ pub const FEATURES: &[To] = &[
     To::VaultTamper,
     To::VaultLock,
     To::VaultWipe,
+    To::Slip39New,
+    To::Slip39Load,
 ];
 
 fn is(t: To, action: &Action, label: &str) -> bool {
@@ -102,7 +107,9 @@ fn is(t: To, action: &Action, label: &str) -> bool {
         | (To::VaultTricks, Action::VaultTricks)
         | (To::VaultTamper, Action::VaultTamper)
         | (To::VaultLock, Action::VaultLock)
-        | (To::VaultWipe, Action::VaultWipe) => true,
+        | (To::VaultWipe, Action::VaultWipe)
+        | (To::Slip39New, Action::Slip39New)
+        | (To::Slip39Load, Action::Slip39Load) => true,
         (To::Setting(f), Action::CycleSetting) => f(&crate::text::EN) == label,
         _ => false,
     }

@@ -7,7 +7,7 @@
 //!
 //! | kind | data |
 //! |---|---|
-//! | 1 seed | `type u8` (0 words, 1 XPRV, 2 WIF), fingerprint (4), secret: the words' entropy, the XPRV in Base58, or the WIF's 32-byte key |
+//! | 1 seed | `type u8` (0 words, 1 XPRV, 2 WIF, 3 SLIP-39), fingerprint (4), secret: the words' entropy, the XPRV in Base58, the WIF's 32-byte key, or a SLIP-39 wallet's identifier (2, big-endian), extendable flag, iteration exponent and encrypted master secret (16–32) |
 //! | 2 wallet | the `.bpw` text (name, wallet code, 256-bit tag, descriptor) |
 //! | 3 settings | 12 bytes, one per setting |
 //!
@@ -71,6 +71,14 @@ fn slot_secret(s: &SeedSlot, out: &mut [u8; XKEY_LEN]) -> Option<usize> {
             wipe(&mut k);
             Some(32)
         }
+        SlotKind::Slip39 => {
+            let e = s.ems.as_ref()?;
+            out[..2].copy_from_slice(&e.identifier.to_be_bytes());
+            out[2] = e.extendable as u8;
+            out[3] = e.iteration_exponent;
+            out[4..4 + e.len()].copy_from_slice(e.value());
+            Some(4 + e.len())
+        }
     }
 }
 
@@ -116,6 +124,17 @@ impl StoredSeed {
                 Some(SeedSlot::from_xprv(Xpriv::decode(text).ok()?.0))
             }
             SlotKind::Wif => SeedSlot::from_wif(&SecretKey::from_bytes(self.secret().try_into().ok()?)?),
+            SlotKind::Slip39 => {
+                let d = self.secret();
+                let ems = bp_backup::slip39::Ems::from_parts(
+                    u16::from_be_bytes([d[0], d[1]]),
+                    d[2] == 1,
+                    d[3],
+                    &d[4..],
+                )
+                .ok()?;
+                SeedSlot::from_slip39(ems, b"")
+            }
         }
     }
 
@@ -132,15 +151,27 @@ impl StoredSeed {
 
     fn parse(d: &[u8]) -> Option<StoredSeed> {
         let (&t, rest) = d.split_first()?;
-        let kind = [SlotKind::Mnemonic, SlotKind::Xprv, SlotKind::Wif]
-            .get(t as usize)
-            .copied()?;
+        let kind = [
+            SlotKind::Mnemonic,
+            SlotKind::Xprv,
+            SlotKind::Wif,
+            SlotKind::Slip39,
+        ]
+        .get(t as usize)
+        .copied()?;
         let fp: [u8; 4] = rest.get(..4)?.try_into().ok()?;
         let sec = &rest[4..];
         let ok = match kind {
             SlotKind::Mnemonic => matches!(sec.len(), 16 | 20 | 24 | 28 | 32),
             SlotKind::Xprv => (100..=XKEY_LEN).contains(&sec.len()),
             SlotKind::Wif => sec.len() == 32,
+            SlotKind::Slip39 => {
+                (20..=36).contains(&sec.len())
+                    && sec.len() % 2 == 0
+                    && sec[0] < 0x80
+                    && sec[2] <= 1
+                    && sec[3] <= 15
+            }
         };
         if !ok {
             return None;
@@ -356,6 +387,7 @@ impl VaultData {
                 SlotKind::Mnemonic => 0,
                 SlotKind::Xprv => 1,
                 SlotKind::Wif => 2,
+                SlotKind::Slip39 => 3,
             }];
             rec(R_SEED, &[&t, &s.fp, s.secret()]);
         }
@@ -491,6 +523,58 @@ mod tests {
         assert!(s.matches(&with) && s.matches(&abandon()));
         let back = s.to_slot().unwrap();
         assert!(!back.has_passphrase());
+    }
+
+    #[test]
+    fn a_slip39_wallet_is_kept_without_its_passphrase() {
+        use bp_backup::slip39::{Ems, MasterSecret};
+        for len in [16usize, 32] {
+            let ms = MasterSecret::new(&[0x5a; 32][..len]).unwrap();
+            let ems = Ems::encrypt(&ms, b"", 0x1234, true, 1).unwrap();
+            let plain = SeedSlot::from_slip39(ems.clone(), b"").unwrap();
+            assert_eq!(
+                plain.fingerprint,
+                Xpriv::master(ms.expose()).unwrap().fingerprint()
+            );
+            let with = SeedSlot::from_slip39(ems, b"hidden").unwrap();
+            let s = StoredSeed::from_slot(&with).unwrap();
+            assert_eq!(s.kind, SlotKind::Slip39);
+            assert_eq!(s.fp, plain.fingerprint, "the fingerprint without the passphrase");
+            assert!(s.matches(&with) && s.matches(&plain));
+            let mut d = VaultData::new();
+            assert!(d.add_seed(s));
+            let mut body = [0u8; BODY_MAX];
+            let n = d.to_body(&mut body).unwrap();
+            let mut back = VaultData::new();
+            back.read(&body[..n]).unwrap();
+            let got = back.seed(0).unwrap().to_slot().unwrap();
+            assert_eq!(got.kind, SlotKind::Slip39);
+            assert_eq!(got.fingerprint, plain.fingerprint);
+            assert!(!got.has_passphrase());
+            let e = got.ems.as_ref().unwrap();
+            assert_eq!(
+                (e.identifier, e.extendable, e.iteration_exponent),
+                (0x1234, true, 1)
+            );
+            // with the passphrase again: the hidden wallet comes back
+            assert_eq!(
+                got.with_passphrase(b"hidden").unwrap().fingerprint,
+                with.fingerprint
+            );
+        }
+        // malformed records are refused
+        for bad in [
+            &[3u8, 0, 0, 0, 0, 0x80, 0, 1, 1][..], // identifier above 15 bits
+            &[3, 0, 0, 0, 0, 0, 1, 2, 1],          // flag not 0/1
+            &[3, 0, 0, 0, 0, 0, 1, 1, 16],         // exponent above 15
+        ] {
+            let mut rec = [7u8; 25];
+            rec[..9].copy_from_slice(bad);
+            assert!(StoredSeed::parse(&rec).is_none());
+        }
+        let mut odd = [7u8; 26];
+        odd[..9].copy_from_slice(&[3u8, 0, 0, 0, 0, 0, 1, 1, 1]);
+        assert!(StoredSeed::parse(&odd).is_none());
     }
 
     #[test]

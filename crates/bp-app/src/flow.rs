@@ -21,6 +21,8 @@ pub struct Flow {
     /// D20: the number being typed (digits so far).
     pub d20: u8,
     pub d20_digits: u8,
+    /// The entropy makes a SLIP-39 wallet's master secret (M11-2), not words.
+    pub slip39: bool,
 }
 
 impl Flow {
@@ -47,6 +49,7 @@ impl Flow {
             coin_len: 0,
             d20: 0,
             d20_digits: 0,
+            slip39: false,
         }
     }
 

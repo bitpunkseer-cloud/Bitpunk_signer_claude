@@ -458,6 +458,8 @@ pub struct Strings {
     pub help: &'static crate::text_help::HelpStrings,
     // The vault and its PIN (M10)
     pub vault: &'static crate::text_vault::VaultStrings,
+    // Backups and tools (M11)
+    pub bk: &'static crate::text_backup::BackupStrings,
 }
 
 /// Number of issue kinds (see `review::issue_index`).
@@ -1191,6 +1193,7 @@ pub static EN: Strings = Strings {
     key: &crate::text_key::EN_KEY,
     help: &crate::text_help::EN_HELP,
     vault: &crate::text_vault::EN_VAULT,
+    bk: &crate::text_backup::EN_BACKUP,
 };
 
 pub static KO_REVIEW: ReviewStrings = ReviewStrings {
@@ -1839,6 +1842,7 @@ pub static KO: Strings = Strings {
     key: &crate::text_key::KO_KEY,
     help: &crate::text_help::KO_HELP,
     vault: &crate::text_vault::KO_VAULT,
+    bk: &crate::text_backup::KO_BACKUP,
 };
 
 /// Number of wallet-format error messages (see `wallets::format_error_index`).

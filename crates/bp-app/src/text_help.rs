@@ -3,7 +3,7 @@
 //! short paragraphs; the help box wraps them.
 
 /// Topics in `help::Topic` order.
-pub const TOPICS: usize = 19;
+pub const TOPICS: usize = 20;
 
 pub struct HelpStrings {
     /// "Help" (the key bar label)
@@ -188,6 +188,15 @@ pub static EN_HELP: HelpStrings = HelpStrings {
                 "Lock screen: Esc goes on without the vault; Tab shows the tamper check words.",
             ],
         ),
+        (
+            "SLIP-39 shares",
+            [
+                "A SLIP-39 wallet is split into shares: enough of them open it.",
+                "Type the shares one by one, in any order. Each is checked as it comes.",
+                "New shares come from the secret: the same choices make the same shares.",
+                "BIP-39 seed words are split with Seed XOR instead.",
+            ],
+        ),
     ],
 };
 
@@ -364,6 +373,15 @@ pub static KO_HELP: HelpStrings = HelpStrings {
                 "PIN 앞부분을 치고 단어 2개를 확인한 뒤 나머지를 치세요.",
                 "PIN을 10번 틀리면 보관함이 영구히 지워집니다. 단어 백업이 유일한 복구 수단입니다.",
                 "잠금 화면에서 Esc: 보관함 없이 사용, Tab: 탬퍼 점검 단어.",
+            ],
+        ),
+        (
+            "SLIP-39 조각",
+            [
+                "SLIP-39 지갑은 조각으로 나뉩니다. 정한 수만큼 모이면 열립니다.",
+                "조각을 하나씩, 순서 없이 입력하세요. 조각마다 바로 검사합니다.",
+                "새 조각은 비밀에서 만듭니다. 같은 선택이면 같은 조각이 나옵니다.",
+                "BIP-39 시드 단어는 Seed XOR로 나누세요.",
             ],
         ),
     ],

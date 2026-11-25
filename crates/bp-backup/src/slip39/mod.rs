@@ -283,6 +283,7 @@ impl MasterSecret {
 }
 
 /// The encrypted master secret: what the shares split.
+#[derive(Clone)]
 pub struct Ems {
     pub identifier: u16,
     pub extendable: bool,

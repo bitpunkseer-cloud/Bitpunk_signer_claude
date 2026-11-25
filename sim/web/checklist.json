@@ -1060,8 +1060,44 @@
     "en": "SLIP-39 engine: shares read and written (RS1024), two-level Shamir, passphrase cipher, shares checked as they come; all 45 published vectors, byte for byte with the reference",
     "ko": "SLIP-39 엔진: 조각 읽기·쓰기(RS1024), 두 단계 Shamir, 패스프레이즈 암호, 조각을 받을 때마다 검사 — 공식 벡터 45개, 참조 구현과 바이트 단위로 같음",
     "where": [
-     "(inside; screens come in M11-2)",
-     "(내부, 화면은 M11-2)"
+     "(inside; the SLIP-39 screens run it)",
+     "(내부, SLIP-39 화면이 실행)"
+    ]
+   },
+   {
+    "id": "F-181",
+    "en": "Open a SLIP-39 wallet from shares: 20 or 33 words, each share checked as typed, group progress, passphrase, fingerprint, load",
+    "ko": "SLIP-39 조각으로 지갑 열기: 20·33단어, 조각마다 바로 검사, 그룹 진행, 패스프레이즈, 지문, 불러오기",
+    "where": [
+     "Seeds & keys > Load a seed > SLIP-39 shares",
+     "시드·키 > 시드 불러오기 > SLIP-39 조각"
+    ]
+   },
+   {
+    "id": "F-182",
+    "en": "New SLIP-39 wallet from dice, coins or a D20: split 1, 2 of 3, 3 of 5 or custom groups, optional dice for the shares, each share shown and 3 words checked",
+    "ko": "주사위·동전·D20으로 새 SLIP-39 지갑: 1개·3중 2·5중 3·그룹 직접, 조각용 주사위(선택), 조각마다 표시와 3단어 확인",
+    "where": [
+     "Seeds & keys > New seed > SLIP-39 wallet",
+     "시드·키 > 새 시드 > SLIP-39 지갑"
+    ]
+   },
+   {
+    "id": "F-183",
+    "en": "SLIP-39 slot: xpub, addresses, passphrase, another set of shares of the same wallet",
+    "ko": "SLIP-39 슬롯: xpub·주소·패스프레이즈·같은 지갑의 다른 조각 묶음",
+    "where": [
+     "Seed options",
+     "시드 옵션"
+    ]
+   },
+   {
+    "id": "F-184",
+    "en": "The vault keeps SLIP-39 wallets (without the passphrase); the shares typed are wiped on leaving or power off",
+    "ko": "보관함이 SLIP-39 지갑을 보관(패스프레이즈 없이), 입력한 조각은 나가거나 끄면 지움",
+    "where": [
+     "Seeds & keys > Seed vault",
+     "시드·키 > 시드 보관함"
     ]
    }
   ]
