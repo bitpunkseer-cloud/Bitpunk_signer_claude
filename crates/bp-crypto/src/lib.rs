@@ -5,8 +5,12 @@
 #![no_std]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod argon2;
+pub mod blake2b;
+pub mod chacha20poly1305;
 pub mod drbg;
 pub mod hashes;
+pub mod hkdf;
 pub mod hmac;
 pub mod pbkdf2;
 pub mod ripemd160;
