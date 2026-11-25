@@ -1,6 +1,6 @@
 # M10 구현 계획 (v1) — 보안 저장 · PIN · 시드 보관함
 
-상태: **승인 (2026-11-25, 결정 1~12 권장안)** — 진행 중: M10-0~M10-2 완료 · 근거: [M10_SURVEY.md](../M10_SURVEY.md) (Coldcard·Passport·Keystone·OneKey·Specter·Krux·Jade·SeedSigner 코드, STM32N6 HAL 드라이버) · 화면은 [UX 언어 v1.0](../UX_LANGUAGE.md)을 따른다.
+상태: **승인 (2026-11-25, 결정 1~12 권장안)** — 진행 중: M10-0~M10-3 완료 · 근거: [M10_SURVEY.md](../M10_SURVEY.md) (Coldcard·Passport·Keystone·OneKey·Specter·Krux·Jade·SeedSigner 코드, STM32N6 HAL 드라이버) · 화면은 [UX 언어 v1.0](../UX_LANGUAGE.md)을 따른다.
 
 ## 1. 목표
 

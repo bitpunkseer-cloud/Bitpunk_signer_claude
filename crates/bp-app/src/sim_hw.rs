@@ -33,6 +33,7 @@ fn fill(state: &mut u64, out: &mut [u8]) {
 }
 
 /// Simulated NXP SE050 for the vault.
+#[derive(Clone)]
 pub struct SimSecureElement {
     rng: u64,
     hmac_key: [u8; 32],
@@ -43,6 +44,8 @@ pub struct SimSecureElement {
     counter: u32,
     /// Answers `Bus` to everything (a missing or broken element).
     pub broken: bool,
+    /// Calls answered before the power fails (then `Bus`); `None` = no cut.
+    pub calls_left: Option<u32>,
 }
 
 impl SimSecureElement {
@@ -61,10 +64,18 @@ impl SimSecureElement {
             max: 0,
             counter: 0,
             broken: false,
+            calls_left: None,
         }
     }
 
-    fn check(&self) -> Result<(), SeError> {
+    fn check(&mut self) -> Result<(), SeError> {
+        if let Some(n) = self.calls_left {
+            if n == 0 {
+                self.broken = true;
+            } else {
+                self.calls_left = Some(n - 1);
+            }
+        }
         if self.broken {
             Err(SeError::Bus)
         } else {

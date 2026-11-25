@@ -26,6 +26,7 @@ mod text_help;
 mod text_key;
 mod text_sd;
 pub(crate) mod typed;
+pub mod vault;
 mod verify;
 mod view;
 mod wallets;
