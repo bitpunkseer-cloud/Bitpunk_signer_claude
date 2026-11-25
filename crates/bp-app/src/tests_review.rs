@@ -1947,3 +1947,28 @@ fn amounts_group_the_sats_in_btc() {
     let widest = amount(2_100_000_000_000_000, Sats);
     assert!(bp_ui::font::DOUBLE.text_width(widest.as_str()) <= 800 - 2 * 16);
 }
+
+#[test]
+fn task_psbt_qr() {
+    for (name, shortcut) in [("psbt-qr", false), ("psbt-qr-fn-q", true)] {
+        let w = W::from_phrase(ABANDON);
+        let mut a = app();
+        load_abandon(&mut a);
+        nav::home(&mut a);
+        crate::taskcount::start(&a.current());
+        if shortcut {
+            press(&mut a, Key::Qr);
+            a.on_qr_text(b64(&standard(&w).serialize()).as_bytes());
+        } else {
+            scan_psbt(&mut a, &standard(&w));
+        }
+        for _ in 0..4 {
+            press(&mut a, Key::Enter);
+        }
+        press(&mut a, Key::Down);
+        press(&mut a, Key::Enter); // sign
+        press(&mut a, Key::Enter); // show QR (UR)
+        assert!(matches!(a.current(), Screen::QrShow { .. }));
+        super::tests::task_done(name, &a);
+    }
+}

@@ -1112,3 +1112,24 @@ pub(super) fn golden(out: &mut String) {
         }
     }
 }
+
+#[test]
+fn task_multisig_register() {
+    let mut a = app();
+    load_abandon(&mut a);
+    let w = wallet_of(&a, MsScript::Wsh, 2, 3);
+    to_main(&mut a);
+    crate::taskcount::start(&a.current());
+    import(&mut a, &descriptor_of(&w));
+    press(&mut a, Key::Char('1')); // check each cosigner
+    for _ in 0..3 {
+        press(&mut a, Key::Enter);
+    }
+    press(&mut a, Key::Enter); // addresses
+    let code = code_of(&a);
+    press(&mut a, Key::Enter); // the code
+    type_str(&mut a, &std::str::from_utf8(&code.0).unwrap().to_lowercase());
+    press(&mut a, Key::Enter);
+    assert!(matches!(step(&a), WlStep::Registered { .. }));
+    super::tests::task_done("multisig-register", &a);
+}

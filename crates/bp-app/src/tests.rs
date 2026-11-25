@@ -1497,3 +1497,101 @@ fn screen_saver_waits_for_qr_scanning_and_can_be_turned_off() {
     idle(&mut a, 3600);
     assert!(!a.saver);
 }
+
+// ---------- M9-9 task efficiency (see taskcount.rs, docs/M9_TASKS.md) ----------
+
+/// Stop counting and compare with the M8 build.
+pub(crate) fn task_done(name: &str, a: &App) {
+    let (keys, screens) = crate::taskcount::finish(&a.current());
+    crate::taskcount::check(name, keys, screens);
+}
+
+#[test]
+fn task_seed_from_dice() {
+    let mut a = app();
+    crate::taskcount::start(&a.current());
+    open_create(&mut a, false, false);
+    roll_until_ready(&mut a, 7);
+    for _ in 0..5 {
+        press(&mut a, Key::Enter); // finish, summary, warning, words, quiz intro
+    }
+    answer_all(&mut a, None);
+    press(&mut a, Key::Enter); // seed ready
+    task_done("seed-dice-12", &a);
+}
+
+#[test]
+fn task_seed_typed() {
+    let mut a = app();
+    crate::taskcount::start(&a.current());
+    load_abandon(&mut a);
+    task_done("seed-typed-12", &a);
+}
+
+#[test]
+fn task_xpub_qr() {
+    let mut a = app();
+    load_abandon(&mut a);
+    nav::home(&mut a);
+    crate::taskcount::start(&a.current());
+    nav::seed(&mut a, 0);
+    open_xpub_qr(&mut a, '1');
+    task_done("xpub-qr", &a);
+}
+
+#[test]
+fn task_power_on() {
+    // first-run screen (C3): once per power on
+    let mut a = App::new(b"test quiz seed");
+    a.tick(SPLASH_MS);
+    crate::taskcount::start(&a.current());
+    nav::home(&mut a);
+    task_done("power-on", &a);
+}
+
+/// M9-9 (C11): `?` opens the screen's help and any key closes it without
+/// doing anything else; where text is typed `?` is a character (F1 still
+/// opens the help); the screen saver closes it.
+#[test]
+fn help_opens_with_question_mark_and_the_next_key_only_closes_it() {
+    let mut a = app();
+    let menu = a.current();
+    press(&mut a, Key::Char('?'));
+    assert!(a.help.get());
+    assert_eq!(a.help_topic(), Some(crate::help::Topic::Menus));
+    assert_eq!(a.current(), menu);
+    press(&mut a, Key::Char('1')); // would open the first row
+    assert!(!a.help.get());
+    assert_eq!(a.current(), menu, "the closing key did nothing else");
+    press(&mut a, Key::F(1));
+    assert!(a.help.get());
+    press(&mut a, Key::Esc);
+    assert!(!a.help.get());
+    assert_eq!(a.current(), menu);
+    // typing words: `?` opens the help and the letters typed are kept
+    open_typed(&mut a, 12);
+    type_str(&mut a, "ab");
+    press(&mut a, Key::Char('?'));
+    assert_eq!(a.help_topic(), Some(crate::help::Topic::TypeWords));
+    press(&mut a, Key::Enter);
+    assert!(!a.help.get());
+    assert_eq!(a.flow.as_ref().unwrap().entry.pos, 0);
+    type_str(&mut a, "an");
+    assert_eq!(a.flow.as_ref().unwrap().entry.pos, 1, "aban completes abandon");
+    // a passphrase may contain `?`: it is typed, F1 opens the help
+    let mut a = app();
+    load_abandon(&mut a);
+    nav::seed_opt(&mut a, keys::SlotOpt::Passphrase);
+    assert!(matches!(a.current(), Screen::PassphraseEntry { .. }));
+    type_str(&mut a, "a?b");
+    assert!(!a.help.get());
+    assert_eq!(a.pass_in.text(), b"a?b");
+    press(&mut a, Key::F(1));
+    assert_eq!(a.help_topic(), Some(crate::help::Topic::Passphrase));
+    press(&mut a, Key::Char('x'));
+    assert_eq!(a.pass_in.text(), b"a?b", "the closing key was not typed");
+    // the screen saver closes the help
+    press(&mut a, Key::F(1));
+    idle(&mut a, 61);
+    assert!(a.saver && !a.help.get());
+}

@@ -64,6 +64,9 @@ struct Tour {
     lang: Lang,
     dir: Option<std::path::PathBuf>,
     n: usize,
+    /// Help topics already drawn (M9-9): each is drawn once, over the first
+    /// screen of the tour that offers it.
+    helps: std::collections::BTreeSet<std::string::String>,
 }
 
 impl Tour {
@@ -81,9 +84,22 @@ impl Tour {
         let mut c = Shot::new();
         a.render(&mut c);
         self.n += 1;
+        let lang = ["en", "ko"][self.lang as usize];
         if let Some(dir) = &self.dir {
-            let lang = ["en", "ko"][self.lang as usize];
             c.save(&dir.join(format!("{lang}-{:03}-{name}.ppm", self.n)));
+        }
+        // the screen's help box, once per topic (layout-checked like the rest)
+        if let Some(topic) = a.help_topic() {
+            let key = format!("{topic:?}");
+            if self.helps.insert(key.clone()) {
+                a.help.set(true);
+                let mut c = Shot::new();
+                a.render(&mut c);
+                a.help.set(false);
+                if let Some(dir) = &self.dir {
+                    c.save(&dir.join(format!("help-{lang}-{key}.ppm")));
+                }
+            }
         }
     }
 
@@ -127,6 +143,7 @@ fn tour(lang: Lang) -> usize {
         lang,
         dir: std::env::var_os("BP_SHOTS").map(std::path::PathBuf::from),
         n: 0,
+        helps: Default::default(),
     };
     if let Some(d) = &t.dir {
         std::fs::create_dir_all(d).unwrap();
@@ -1367,3 +1384,49 @@ fn every_issue_text_fits() {
 }
 
 const MARGIN_X: i32 = bp_ui::widgets::MARGIN;
+
+/// M9-9 (C11): every help topic, in both languages, fits its box whole
+/// (no paragraph cut or dropped) and draws without running off the screen.
+#[test]
+fn help_topics_fit_in_both_languages() {
+    use crate::text_help::{EN_HELP, KO_HELP, TOPICS};
+    struct Null;
+    impl bp_hal::Canvas for Null {
+        fn width(&self) -> u16 {
+            800
+        }
+        fn height(&self) -> u16 {
+            480
+        }
+        fn fill_rect(&mut self, _: i32, _: i32, _: i32, _: i32, _: bp_hal::Rgb) {}
+        fn blend_pixel(&mut self, _: i32, _: i32, _: bp_hal::Rgb, _: u8) {}
+    }
+    let dir = std::env::var_os("BP_SHOTS").map(std::path::PathBuf::from);
+    let mut long = Vec::new();
+    for (lang, h) in [("en", &EN_HELP), ("ko", &KO_HELP)] {
+        assert!(!h.key_label.is_empty() && !h.close.is_empty());
+        for t in 0..TOPICS {
+            let (title, lines) = h.topics[t];
+            assert!(!title.is_empty() && !lines[0].is_empty(), "{lang} topic {t}");
+            // the paragraphs, wrapped without a line limit, end above the
+            // close line (the same geometry as draw_help)
+            let w = (bp_ui::grid::COLS - 4) * bp_ui::grid::CELL_W;
+            let mut y = bp_ui::grid::y(6);
+            for l in lines.iter().filter(|l| !l.is_empty()) {
+                y = bp_ui::font::BODY.draw_wrapped(&mut Null, 0, y, w, 28, 99, l, bp_ui::theme::TEXT) + 8;
+            }
+            if y - 8 > bp_ui::grid::y(15) {
+                long.push(format!(
+                    "{lang} {t} {title}: {} px over",
+                    y - 8 - bp_ui::grid::y(15)
+                ));
+            }
+            let mut c = Shot::new();
+            crate::view::draw_help(&mut c, h, t);
+            if let Some(d) = &dir {
+                c.save(&d.join(format!("helpbox-{lang}-{t:02}.ppm")));
+            }
+        }
+    }
+    assert!(long.is_empty(), "help topics too long: {long:#?}");
+}

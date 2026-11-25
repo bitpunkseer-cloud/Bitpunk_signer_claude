@@ -66,9 +66,9 @@ pub static EN_B85: B85Strings = B85Strings {
 pub static KO_B85: B85Strings = B85Strings {
     title: "BIP-85 자식 키",
     apps: [
-        ("BIP-39 12단어", "니모닉"),
-        ("BIP-39 18단어", "니모닉"),
-        ("BIP-39 24단어", "니모닉"),
+        ("BIP-39 12단어", "시드 단어"),
+        ("BIP-39 18단어", "시드 단어"),
+        ("BIP-39 24단어", "시드 단어"),
         ("WIF", "Bitcoin Core hdseed"),
         ("XPRV", "루트 키"),
         ("HEX", "16~64바이트"),

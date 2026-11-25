@@ -218,6 +218,76 @@ pub fn list_rows(
     }
 }
 
+/// A canvas that passes everything through and notes how far right the
+/// key bar's content reaches (M9-9: the help hint is added only where it
+/// fits). The bar's own background and top line are not content.
+pub struct KeyBarProbe<'a> {
+    inner: &'a mut dyn Canvas,
+    /// A key bar was drawn.
+    pub bar: bool,
+    /// Right edge of the key bar's content.
+    pub right: i32,
+}
+
+impl<'a> KeyBarProbe<'a> {
+    pub fn new(inner: &'a mut dyn Canvas) -> Self {
+        Self {
+            inner,
+            bar: false,
+            right: 0,
+        }
+    }
+
+    fn top(&self) -> i32 {
+        self.inner.height() as i32 - HINT_H
+    }
+}
+
+impl Canvas for KeyBarProbe<'_> {
+    fn width(&self) -> u16 {
+        self.inner.width()
+    }
+    fn height(&self) -> u16 {
+        self.inner.height()
+    }
+    fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: Rgb) {
+        let top = self.top();
+        if y >= top && w > 0 && h > 0 {
+            if color == SURFACE && x <= 0 && w >= self.inner.width() as i32 {
+                self.bar = true;
+                self.right = 0; // a new bar starts empty
+            } else if color != LINE {
+                self.right = self.right.max(x + w);
+            }
+        }
+        self.inner.fill_rect(x, y, w, h, color);
+    }
+    fn blend_pixel(&mut self, x: i32, y: i32, color: Rgb, alpha: u8) {
+        if y >= self.top() && alpha > 0 {
+            self.right = self.right.max(x + 1);
+        }
+        self.inner.blend_pixel(x, y, color, alpha);
+    }
+}
+
+/// The `?` key and its label at the right end of the key bar, ending at
+/// `end`; drawn only if it clears `used` (the bar's content). Returns
+/// whether it was drawn.
+pub fn help_hint(c: &mut dyn Canvas, end: i32, used: i32, label: &str) -> bool {
+    let y = c.height() as i32 - HINT_H;
+    let ty = y + (HINT_H - SMALL.height as i32) / 2;
+    let kw = SMALL.text_width("?") + 10;
+    let lw = SMALL.text_width(label);
+    let x = end - lw - 6 - kw;
+    if x < used + 18 {
+        return false;
+    }
+    c.fill_rect(x, y + 3, kw, HINT_H - 6, TEXT_DIM);
+    SMALL.draw(c, x + 5, ty, "?", ACCENT_TEXT);
+    SMALL.draw(c, x + kw + 6, ty, label, TEXT);
+    true
+}
+
 /// One entry of a directory listing.
 pub struct DirRow<'a> {
     pub name: &'a str,

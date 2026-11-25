@@ -43,6 +43,10 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   };
 
   // 1. load the test seed through the camera's text input
+  // screen help (C11): `?` opens it, the next key only closes it
+  for (let i = 0; i < 3; i++) await key("Escape");
+  await key("?");
+  await key("Escape");
   await scanner();
   await paste(ABANDON);
   await key("Enter"); // Load

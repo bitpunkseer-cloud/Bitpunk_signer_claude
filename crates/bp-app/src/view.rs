@@ -142,7 +142,10 @@ impl App {
             self.render_saver(c);
             return;
         }
-        self.render_screen(c);
+        // the key bar's content is measured so the help hint never covers it
+        let mut probe = widgets::KeyBarProbe::new(c);
+        self.render_screen(&mut probe);
+        let (bar, used) = (probe.bar, probe.right);
         // a band of rain while a long search runs (no information there)
         if matches!(
             self.current(),
@@ -154,8 +157,25 @@ impl App {
         ) {
             self.rain.draw(c, 15, 3);
         }
+        let mut end = 800 - MARGIN;
         if let Some((a, i)) = self.err_code.get() {
-            widgets::error_code(c, crate::errors::code(a, i as usize).as_str());
+            let code = crate::errors::code(a, i as usize);
+            widgets::error_code(c, code.as_str());
+            end -= SMALL.text_width(code.as_str()) + 24;
+        }
+        // M9-9 (C11): "? Help" where `?` opens it
+        if bar && !self.help.get() && self.opens_help(bp_hal::input::Key::Char('?')) {
+            widgets::help_hint(c, end, used, self.text().help.key_label);
+        }
+        if self.help.get() {
+            self.render_help(c);
+        }
+    }
+
+    /// The help box over the content rows (M9-9, C11).
+    fn render_help(&self, c: &mut dyn Canvas) {
+        if let Some(t) = self.help_topic() {
+            draw_help(c, self.text().help, t as usize);
         }
     }
 
@@ -2358,4 +2378,40 @@ fn check_rows(s: &crate::Strings, a: &Analysis, src: Source) -> [(&'static str, 
             fill(s.longest_detail, &[&a.longest_run, &(src.run_limit() - 1)]),
         ),
     ]
+}
+
+/// The help box: topic `t`'s title and paragraphs and how to close it,
+/// framed over content rows 3-16 (the key bar stays visible).
+pub(crate) fn draw_help(c: &mut dyn Canvas, h: &crate::text_help::HelpStrings, t: usize) {
+    use bp_ui::grid;
+    let (title, lines) = h.topics[t];
+    let (row, rows) = (3, 14);
+    c.fill_rect(
+        grid::x(0) - 4,
+        grid::y(row),
+        grid::COLS * grid::CELL_W + 8,
+        rows * grid::CELL_H,
+        theme::SURFACE,
+    );
+    grid::frame(c, 0, row, grid::COLS, rows, theme::ACCENT, false);
+    let x = grid::x(2);
+    let w = (grid::COLS - 4) * grid::CELL_W;
+    let x1 = TITLE.draw(c, x, grid::y(row) + 14, "[?] ", theme::ACCENT);
+    TITLE.draw(c, x1, grid::y(row) + 14, title, theme::BRIGHT);
+    let mut y = grid::y(row + 3);
+    let bottom = grid::y(row + rows - 2);
+    for l in lines.iter().filter(|l| !l.is_empty()) {
+        if y + 26 > bottom {
+            break;
+        }
+        let max = ((bottom - y) / 28).max(1) as usize;
+        y = BODY.draw_wrapped(c, x, y, w, 28, max, l, theme::TEXT) + 8;
+    }
+    SMALL.draw(
+        c,
+        x,
+        grid::text_y(&SMALL, row + rows - 2, 1),
+        h.close,
+        theme::TEXT_DIM,
+    );
 }

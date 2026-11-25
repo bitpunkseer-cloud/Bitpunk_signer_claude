@@ -38,6 +38,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | C8 | 오류 코드 표시 (`E-영역-번호`, [목록](ERROR_CODES.md)) | M9-3 | 완료 — error_codes_are_documented, refusal_screens_show_their_error_code |
 | C9 | 화면 효과·비(설정 3단계) | M9-2 | 효과·설정 완료(설정 > 화면 효과, 기기 전용), 비는 M9-5에서 사용 |
 | C10 | 금액 표시 방식: BTC 소수부를 `0.01 234 567`로 띄어 쓰기, 검토 머리말에 다른 단위 금액을 함께 | M9-6 | 완료 — amounts_group_the_sats_in_btc |
+| C11 | 화면별 도움말: `?`(호스트 F1)로 열고 아무 키로 닫음(닫는 키는 다른 일을 하지 않음). 글자 입력 화면에서는 `?`가 글자. 단어 입력 화면에서 `?`는 "일치 없음" 대신 도움말 | M9-9 | 완료 — help_opens_with_question_mark_and_the_next_key_only_closes_it, help_topics_fit_in_both_languages |
 
 흐름 안의 선택지 순서(확인 대화상자, 퀴즈 답, 내보내기 형식 목록, 지갑 단계, BIP-85 앱 목록 등)는 시험이 아직 위치로 고른다(남은 숫자 키 87회). M9에서 이런 목록의 순서를 바꾸는 단위는 먼저 `nav.rs`에 그 목록의 이름 기반 도우미를 더하고, 시험은 그것만 쓰게 한 뒤 바꾼다.
 

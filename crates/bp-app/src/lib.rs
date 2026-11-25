@@ -5,6 +5,7 @@
 mod b85;
 pub(crate) mod errors;
 mod flow;
+mod help;
 mod keys;
 mod menus;
 mod msgsign;
@@ -20,6 +21,7 @@ mod settings;
 mod sigverify;
 mod text;
 mod text_b85;
+mod text_help;
 mod text_key;
 mod text_sd;
 pub(crate) mod typed;
@@ -369,6 +371,8 @@ pub struct App {
     idle_ms: u32,
     /// The screen saver is up (M9-5, C6).
     pub(crate) saver: bool,
+    /// The help box is open over the screen (M9-9, C11).
+    pub(crate) help: core::cell::Cell<bool>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -452,6 +456,7 @@ impl App {
             rain: bp_ui::rain::Rain::new(),
             idle_ms: 0,
             saver: false,
+            help: core::cell::Cell::new(false),
         }
     }
 
@@ -641,6 +646,7 @@ impl App {
                 self.idle_ms = self.idle_ms.saturating_add(dt_ms.min(5_000));
                 if !self.saver && self.idle_ms >= limit {
                     self.saver = true;
+                    self.help.set(false);
                     self.dirty = true;
                 }
             }
@@ -689,12 +695,24 @@ impl App {
     }
 
     pub fn on_key(&mut self, ev: KeyEvent) {
+        #[cfg(test)]
+        {
+            crate::taskcount::seen(&self.current());
+            crate::taskcount::key();
+        }
         self.idle_ms = 0;
         if self.saver {
             // the key only wakes the screen; secret screens close
             self.saver = false;
             self.dirty = true;
             self.hide_secret();
+        } else if self.help.get() {
+            // the key only closes the help (M9-9, C11)
+            self.help.set(false);
+            self.dirty = true;
+        } else if self.opens_help(ev.key) {
+            self.help.set(true);
+            self.dirty = true;
         } else {
             self.handle_key(ev);
         }
@@ -752,6 +770,8 @@ impl App {
             self.sd.saved = None;
         }
         self.end_scan_if_left();
+        #[cfg(test)]
+        crate::taskcount::seen(&self.current());
     }
 
     fn end_scan_if_left(&mut self) {
@@ -2250,6 +2270,8 @@ mod bench;
 pub(crate) mod coverage;
 #[cfg(test)]
 pub(crate) mod nav;
+#[cfg(test)]
+pub(crate) mod taskcount;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

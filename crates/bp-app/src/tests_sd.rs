@@ -1542,3 +1542,22 @@ pub(super) fn golden(out: &mut String) {
     let name = String::from(a.sd.saved.unwrap().unwrap().name.as_str());
     file(out, &mut card, "sd.bpw", &name);
 }
+
+#[test]
+fn task_psbt_sd() {
+    let w = W::from_phrase(ABANDON);
+    let p = standard(&w);
+    let mut card = psbt_card(&p);
+    let mut a = app();
+    load_abandon(&mut a);
+    nav::home(&mut a);
+    crate::taskcount::start(&a.current());
+    open_psbt_list(&mut a, &mut card);
+    assert_eq!(names(&a)[0], "tx.psbt");
+    sd_press(&mut a, &mut card, Key::Enter);
+    approve(&mut a, &mut card);
+    sd_press(&mut a, &mut card, Key::Enter); // save to SD card
+    assert_eq!(step(&a), SdStep::Saved { sel: 0 });
+    sd_press(&mut a, &mut card, Key::Enter); // done
+    super::tests::task_done("psbt-sd", &a);
+}
