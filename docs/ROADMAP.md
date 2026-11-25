@@ -141,6 +141,8 @@ M1~M8 동안 기능 순서로 쌓인 화면을 하나의 디자인 언어와 조
 암호화 전체 백업 및 검증, SLIP-39 Shamir, Seed XOR(분할에 필요한 무작위 값도 주사위·동전으로 받는 방안 검토), Miniscript(P2WSH·Taproot)와 정책 뷰,
 Tinyseed/Stackbit, 니모닉 편집기, 데이텀 도구, 보안 노트·패스워드, TOTP 인증기.
 
+**계획(제안, 승인 전):** [M11_PLAN.md](milestones/M11_PLAN.md) · 조사: [M11_SURVEY.md](M11_SURVEY.md) — 핵심 제안은 Miniscript를 별도 마일스톤으로 떼는 것(서명 경로에 들어가는 큰 일), 백업은 자체 형식(Argon2id + ChaCha20-Poly1305, 12단어 암호)
+
 ## M12 — 출시 준비
 
 보안 부트로더, **microSD로만** 설치/업데이트, **M-of-N 다중 서명 검증**, 다운그레이드 방지,
