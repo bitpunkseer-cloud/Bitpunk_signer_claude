@@ -132,6 +132,8 @@ M1~M8 동안 기능 순서로 쌓인 화면을 하나의 디자인 언어와 조
 암호화 저장(KDF + AEAD, 보안 칩 사용 범위 결정), 영숫자 PIN/패스워드, 피싱 방지 단어, 로그인 지연,
 오입력 횟수 초과 시 삭제, Trick PIN(미끼 지갑·조용히 삭제), Tamper Check Code, Seed Vault(다중 시드).
 
+**계획(제안, 승인 대기):** [M10_PLAN.md](milestones/M10_PLAN.md) · 조사: [M10_SURVEY.md](M10_SURVEY.md) — 핵심 결정은 보안 칩(SE050 실드 권장): STM32N6에는 칩 안 플래시가 없고 DK에는 백업 전지가 없어, 오입력 횟수를 되돌릴 수 없게 셀 곳이 칩 안에 마땅치 않다
+
 ## M11 — 고급 백업 · 도구
 
 암호화 전체 백업 및 검증, SLIP-39 Shamir, Seed XOR(분할에 필요한 무작위 값도 주사위·동전으로 받는 방안 검토), Miniscript(P2WSH·Taproot)와 정책 뷰,
