@@ -233,6 +233,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bp-backup"
+version = "0.0.1"
+dependencies = [
+ "bp-bitcoin",
+ "bp-crypto",
+]
+
+[[package]]
 name = "bp-bitcoin"
 version = "0.0.1"
 dependencies = [

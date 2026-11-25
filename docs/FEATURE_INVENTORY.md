@@ -239,6 +239,12 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-177 | 메뉴에서 아무것도 하지 않는 줄은 이유를 키 막대 위에 보임 | 모든 메뉴 | a_menu_row_that_does_nothing_says_why |
 | F-178 | SE050 드라이버: T=1 over I2C, SCP03(전부 암호화·MAC), SE05x 명령 — 보관함이 그 위에서 동작, 버스에 비밀 평문 없음 ([M10_SE050](M10_SE050.md)) | (내부) | the_vault_runs_on_the_se050_driver, a_power_cut_on_the_se050_leaves_one_whole_vault, nothing_secret_crosses_the_bus_in_the_clear, published_known_answers, commands_match_the_reference_driver, fuzz_garbage_on_the_bus_never_panics, fuzz_responses_apdus_and_frames_never_panic |
 
+### M11에서 더한 것 (M11)
+
+| # | 기능 | 위치 | 시험 |
+|---|---|---|---|
+| F-180 | SLIP-39 엔진: 조각 읽기·쓰기(RS1024), 두 단계 Shamir(GF(256), 상수 시간 곱셈), 패스프레이즈 Feistel 암호, 조각을 하나씩 받으며 검사(다른 묶음·같은 번호·다이제스트), 비밀·패스프레이즈·구성·주사위에서 유도한 값으로 새 묶음 — 공식 벡터 45개 전부, 참조 구현과 바이트 단위로 같음 | (내부, `bp-backup`) | published_vectors, published_invalid_vectors_fail_for_the_right_reason, splits_match_the_reference_byte_for_byte, any_enough_shares_recover_the_reference_secret, shares_are_checked_as_they_come, a_wrong_share_empties_its_group_to_be_typed_again, the_same_choices_make_the_same_set_and_others_an_unrelated_one, fuzz_words_and_share_sequences_never_panic |
+
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |
 |---|---|---|

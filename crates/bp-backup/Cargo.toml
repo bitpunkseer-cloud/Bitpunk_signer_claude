@@ -1,0 +1,14 @@
+[package]
+name = "bp-backup"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Backups and offline tools for Bitpunk Signer: SLIP-39, Seed XOR, metal plates, OTP, encrypted backups (M11)"
+
+[dependencies]
+bp-crypto.workspace = true
+
+[dev-dependencies]
+# Test-only: BIP-39 and BIP-32 to check SLIP-39 vectors' xprv and Seed XOR parts.
+bp-bitcoin.workspace = true

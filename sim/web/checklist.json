@@ -1051,6 +1051,23 @@
  },
  {
   "group": [
+   "Added in M11",
+   "M11에서 더한 것"
+  ],
+  "items": [
+   {
+    "id": "F-180",
+    "en": "SLIP-39 engine: shares read and written (RS1024), two-level Shamir, passphrase cipher, shares checked as they come; all 45 published vectors, byte for byte with the reference",
+    "ko": "SLIP-39 엔진: 조각 읽기·쓰기(RS1024), 두 단계 Shamir, 패스프레이즈 암호, 조각을 받을 때마다 검사 — 공식 벡터 45개, 참조 구현과 바이트 단위로 같음",
+    "where": [
+     "(inside; screens come in M11-2)",
+     "(내부, 화면은 M11-2)"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
    "Simulator",
    "시뮬레이터"
   ],
