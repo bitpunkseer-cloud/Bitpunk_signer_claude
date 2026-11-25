@@ -6,8 +6,9 @@
   /* Layout: one centred handheld (screen over QWERTY), info strip below. Single dark look by design. */
   :root {
     color-scheme: dark;
-    --room: #101114;
-    --room-2: #16181c;
+    /* Bitpunk Phosphor (docs/UX_LANGUAGE.md): the page around the device */
+    --room: #020703;
+    --room-2: #06140a;
     --shell: #1b1c20;
     --shell-edge: #2c2e34;
     --bezel: #050506;
@@ -16,12 +17,18 @@
     --key-edge: #3a3c43;
     --legend: #ececea;
     --legend-dim: #8d8f97;
-    --accent: #f7931a;
-    --ok: #3ddc84;
-    --text: #e9e9e6;
-    --text-dim: #9a9ca4;
+    --accent: #00ff41;
+    --ok: #00ff41;
+    --warn: #ffb000;
+    --danger: #ff5555;
+    --line: #13532a;
+    --surface: #07160c;
+    --surface-hi: #0c2414;
+    --bright: #d2ffdc;
+    --text: #4dff7c;
+    --text-dim: #2bb457;
     --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    --head: "Space Grotesk", system-ui, sans-serif;
+    --head: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   html, body { height: 100%; }
   body {
@@ -138,12 +145,59 @@
   .files .size { color: var(--text-dim); }
   .files .btn { padding: .4em .7em; font-size: .78rem; }
   [hidden] { display: none !important; }
+
+  /* ---- M9 phosphor panels (square corners, green lines, terminal headings) ---- */
+  body { font-family: var(--mono); }
+  h1 { font-size: 1.05rem; font-weight: 700; color: var(--bright); }
+  h1 .prompt { color: var(--text); font-weight: 500; }
+  h1 b { color: var(--accent); }
+  .card, .cam { background: var(--surface); border: 1px solid var(--line); border-radius: 0; }
+  .card h2, .cam h2 { color: var(--text); letter-spacing: .08em; }
+  .card h2::before, .cam h2::before { content: "[ "; color: var(--text-dim); }
+  .card h2::after, .cam h2::after { content: " ]"; color: var(--text-dim); }
+  .card p, .card li { color: var(--text); }
+  .card code { color: var(--bright); }
+  kbd { background: var(--text-dim); color: var(--room); border: 0; border-radius: 0; font-weight: 700; }
+  .cam-state, .cam-note, .build { color: var(--text-dim); }
+  .cam-state.live { color: var(--ok); }
+  .btn { font-family: var(--mono); color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 0; }
+  .btn:hover { background: var(--surface-hi); border-color: var(--text-dim); }
+  .btn.on { border-color: var(--accent); color: var(--accent); }
+  .btn:focus-visible, .ck:focus-visible { outline: 2px solid var(--accent); }
+  .cam textarea { background: var(--room); color: var(--bright); border: 1px solid var(--line); border-radius: 0; }
+  .drop { border-color: var(--line); border-radius: 0; color: var(--text-dim); }
+  .drop.over { border-color: var(--accent); color: var(--text); }
+  .files .size { color: var(--text-dim); }
+  .err { color: var(--danger); }
+  .led.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  canvas { border-radius: 0; }
+  /* feature checklist */
+  .check-top { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; }
+  .check-count { font-size: .84rem; color: var(--bright); }
+  .check-count .bar { display: inline-block; width: 120px; height: 8px; margin-left: 8px; vertical-align: middle;
+    background: var(--surface-hi); position: relative; }
+  .check-count .bar i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+  .check details { border-top: 1px solid var(--line); padding: 6px 0; }
+  .check summary { cursor: pointer; font-size: .86rem; color: var(--text); list-style: none; display: flex; gap: 8px; }
+  .check summary::-webkit-details-marker { display: none; }
+  .check summary::before { content: "+"; color: var(--text-dim); width: 1ch; }
+  .check details[open] summary::before { content: "-"; }
+  .check summary .n { margin-left: auto; color: var(--text-dim); font-size: .78rem; }
+  .check ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+  .check li label { display: grid; grid-template-columns: auto 4.2em 1fr; gap: 2px 8px; align-items: baseline;
+    font-size: .8rem; line-height: 1.4; cursor: pointer; }
+  .check li input { accent-color: var(--accent); margin: 0; }
+  .check li .id { color: var(--text-dim); }
+  .check li .what { color: var(--text); }
+  .check li .where { grid-column: 3; color: var(--text-dim); font-size: .74rem; }
+  .check li input:checked ~ .what { color: var(--bright); }
+  .check li input:checked ~ .what::after { content: "  [ OK ]"; color: var(--ok); }
   @media (prefers-reduced-motion: reduce) { .key { transition: none; } }
 </style>
 
 <div class="wrap">
   <header>
-    <h1><b>BIT</b>PUNK Signer · Simulator</h1>
+    <h1><span class="prompt">BITPUNK:~/simulator&gt;</span> <b>BIT</b>PUNK Signer</h1>
     <span class="build" id="build">build __BUILD__</span>
   </header>
 
@@ -160,7 +214,7 @@
   <section class="cam" aria-label="Camera input for the simulator">
     <div class="cam-head">
       <h2>Camera input</h2>
-      <span class="cam-state" id="camState">Open Scan QR on the device: main menu 1, or Fn + Q.</span>
+      <span class="cam-state" id="camState">Open the scanner on the device: Sign &gt; Scan QR (keys 1, 1), or Fn + Q from any menu.</span>
     </div>
     <div class="cam-row">
       <button class="btn" id="camBtn" type="button">Webcam</button>
@@ -205,7 +259,8 @@
     <div class="card">
       <h2>Controls</h2>
       <ul>
-        <li>Arrow keys (bottom left) move, <kbd>Enter</kbd> selects, <kbd>Esc</kbd> goes back</li>
+        <li>Arrow keys (bottom left) move, <kbd>Enter</kbd> selects, <kbd>Esc</kbd> goes back, a number opens its row</li>
+        <li><kbd>?</kbd> explains the screen (<kbd>F1</kbd> where text is typed); any key closes it</li>
         <li><kbd>1</kbd>–<kbd>6</kbd> dice, <kbd>H</kbd>/<kbd>T</kbd> coin, D20: number then <kbd>Space</kbd>, <kbd>Del</kbd> undo</li>
         <li>Type 4 letters of a word; it completes itself</li>
         <li>Your computer keyboard works too</li>
@@ -213,13 +268,26 @@
     </div>
     <div class="card">
       <h2>Keyboard · M5Stack CardKB v1.1</h2>
-      <p>The layout of the real CardKB v1.1 (50 keys). <kbd>Sym</kbd> types the small symbol beside a letter; <kbd>⇧</kbd> once for a capital, twice for caps lock. <kbd>Fn</kbd> + <kbd>Q</kbd> opens the QR scanner.</p>
+      <p>The layout of the real CardKB v1.1 (50 keys). <kbd>Sym</kbd> types the small symbol beside a letter (<kbd>Sym</kbd>+<kbd>K</kbd> is <kbd>?</kbd>); <kbd>⇧</kbd> once for a capital, twice for caps lock. <kbd>Fn</kbd> + <kbd>Q</kbd> opens the QR scanner from any menu.</p>
     </div>
     <div class="card">
-      <h2>This build · M8</h2>
-      <p id="status">microSD (Main &gt; SD card): insert the virtual card in the microSD panel, copy a PSBT onto it, sign it and save the full signed PSBT back as <code>-signed.psbt</code> (or download it); sign message files into armored <code>.sig</code> files; save QR exports (xpub JSON, wallet files) with <kbd>S</kbd>; import wallet and settings files; browse, view, delete and format (FAT16/FAT32, own driver). Seeds and private keys never go on the card. Also new: BIP-85 child seeds and passwords (Tools &gt; BIP-85), private key import by QR or keyboard (xprv, WIF single key), and the boot check that locks the device when a network chip answers. Plus everything from M7: multisig, PSBT review, addresses, messages, settings QR, D20, Korean. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
+      <h2>This build · M9</h2>
+      <p id="status">M9 "Bitpunk Phosphor": the same functions as M8, every screen redrawn as a phosphor terminal. Menus by task (Sign · Receive &amp; verify · Seeds &amp; keys · Multisig · SD · Settings · Power), a first-run screen, a session log under the main menu, a boot self-test log, a screen saver that hides secrets, the review with a large amount, a ledger and a log of what was verified, a DOS-style file list, error codes, <kbd>?</kbd> help on every screen, and screen effects (Settings). Every output (QR, files, signatures) is byte-for-byte the M8 one. Seeds come from dice and coin flips only. TEST ONLY: never use these seeds for real funds.</p>
     </div>
   </div>
+
+  <section class="cam check" id="check" aria-label="Feature checklist">
+    <div class="check-top">
+      <h2 id="checkTitle">Feature checklist</h2>
+      <div class="cam-row">
+        <span class="check-count" id="checkCount"></span>
+        <button class="btn" id="checkLang" type="button">한국어</button>
+        <button class="btn" id="checkClear" type="button">Clear</button>
+      </div>
+    </div>
+    <p class="cam-note" id="checkNote">Every feature of the device (the feature inventory), where to find it in M9. Tick what you have tried. Your ticks stay in this browser only.</p>
+    <div id="checkList"></div>
+  </section>
 </div>
 
 <script>
@@ -404,7 +472,7 @@
     if (note) { camState.textContent = note; return; }
     camState.textContent = live
       ? (stream ? "Scanning: hold a QR code up to the webcam." : "Scanning: send a webcam picture, an image or pasted text.")
-      : "Open Scan QR on the device: main menu 1, or Fn + Q.";
+      : "Open the scanner on the device: Sign > Scan QR (keys 1, 1), or Fn + Q from any menu.";
   }
 
   async function startWebcam() {
@@ -453,7 +521,7 @@
     if (!pasteBox.hidden) pasteText.focus();
   });
   document.getElementById("pasteSend").addEventListener("click", () => {
-    if (!scanning()) { note = "Open Scan QR on the device first."; updateState(); return; }
+    if (!scanning()) { note = "Open the scanner on the device first (Fn + Q)."; updateState(); return; }
     note = "";
     const enc = new TextEncoder();
     const lines = pasteText.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -660,5 +728,65 @@
       status.innerHTML = '<span class="err">Simulator failed to start: ' + String(err).replace(/</g, "&lt;") + "</span>";
     }
   })();
+})();
+</script>
+
+<script>
+(() => {
+  // Feature checklist (M9-10): docs/FEATURE_INVENTORY.md as a list to try in the simulator.
+  const CHECKLIST = __CHECKLIST_JSON__;
+  const T = {
+    en: { title: "Feature checklist", note: "Every feature of the device (the feature inventory), where to find it in M9. Tick what you have tried. Your ticks stay in this browser only.", other: "한국어", clear: "Clear", of: "checked", ask: "Clear every tick?" },
+    ko: { title: "기능 점검표", note: "기기의 모든 기능(기능 대장)과 M9에서 찾는 위치입니다. 해 본 것에 표시하세요. 표시는 이 브라우저에만 남습니다.", other: "English", clear: "지우기", of: "확인", ask: "표시를 모두 지울까요?" },
+  };
+  const KEY = "bp-checklist-v1";
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (_) { return {}; } };
+  const save = v => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (_) {} };
+  let lang = (() => { try { return localStorage.getItem(KEY + "-lang") || "en"; } catch (_) { return "en"; } })();
+  let done = load();
+  const list = document.getElementById("checkList");
+  const total = CHECKLIST.reduce((n, g) => n + g.items.length, 0);
+  const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function count() {
+    const n = Object.keys(done).filter(k => done[k]).length;
+    document.getElementById("checkCount").innerHTML =
+      n + " / " + total + " " + T[lang].of + '<span class="bar"><i style="width:' + (100 * n / total).toFixed(1) + '%"></i></span>';
+    list.querySelectorAll("details").forEach(d => {
+      const ids = [...d.querySelectorAll("input")];
+      d.querySelector(".n").textContent = ids.filter(i => i.checked).length + "/" + ids.length;
+    });
+  }
+  function render() {
+    const open = new Set([...list.querySelectorAll("details[open]")].map(d => d.dataset.g));
+    const li = lang === "ko" ? 1 : 0;
+    list.innerHTML = CHECKLIST.map((g, gi) =>
+      '<details data-g="' + gi + '"' + (open.has(String(gi)) ? " open" : "") + "><summary>" + esc(g.group[li]) + '<span class="n"></span></summary><ul>' +
+      g.items.map(it =>
+        '<li><label><input type="checkbox" data-id="' + it.id + '"' + (done[it.id] ? " checked" : "") + '>' +
+        '<span class="id">' + it.id + '</span><span class="what">' + esc(lang === "ko" ? it.ko : it.en) + "</span>" +
+        '<span class="where">&gt; ' + esc(it.where[li]) + "</span></label></li>").join("") +
+      "</ul></details>").join("");
+    const t = T[lang];
+    document.getElementById("checkTitle").textContent = t.title;
+    document.getElementById("checkNote").textContent = t.note;
+    document.getElementById("checkLang").textContent = t.other;
+    document.getElementById("checkClear").textContent = t.clear;
+    count();
+  }
+  list.addEventListener("change", e => {
+    const id = e.target.dataset && e.target.dataset.id;
+    if (!id) return;
+    done[id] = e.target.checked; save(done); count();
+  });
+  document.getElementById("checkLang").addEventListener("click", () => {
+    lang = lang === "en" ? "ko" : "en";
+    try { localStorage.setItem(KEY + "-lang", lang); } catch (_) {}
+    render();
+  });
+  document.getElementById("checkClear").addEventListener("click", () => {
+    if (!confirm(T[lang].ask)) return;
+    done = {}; save(done); render();
+  });
+  render();
 })();
 </script>

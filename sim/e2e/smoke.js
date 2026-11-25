@@ -26,7 +26,7 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   page.on("pageerror", e => errors.push(String(e)));
   // the page's web fonts are decoration: never wait on the network
   await page.route(/^https?:/, r => r.abort());
-  await page.goto("file://" + path.resolve(page_));
+  await page.goto("file://" + path.resolve(page_), { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(2500); // splash
   const key = async k => { await page.keyboard.press(k); await page.waitForTimeout(120); };
   const scanner = async () => {
@@ -89,6 +89,17 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   await page.click("#commBtn");
   if ((await page.getAttribute("#commBtn", "aria-pressed")) !== "false") fail("boot check did not turn off");
   else console.log("ok: boot check toggles");
+
+  // feature checklist: every inventory item, ticks counted, both languages
+  const items = await page.locator("#checkList input[type=checkbox]").count();
+  if (items < 90) fail("checklist has only " + items + " items");
+  await page.click("#checkList details summary");
+  await page.locator("#checkList input[type=checkbox]").first().check();
+  const counted = await page.textContent("#checkCount");
+  if (!counted.startsWith("1 / " + items)) fail("checklist count: " + counted);
+  await page.click("#checkLang");
+  if ((await page.textContent("#checkTitle")) !== "기능 점검표") fail("checklist did not switch to Korean");
+  else console.log("ok: checklist " + items + " items, ticks and Korean");
 
   if (errors.length) fail("page errors: " + errors.join(" | "));
   else console.log("ok: no page errors");

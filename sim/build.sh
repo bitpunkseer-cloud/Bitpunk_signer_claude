@@ -14,11 +14,13 @@ cargo build --release --target wasm32-unknown-unknown -p bp-sim-web
 WASM=target/wasm32-unknown-unknown/release/bp_sim_web.wasm
 
 mkdir -p dist/site
-python3 -I - "$WASM" "v$VERSION / $HASH" sim/web/index.template.html dist/simulator.html dist/site/index.html <<'PY'
-import base64, sys
-wasm, build, tpl, out_body, out_site = sys.argv[1:]
+python3 -I - "$WASM" "v$VERSION / $HASH" sim/web/index.template.html dist/simulator.html dist/site/index.html sim/web/checklist.json <<'PY'
+import base64, json, sys
+wasm, build, tpl, out_body, out_site, checklist = sys.argv[1:]
 b64 = base64.b64encode(open(wasm, "rb").read()).decode()
-page = open(tpl).read().replace("__WASM_BASE64__", b64).replace("__BUILD__", build)
+items = json.dumps(json.load(open(checklist)), ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+page = (open(tpl).read().replace("__WASM_BASE64__", b64).replace("__BUILD__", build)
+        .replace("__CHECKLIST_JSON__", items))
 open(out_body, "w").write(page)
 open(out_site, "w").write(
     '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'

@@ -138,12 +138,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-062 | 정보 화면 | 설정 > 정보 | (화면 순회 About) |
 | F-063 | 전원 끄기 = 시드·흐름·기억 모두 지움 | 전원 | power_off_wipes_seeds |
 | F-064 | 한국어·영어 전 화면 | 설정 > 언어 | every_screen_fits_in_every_language, every_issue_text_fits |
-| F-065 | 시작 화면 시간 초과 → 주 메뉴, TEST ONLY 표시 | 부팅 | splash_times_out_to_main_menu |
-| F-066 | (M9) 화면 효과 전체·약하게·끔, QR은 효과 밖 | 설정 > 화면 효과 | qr_codes_read_through_screen_effects |
-| F-067 | (M9) 첫 실행 화면: 원칙, 언어·네트워크 | 부팅 직후 | first_run_screen_sets_language_and_network |
-| F-068 | (M9) 세션 로그 | 주 메뉴 아래 | session_log_records_what_happened_and_power_off_wipes_it |
-| F-069 | (M9) 화면 보호 1분·5분·끔 | 설정 > 화면 보호 | screen_saver_* |
-| F-070 | (M9) 부팅 자가 점검 로그 | 부팅 | (화면 순회) |
+| F-065 | 시작 화면 시간 초과 → 주 메뉴, TEST ONLY 표시 | 부팅 | splash_times_out_to_the_first_run_screen_then_main |
 
 ### 멀티시그 (M7)
 | # | 기능 | M8 위치 | 시험 |
@@ -186,6 +181,18 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-121 | 잘못된 키 거부(형식·네트워크·비압축·범위·가득·중복) | 개인키 | bad_keys_are_refused |
 | F-122 | WIF 단일 키 서명, 경로 기능 없음, 주소 4종 | 개인키 슬롯 | a_wif_slot_signs_its_inputs, single_keys_do_not_offer_path_features |
 | F-130 | 부팅 통신 칩 탐지 → 지우고 잠금 | 부팅 | a_network_chip_locks_the_device |
+
+### M9에서 더한 것 (M9)
+| # | 기능 | 위치 | 시험 |
+|---|---|---|---|
+| F-150 | 화면 효과 전체·약하게·끔, QR은 효과 밖 | 설정 > 화면 효과 | qr_codes_read_through_screen_effects |
+| F-151 | 첫 실행 화면: 원칙, 언어·네트워크 | 부팅 직후 | first_run_screen_sets_language_and_network |
+| F-152 | 세션 로그 | 주 메뉴 아래 | session_log_records_what_happened_and_power_off_wipes_it |
+| F-153 | 화면 보호 1분·5분·끔, 단어 화면에 가림까지 남은 시간 | 설정 > 화면 보호 | screen_saver_*, words_screen_counts_down_to_the_screen_saver |
+| F-154 | 부팅 자가 점검 로그 | 부팅 | (화면 순회) |
+| F-155 | 화면별 도움말 `?` | 모든 화면 | help_opens_with_question_mark_and_the_next_key_only_closes_it, help_topics_fit_in_both_languages |
+| F-156 | 되돌릴 수 없는 동작의 단어 입력 확인(FORMAT·WIPE) | SD > 카드 포맷, 시드 옵션 > 시드 지우기 | format_asks_twice, discarding_a_seed_needs_the_word_wipe |
+| F-157 | 오류 코드 표시 | 거부·실패 화면 | error_codes_are_documented, refusal_screens_show_their_error_code |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |

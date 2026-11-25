@@ -1,0 +1,917 @@
+[
+ {
+  "group": [
+   "Create a seed",
+   "시드 만들기"
+  ],
+  "items": [
+   {
+    "id": "F-001",
+    "en": "Dice (D6), 12 or 24 words",
+    "ko": "주사위(D6) 12/24단어",
+    "where": [
+     "Seeds & keys > Create new seed > Dice",
+     "시드·키 > 새 시드 만들기 > 주사위"
+    ]
+   },
+   {
+    "id": "F-002",
+    "en": "Coin flips, 12 or 24 words",
+    "ko": "동전 12/24단어",
+    "where": [
+     "Seeds & keys > Create new seed > Coin",
+     "시드·키 > 새 시드 만들기 > 동전"
+    ]
+   },
+   {
+    "id": "F-003",
+    "en": "D20: type the number, then Space",
+    "ko": "D20: 숫자 입력 후 Space",
+    "where": [
+     "Seeds & keys > Create new seed > D20",
+     "시드·키 > 새 시드 만들기 > D20"
+    ]
+   },
+   {
+    "id": "F-004",
+    "en": "Entropy checks (count, distribution, runs, correlation); Enter locked until they pass",
+    "ko": "엔트로피 검사(횟수·분포·연속·자기상관), 통과 전 Enter 잠김",
+    "where": [
+     "Dice / coin / D20 entry",
+     "주사위·동전·D20 입력"
+    ]
+   },
+   {
+    "id": "F-005",
+    "en": "Del undoes a roll; Esc asks before throwing the rolls away",
+    "ko": "Del로 되돌리기, Esc는 확인 후 폐기",
+    "where": [
+     "Dice / coin / D20 entry",
+     "주사위·동전·D20 입력"
+    ]
+   },
+   {
+    "id": "F-006",
+    "en": "Words with a warning; the backup check must pass before the seed exists",
+    "ko": "단어 표시와 경고, 백업 검사를 통과해야 생성",
+    "where": [
+     "After the entropy summary",
+     "엔트로피 요약 다음"
+    ]
+   },
+   {
+    "id": "F-007",
+    "en": "Failed check: see the words again, retry or discard",
+    "ko": "검사 실패 → 다시 보기·재시험·폐기",
+    "where": [
+     "Backup check",
+     "백업 검사"
+    ]
+   },
+   {
+    "id": "F-008",
+    "en": "Final word calculator (drawn words + coin flips)",
+    "ko": "마지막 단어 계산(뽑은 단어 + 동전)",
+    "where": [
+     "Seeds & keys > Create new seed > Final word calculator",
+     "시드·키 > 새 시드 만들기 > 마지막 단어 계산기"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "Load a seed",
+   "시드 불러오기"
+  ],
+  "items": [
+   {
+    "id": "F-010",
+    "en": "Type words: 4 letters complete a word; 3-letter words need Enter",
+    "ko": "단어 입력: 4글자 자동 완성, 3글자 단어는 Enter",
+    "where": [
+     "Seeds & keys > Load seed > Type words",
+     "시드·키 > 시드 불러오기 > 단어 입력"
+    ]
+   },
+   {
+    "id": "F-011",
+    "en": "Checksum error: pick the wrong word and fix it",
+    "ko": "체크섬 오류 → 단어 고치기",
+    "where": [
+     "Type words",
+     "단어 입력"
+    ]
+   },
+   {
+    "id": "F-012",
+    "en": "Enter word numbers",
+    "ko": "단어 번호 입력",
+    "where": [
+     "Seeds & keys > Load seed > Enter word numbers",
+     "시드·키 > 시드 불러오기 > 단어 번호 입력"
+    ]
+   },
+   {
+    "id": "F-013",
+    "en": "Scan a SeedQR (standard, compact): load or discard; anything else is refused",
+    "ko": "SeedQR 스캔(표준·Compact) → 불러오기·버리기, 시드가 아니면 거부",
+    "where": [
+     "Seeds & keys > Load seed > Scan SeedQR, or Fn+Q",
+     "시드·키 > 시드 불러오기 > SeedQR 스캔, 또는 Fn+Q"
+    ]
+   },
+   {
+    "id": "F-014",
+    "en": "Three seed slots; a notice when full",
+    "ko": "슬롯 3개, 가득 차면 안내",
+    "where": [
+     "Load a fourth seed",
+     "네 번째 시드 불러오기"
+    ]
+   },
+   {
+    "id": "F-015",
+    "en": "The seeds menu shows fingerprints, never words",
+    "ko": "시드 메뉴는 지문만 표시",
+    "where": [
+     "Seeds & keys",
+     "시드·키"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "Seed options, xpub, addresses",
+   "시드 옵션·xpub·주소"
+  ],
+  "items": [
+   {
+    "id": "F-020",
+    "en": "Show the seed words",
+    "ko": "단어 보기",
+    "where": [
+     "Seeds & keys > (seed) > Show seed words",
+     "시드·키 > (시드) > 시드 단어 보기"
+    ]
+   },
+   {
+    "id": "F-021",
+    "en": "Passphrase: type, review the new fingerprint, apply, edit or cancel",
+    "ko": "패스프레이즈 입력·검토(새 지문)·적용·수정·취소",
+    "where": [
+     "Seeds & keys > (seed) > Passphrase",
+     "시드·키 > (시드) > 패스프레이즈"
+    ]
+   },
+   {
+    "id": "F-022",
+    "en": "Discard a seed (its wallets go too)",
+    "ko": "시드 버리기 — 그 시드의 지갑도 지움",
+    "where": [
+     "Seeds & keys > (seed) > Discard seed",
+     "시드·키 > (시드) > 시드 지우기"
+    ]
+   },
+   {
+    "id": "F-023",
+    "en": "SeedQR backup (standard, compact), warning, transcription grid",
+    "ko": "SeedQR 백업(표준·Compact) + 경고 + 옮겨 적기 격자",
+    "where": [
+     "Seeds & keys > (seed) > Backup SeedQR",
+     "시드·키 > (시드) > SeedQR 백업"
+    ]
+   },
+   {
+    "id": "F-024",
+    "en": "Check a transcribed SeedQR by scanning it",
+    "ko": "옮겨 적은 SeedQR 확인(스캔 비교)",
+    "where": [
+     "Transcription grid > V",
+     "옮겨 적기 > V"
+    ]
+   },
+   {
+    "id": "F-025",
+    "en": "Script types (2 by default, 4 with advanced features)",
+    "ko": "스크립트 선택(기본 2종, 고급 4종)",
+    "where": [
+     "Export xpub / Address explorer",
+     "xpub 내보내기 / 주소 탐색기"
+    ]
+   },
+   {
+    "id": "F-026",
+    "en": "xpub (change account) and 4 QR formats",
+    "ko": "xpub 보기(계정 바꾸기) + QR 4형식",
+    "where": [
+     "Seeds & keys > (seed) > Export xpub",
+     "시드·키 > (시드) > xpub 내보내기"
+    ]
+   },
+   {
+    "id": "F-027",
+    "en": "QR controls: density, speed, full screen, account digits",
+    "ko": "QR 조작: 밀도·속도·전체 화면·계정 숫자",
+    "where": [
+     "Any QR screen",
+     "QR 화면"
+    ]
+   },
+   {
+    "id": "F-028",
+    "en": "Address explorer: receive/change, pages, detail with QR",
+    "ko": "주소 탐색: 받기·거스름, 페이지, 상세·QR",
+    "where": [
+     "Receive & verify > Address explorer",
+     "받기·확인 > 주소 탐색기"
+    ]
+   },
+   {
+    "id": "F-029",
+    "en": "Testnet prefixes",
+    "ko": "테스트넷 접두어",
+    "where": [
+     "Settings > Network",
+     "설정 > 네트워크"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "Scanning",
+   "스캔"
+  ],
+  "items": [
+   {
+    "id": "F-030",
+    "en": "Scan anything: address, xpub, descriptor, UR, binary, text",
+    "ko": "무엇이든 스캔(주소·xpub·디스크립터·UR·바이너리·텍스트)",
+    "where": [
+     "Sign > Scan QR, or Fn+Q",
+     "서명하기 > QR 스캔, 또는 Fn+Q"
+    ]
+   },
+   {
+    "id": "F-031",
+    "en": "Animated UR, BBQr and Specter with progress",
+    "ko": "애니메이션 UR·BBQr·Specter 진행 표시",
+    "where": [
+     "Scanner",
+     "스캐너"
+    ]
+   },
+   {
+    "id": "F-032",
+    "en": "Fn+Q opens the scanner from menus only",
+    "ko": "Fn+Q는 메뉴에서만 스캐너를 연다",
+    "where": [
+     "Any menu",
+     "메뉴"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "Signing PSBTs",
+   "PSBT 서명"
+  ],
+  "items": [
+   {
+    "id": "F-040",
+    "en": "Review (overview, outputs, fee, approve), cancel or sign",
+    "ko": "검토(개요·출력·수수료·승인)·취소·서명",
+    "where": [
+     "Scan a PSBT",
+     "PSBT 스캔"
+    ]
+   },
+   {
+    "id": "F-041",
+    "en": "Warnings confirmed one by one",
+    "ko": "경고는 하나씩 확인",
+    "where": [
+     "Review",
+     "검토"
+    ]
+   },
+   {
+    "id": "F-042",
+    "en": "Attacks end the review",
+    "ko": "공격은 검토를 끝냄",
+    "where": [
+     "Review",
+     "검토"
+    ]
+   },
+   {
+    "id": "F-043",
+    "en": "Unverified amounts need an explicit override",
+    "ko": "확인 안 된 금액은 명시적 동의",
+    "where": [
+     "Review",
+     "검토"
+    ]
+   },
+   {
+    "id": "F-044",
+    "en": "Signed amounts remembered until power off",
+    "ko": "서명한 금액은 전원을 끌 때까지 기억",
+    "where": [
+     "Review",
+     "검토"
+    ]
+   },
+   {
+    "id": "F-045",
+    "en": "Wrong seed: the needed and loaded fingerprints",
+    "ko": "다른 시드면 필요한·불러온 지문 표시",
+    "where": [
+     "Review",
+     "검토"
+    ]
+   },
+   {
+    "id": "F-046",
+    "en": "Signed PSBT as QR in 3 formats, wiped when done",
+    "ko": "서명 결과 QR 3형식, 완료 시 지움",
+    "where": [
+     "After signing",
+     "서명 뒤"
+    ]
+   },
+   {
+    "id": "F-047",
+    "en": "Fee settings change the review",
+    "ko": "수수료 설정이 검토를 바꿈",
+    "where": [
+     "Settings > Fee warning / limit / rate",
+     "설정 > 수수료 경고·한도·기준"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "Addresses and messages",
+   "주소 확인·메시지"
+  ],
+  "items": [
+   {
+    "id": "F-050",
+    "en": "Verify an address: search, pause every 1,000, other accounts; wrong network refused",
+    "ko": "주소 검증: 탐색, 1,000개마다 멈춤·다른 계정, 다른 네트워크 거부",
+    "where": [
+     "Receive & verify > Verify address, or scan an address",
+     "받기·확인 > 주소 확인, 또는 주소 스캔"
+    ]
+   },
+   {
+    "id": "F-051",
+    "en": "Message signing off until turned on",
+    "ko": "메시지 서명 기본 꺼짐",
+    "where": [
+     "Settings > Message signing",
+     "설정 > 메시지 서명"
+    ]
+   },
+   {
+    "id": "F-052",
+    "en": "signmessage QR: p2wpkh, p2sh, p2pkh, Taproot (BIP-322)",
+    "ko": "signmessage QR: p2wpkh·p2sh·p2pkh·Taproot(BIP-322)",
+    "where": [
+     "Scan",
+     "스캔"
+    ]
+   },
+   {
+    "id": "F-053",
+    "en": "Type a message and pick the address",
+    "ko": "직접 입력한 메시지 + 주소 고르기",
+    "where": [
+     "Sign > Sign message",
+     "서명하기 > 메시지 서명"
+    ]
+   },
+   {
+    "id": "F-054",
+    "en": "Long messages are read page by page",
+    "ko": "긴 메시지는 쪽마다 읽기",
+    "where": [
+     "Message signing",
+     "메시지 서명"
+    ]
+   },
+   {
+    "id": "F-055",
+    "en": "Bad requests refused with the reason",
+    "ko": "잘못된 요청은 이유와 함께 거부",
+    "where": [
+     "Message signing",
+     "메시지 서명"
+    ]
+   },
+   {
+    "id": "F-056",
+    "en": "BIP-322 PSBT messages and proof of reserves",
+    "ko": "BIP-322 PSBT 메시지 서명·거부, 보유 증명",
+    "where": [
+     "Scan a BIP-322 PSBT",
+     "BIP-322 PSBT 스캔"
+    ]
+   },
+   {
+    "id": "F-057",
+    "en": "Verify a signature, then \"Is this address mine?\"",
+    "ko": "서명 확인 → \"내 주소인가\"",
+    "where": [
+     "Receive & verify > Verify signature",
+     "받기·확인 > 서명 확인"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "Settings and power",
+   "설정·전원"
+  ],
+  "items": [
+   {
+    "id": "F-060",
+    "en": "Network, units, QR density, advanced, language, message signing, fee limits, SD original wipe",
+    "ko": "네트워크·단위·QR 밀도·고급·언어·메시지 서명·수수료 기준·SD 원본 지우기",
+    "where": [
+     "Settings",
+     "설정"
+    ]
+   },
+   {
+    "id": "F-061",
+    "en": "Settings QR export and import (never weaker)",
+    "ko": "설정 QR 내보내기·가져오기(약화 금지)",
+    "where": [
+     "Settings > Settings as QR, or scan",
+     "설정 > 설정을 QR로, 또는 스캔"
+    ]
+   },
+   {
+    "id": "F-062",
+    "en": "About (version, planned features)",
+    "ko": "기기 정보(버전·예정 기능)",
+    "where": [
+     "Settings > About",
+     "설정 > 기기 정보"
+    ]
+   },
+   {
+    "id": "F-063",
+    "en": "Power off wipes seeds, flows and memory",
+    "ko": "전원 끄기 = 시드·흐름·기억 모두 지움",
+    "where": [
+     "Power",
+     "전원"
+    ]
+   },
+   {
+    "id": "F-064",
+    "en": "Korean and English on every screen",
+    "ko": "한국어·영어 전 화면",
+    "where": [
+     "Settings > Language",
+     "설정 > 언어"
+    ]
+   },
+   {
+    "id": "F-065",
+    "en": "Start screen times out; TEST ONLY shown",
+    "ko": "시작 화면 시간 초과, TEST ONLY 표시",
+    "where": [
+     "Power on",
+     "전원 켜기"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "Multisig",
+   "멀티시그"
+  ],
+  "items": [
+   {
+    "id": "F-070",
+    "en": "Import a wallet (descriptor, Coldcard, JSON, UR) and register after checking cosigners",
+    "ko": "지갑 가져오기(디스크립터·Coldcard·JSON·UR) + 공동서명자 확인 후 등록",
+    "where": [
+     "Multisig wallets > Import wallet, or scan",
+     "멀티시그 지갑 > 지갑 가져오기, 또는 스캔"
+    ]
+   },
+   {
+    "id": "F-071",
+    "en": "Register by wallet code; a changed wallet gets another code",
+    "ko": "지갑 코드로 등록, 바뀐 지갑은 다른 코드",
+    "where": [
+     "Multisig wallets",
+     "멀티시그 지갑"
+    ]
+   },
+   {
+    "id": "F-072",
+    "en": "Refusals name the reason",
+    "ko": "거부 사유 표시",
+    "where": [
+     "Multisig wallets",
+     "멀티시그 지갑"
+    ]
+   },
+   {
+    "id": "F-073",
+    "en": "Watch-only wallets (never sign)",
+    "ko": "감시 전용 지갑(서명 안 함)",
+    "where": [
+     "Multisig wallets",
+     "멀티시그 지갑"
+    ]
+   },
+   {
+    "id": "F-074",
+    "en": "Export a wallet in 4 formats",
+    "ko": "지갑 내보내기 4형식",
+    "where": [
+     "Multisig wallets > (wallet) > Export",
+     "멀티시그 지갑 > (지갑) > 내보내기"
+    ]
+   },
+   {
+    "id": "F-075",
+    "en": "Wallet menu (addresses, cosigners, export, remove); up to 4 wallets",
+    "ko": "지갑 메뉴(주소·공동서명자·내보내기·지우기), 4개 한도",
+    "where": [
+     "Multisig wallets > (wallet)",
+     "멀티시그 지갑 > (지갑)"
+    ]
+   },
+   {
+    "id": "F-076",
+    "en": "Create a wallet air-gapped (size, scan cosigners, confirm)",
+    "ko": "에어갭 생성(크기·공동서명자 스캔·확인)",
+    "where": [
+     "Multisig wallets > Create wallet",
+     "멀티시그 지갑 > 지갑 만들기"
+    ]
+   },
+   {
+    "id": "F-077",
+    "en": "Export my multisig key in 3 formats",
+    "ko": "내 멀티시그 키 내보내기 3형식",
+    "where": [
+     "Multisig wallets > Export my multisig key",
+     "멀티시그 지갑 > 내 멀티시그 키 내보내기"
+    ]
+   },
+   {
+    "id": "F-078",
+    "en": "Multisig spends reviewed and signed; cosigner signed first",
+    "ko": "멀티시그 지출 검토·서명, 공동서명자 먼저 서명",
+    "where": [
+     "Scan a multisig PSBT",
+     "멀티시그 PSBT 스캔"
+    ]
+   },
+   {
+    "id": "F-079",
+    "en": "Unregistered spend: rebuilt from global xpubs, registered by code",
+    "ko": "미등록 지출 → 전역 xpub으로 재구성 + 코드",
+    "where": [
+     "Scan a multisig PSBT",
+     "멀티시그 PSBT 스캔"
+    ]
+   },
+   {
+    "id": "F-080",
+    "en": "Wallet addresses and multisig address verification",
+    "ko": "지갑 주소 보기, 멀티시그 주소 검증",
+    "where": [
+     "Multisig wallets > (wallet) > Addresses, or scan",
+     "멀티시그 지갑 > (지갑) > 주소, 또는 스캔"
+    ]
+   },
+   {
+    "id": "F-081",
+    "en": "No seed, no wallets",
+    "ko": "시드 없으면 지갑 없음",
+    "where": [
+     "Multisig wallets",
+     "멀티시그 지갑"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "microSD",
+   "microSD"
+  ],
+  "items": [
+   {
+    "id": "F-090",
+    "en": "Card status, problems explained, read again; insert/remove noticed; SD badge",
+    "ko": "카드 상태·문제 설명·다시 읽기, 넣고 뺌 감지, SD 표시",
+    "where": [
+     "SD card",
+     "SD 카드"
+    ]
+   },
+   {
+    "id": "F-091",
+    "en": "Browse files (hidden ones hidden, pages, 4 levels); open files close when the card changes",
+    "ko": "파일 보기(숨김·페이지·깊이 4), 카드가 바뀌면 열린 파일 닫기",
+    "where": [
+     "SD card > Browse files",
+     "SD 카드 > 파일 보기"
+    ]
+   },
+   {
+    "id": "F-092",
+    "en": "Type judged from content, text view (wiped on close), delete with confirmation",
+    "ko": "내용으로 종류 판별, 텍스트 보기(닫으면 지움), 지우기",
+    "where": [
+     "SD card > Browse files > (file)",
+     "SD 카드 > 파일 보기 > (파일)"
+    ]
+   },
+   {
+    "id": "F-093",
+    "en": "Format the card (type FORMAT)",
+    "ko": "카드 포맷(FORMAT 입력)",
+    "where": [
+     "SD card > Format card",
+     "SD 카드 > 카드 포맷"
+    ]
+   },
+   {
+    "id": "F-094",
+    "en": "PSBT list, sign, save the full PSBT; large or broken files refused",
+    "ko": "PSBT 목록 → 서명 → 전체 PSBT 저장, 큰·깨진 파일 거부",
+    "where": [
+     "SD card > Sign PSBT",
+     "SD 카드 > PSBT 서명"
+    ]
+   },
+   {
+    "id": "F-095",
+    "en": "Wipe-the-original setting; save again to a pulled card",
+    "ko": "원본 지우기 설정, 뽑힌 카드에 다시 저장",
+    "where": [
+     "Settings / save",
+     "설정 / 저장"
+    ]
+   },
+   {
+    "id": "F-096",
+    "en": "Message file to .sig",
+    "ko": "메시지 파일 → .sig",
+    "where": [
+     "SD card > Browse files > (message file)",
+     "SD 카드 > 파일 보기 > (메시지 파일)"
+    ]
+   },
+   {
+    "id": "F-097",
+    "en": "S saves a QR export as a file (xpub JSON, wallet, settings)",
+    "ko": "S로 QR 내보내기를 파일로 저장",
+    "where": [
+     "QR screens",
+     "QR 화면"
+    ]
+   },
+   {
+    "id": "F-098",
+    "en": "Import wallet files (.bpw tags register); swapped files refused",
+    "ko": "지갑 파일 가져오기(.bpw 자동 등록), 바꿔치기 거부",
+    "where": [
+     "SD card > Browse files > (wallet file)",
+     "SD 카드 > 파일 보기 > (지갑 파일)"
+    ]
+   },
+   {
+    "id": "F-099",
+    "en": "Settings files (never weaker); seed word files are not loaded",
+    "ko": "설정 파일(약화 금지), 시드 단어 파일은 불러오지 않음",
+    "where": [
+     "SD card > Browse files > (settings file)",
+     "SD 카드 > 파일 보기 > (설정 파일)"
+    ]
+   },
+   {
+    "id": "F-100",
+    "en": "Damaged cards and files (fuzz tests; nothing to do here)",
+    "ko": "손상 카드·파일(퍼징 시험, 화면 확인 없음)",
+    "where": [
+     "Automatic tests",
+     "자동 시험"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "BIP-85, private keys, device",
+   "BIP-85·개인키·기기"
+  ],
+  "items": [
+   {
+    "id": "F-110",
+    "en": "BIP-85: 12/18/24 words, WIF, XPRV, HEX, Base64, Base85; index and length",
+    "ko": "BIP-85 6종, 번호·길이",
+    "where": [
+     "Seeds & keys > BIP-85 child seeds",
+     "시드·키 > BIP-85 자식 시드"
+    ]
+   },
+   {
+    "id": "F-111",
+    "en": "Results as QR (SeedQR, compact), never saved to SD",
+    "ko": "결과 QR(SeedQR·Compact), SD에는 저장 안 함",
+    "where": [
+     "BIP-85 result",
+     "BIP-85 결과"
+    ]
+   },
+   {
+    "id": "F-112",
+    "en": "Load a child seed into a free slot",
+    "ko": "자식 시드를 빈 슬롯에 불러오기",
+    "where": [
+     "BIP-85 result",
+     "BIP-85 결과"
+    ]
+   },
+   {
+    "id": "F-120",
+    "en": "Import a private key (typed or QR): xprv family, WIF",
+    "ko": "개인키 가져오기(입력·QR): xprv 계열, WIF",
+    "where": [
+     "Seeds & keys > Import private key",
+     "시드·키 > 개인키 가져오기"
+    ]
+   },
+   {
+    "id": "F-121",
+    "en": "Bad keys refused (format, network, uncompressed, range, full, duplicate)",
+    "ko": "잘못된 키 거부(형식·네트워크·비압축·범위·가득·중복)",
+    "where": [
+     "Import private key",
+     "개인키 가져오기"
+    ]
+   },
+   {
+    "id": "F-122",
+    "en": "WIF single key signs; no path features; 4 addresses",
+    "ko": "WIF 단일 키 서명, 경로 기능 없음, 주소 4종",
+    "where": [
+     "Seeds & keys > (WIF key)",
+     "시드·키 > (WIF 키)"
+    ]
+   },
+   {
+    "id": "F-130",
+    "en": "Network chip found at boot: wipe and lock",
+    "ko": "부팅 때 통신 칩 탐지 → 지우고 잠금",
+    "where": [
+     "Simulator: Boot check button",
+     "시뮬레이터: 부팅 점검 버튼"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "Added in M9",
+   "M9에서 더한 것"
+  ],
+  "items": [
+   {
+    "id": "F-150",
+    "en": "Screen effects full / light / off; QR codes outside the effects",
+    "ko": "화면 효과 전체·약하게·끔, QR은 효과 밖",
+    "where": [
+     "Settings > Screen effects",
+     "설정 > 화면 효과"
+    ]
+   },
+   {
+    "id": "F-151",
+    "en": "First-run screen: principles, language and network",
+    "ko": "첫 실행 화면: 원칙, 언어·네트워크",
+    "where": [
+     "Power on",
+     "전원 켜기"
+    ]
+   },
+   {
+    "id": "F-152",
+    "en": "Session log under the main menu",
+    "ko": "주 메뉴 아래 세션 로그",
+    "where": [
+     "Main menu",
+     "주 메뉴"
+    ]
+   },
+   {
+    "id": "F-153",
+    "en": "Screen saver 1 min / 5 min / off; time left on the words screen",
+    "ko": "화면 보호 1분·5분·끔, 단어 화면에 남은 시간",
+    "where": [
+     "Settings > Screen saver",
+     "설정 > 화면 보호"
+    ]
+   },
+   {
+    "id": "F-154",
+    "en": "Boot self-test log",
+    "ko": "부팅 자가 점검 로그",
+    "where": [
+     "Power on",
+     "전원 켜기"
+    ]
+   },
+   {
+    "id": "F-155",
+    "en": "Screen help with ?",
+    "ko": "화면별 도움말 ?",
+    "where": [
+     "Any screen",
+     "모든 화면"
+    ]
+   },
+   {
+    "id": "F-156",
+    "en": "Type FORMAT / WIPE before formatting or discarding",
+    "ko": "포맷·시드 지우기 전 FORMAT·WIPE 입력",
+    "where": [
+     "SD card > Format card; seed > Discard seed",
+     "SD 카드 > 카드 포맷, 시드 > 시드 지우기"
+    ]
+   },
+   {
+    "id": "F-157",
+    "en": "Error codes on refusal screens",
+    "ko": "거부·실패 화면의 오류 코드",
+    "where": [
+     "Refusal screens",
+     "거부·실패 화면"
+    ]
+   }
+  ]
+ },
+ {
+  "group": [
+   "Simulator",
+   "시뮬레이터"
+  ],
+  "items": [
+   {
+    "id": "F-140",
+    "en": "Camera: image, webcam, pasted text; signed output box",
+    "ko": "카메라: 이미지·웹캠·텍스트 붙여넣기, 서명 결과 상자",
+    "where": [
+     "Camera panel below",
+     "아래 카메라 패널"
+    ]
+   },
+   {
+    "id": "F-141",
+    "en": "microSD panel: insert/remove, copy, drop, list, download, delete, erase",
+    "ko": "microSD 패널: 넣기/빼기·복사·끌어다 놓기·목록·내려받기·지우기·비우기",
+    "where": [
+     "microSD panel below",
+     "아래 microSD 패널"
+    ]
+   },
+   {
+    "id": "F-142",
+    "en": "Boot check button",
+    "ko": "부팅 점검 버튼",
+    "where": [
+     "microSD panel below",
+     "아래 microSD 패널"
+    ]
+   },
+   {
+    "id": "F-143",
+    "en": "On-screen CardKB (Sym, Shift, Fn)",
+    "ko": "화면 위 CardKB(Sym·Shift·Fn)",
+    "where": [
+     "Keyboard under the screen",
+     "화면 아래 키보드"
+    ]
+   }
+  ]
+ }
+]

@@ -1972,3 +1972,64 @@ fn task_psbt_qr() {
         super::tests::task_done(name, &a);
     }
 }
+
+/// M9-10: the feature inventory has no duplicate numbers, every test it
+/// names exists, and the simulator's checklist lists exactly its features.
+#[test]
+fn feature_inventory_and_checklist_agree() {
+    use std::collections::BTreeSet;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let inv = std::fs::read_to_string(root.join("docs/FEATURE_INVENTORY.md")).unwrap();
+    let mut ids = BTreeSet::new();
+    let mut named = Vec::new();
+    for line in inv.lines().filter(|l| l.starts_with("| F-")) {
+        let cols: Vec<&str> = line.split('|').map(str::trim).collect();
+        assert!(ids.insert(cols[1].to_string()), "{} is listed twice", cols[1]);
+        for t in cols[4].split(',').map(str::trim) {
+            let ident = t
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+            if ident && t.contains('_') {
+                named.push(t.to_string());
+            }
+        }
+    }
+    // every named test is a function somewhere in the crates
+    let mut sources = String::new();
+    let mut stack = vec![root.join("crates")];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if !p.ends_with("target") {
+                    stack.push(p);
+                }
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                sources.push_str(&std::fs::read_to_string(&p).unwrap());
+            }
+        }
+    }
+    let missing: Vec<&String> = named
+        .iter()
+        .filter(|t| !sources.contains(&format!("fn {t}(")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the inventory names tests that do not exist: {missing:?}"
+    );
+    // the checklist in the simulator page
+    let list = std::fs::read_to_string(root.join("sim/web/checklist.json")).unwrap();
+    let listed: BTreeSet<String> = list
+        .match_indices("\"id\": \"")
+        .map(|(i, m)| list[i + m.len()..i + m.len() + 5].to_string())
+        .collect();
+    assert_eq!(
+        listed.len(),
+        list.matches("\"id\": \"").count(),
+        "a checklist id repeats"
+    );
+    assert_eq!(
+        listed, ids,
+        "the checklist and the inventory list different features"
+    );
+}
