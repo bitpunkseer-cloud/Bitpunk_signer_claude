@@ -146,6 +146,34 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   const again = await page.inputValue("#signedText").catch(() => "");
   if (Buffer.from(again, "base64").toString("hex") !== signedHex) fail("the seed from the vault did not sign the same PSBT");
   else console.log("ok: seed stored in the vault, back after power on, signs the M8 baseline");
+  // 6. a trick PIN (M10-6): "look blank" starts without the vault, uses no
+  // attempt, and the vault's own PIN still opens it. Security row 2.
+  for (let i = 0; i < 4; i++) await key("Escape");
+  await key("6");
+  for (let i = 0; i < 12; i++) await key("ArrowDown");
+  await key("Enter"); // Security
+  await key("2"); await key("1"); await key("4"); // Trick PINs, Add, Look blank
+  for (let i = 0; i < 2; i++) {
+    await typeText("zzzz"); await key("Enter");
+    await typeText("4444"); await key("Enter");
+  }
+  await page.waitForTimeout(500);
+  for (let i = 0; i < 4; i++) await key("Escape");
+  await key("7"); await key("1"); await key("Enter");
+  await page.waitForTimeout(2500);
+  await typeText("zzzz"); await key("Enter");
+  await page.waitForTimeout(500); await key("Enter");
+  await typeText("4444"); await key("Enter");
+  const blank = await vaultIs("No vault", 30000);
+  for (let i = 0; i < 4; i++) await key("Escape");
+  await key("7"); await key("1"); await key("Enter");
+  await page.waitForTimeout(2500);
+  await typeText("abcd"); await key("Enter");
+  await page.waitForTimeout(500); await key("Enter");
+  await typeText("efgh"); await key("Enter");
+  if (!blank) fail("the look-blank trick PIN did not start without the vault");
+  else if (!(await vaultIs("Vault open", 30000))) fail("the vault's PIN did not open it after the trick");
+  else console.log("ok: trick PIN looks blank; the vault's PIN still opens it");
 
   // feature checklist: every inventory item, ticks counted, both languages
   const items = await page.locator("#checkList input[type=checkbox]").count();

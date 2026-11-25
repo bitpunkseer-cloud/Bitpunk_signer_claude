@@ -30,6 +30,7 @@ pub(crate) mod typed;
 pub mod vault;
 mod vaultdata;
 pub mod vaultseeds;
+pub mod vaulttricks;
 pub mod vaultui;
 mod verify;
 mod view;
@@ -311,6 +312,10 @@ pub enum Screen {
     /// Seeds & keys > Seed vault (M10-5).
     SeedVault {
         step: vaultseeds::SeedVaultStep,
+    },
+    /// Settings > Security > Trick PINs (M10-6).
+    Tricks {
+        step: vaulttricks::TrickStep,
     },
     /// The boot check found a network chip: nothing else is possible.
     CommDetected,
@@ -1458,6 +1463,7 @@ impl App {
             Screen::Key { step } => self.key_key(step, ev),
             Screen::Vault { step } => self.vault_key(step, ev),
             Screen::SeedVault { step } => self.seed_vault_key(step, ev),
+            Screen::Tricks { step } => self.tricks_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1881,6 +1887,7 @@ impl App {
             }
             Action::VaultPin => self.vault_pin_action(),
             Action::SeedVault => self.seed_vault_action(),
+            Action::VaultTricks => self.vault_tricks_action(),
             Action::VaultLock => self.vault_lock_action(),
             Action::VaultWipe => self.vault_wipe_action(),
             Action::PowerOff => {

@@ -57,7 +57,7 @@ impl App {
     /// Seeds & keys > Seed vault: the lock screen first if the vault is locked.
     pub(crate) fn seed_vault_action(&mut self) {
         let t = self.text().vault;
-        match (self.vault.exists, self.vault.unlocked.is_some()) {
+        match (self.vault.exists, self.vault.is_open()) {
             (None, _) => self.notice = Some(t.no_hw),
             (Some(false), _) => self.notice = Some(t.sv_no_vault),
             (Some(true), false) => self.push(self.lock_screen()),
@@ -286,7 +286,7 @@ impl App {
     /// came in, the vault's copy follows the session, and a save is queued
     /// when it changed (settings once the Settings menu is left).
     pub(crate) fn vault_after_event(&mut self) {
-        if self.vault.unlocked.is_none() || self.vault.pending_job() {
+        if !self.vault.is_open() || self.vault.pending_job() {
             return;
         }
         let slots: SlotsSeen = core::array::from_fn(|i| self.seeds[i].as_ref().map(|s| s.fingerprint));
@@ -315,7 +315,13 @@ impl App {
         }
         let d = self.vault.data.digest();
         if d != self.vault.saved && Some(d) != self.vault.failed {
-            self.vault_queue_save();
+            if self.vault.mode == crate::vaultui::Mode::Decoy {
+                // behind a decoy PIN nothing is written; it only looks saved
+                self.vault.saved = d;
+                self.log.push(crate::session::Event::VaultSaved, None);
+            } else {
+                self.vault_queue_save();
+            }
         }
     }
 

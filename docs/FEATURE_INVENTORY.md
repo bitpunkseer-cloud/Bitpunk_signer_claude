@@ -47,7 +47,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | # | 변경 | 단위 | 상태 |
 |---|---|---|---|
 | D1 | 보관함이 있으면 부팅 뒤 잠금 화면(앞부분 → 단어 2개 → 뒷부분), "보관함 없이 사용" 선택 가능 | M10-4 | 완료 — set_a_pin_then_unlock_after_power_on, esc_on_the_lock_screen_is_a_session_without_the_vault |
-| D2 | 메뉴 추가: 시드·키 > 시드 보관함, 설정 > 보안(PIN·속임수 PIN·탬퍼 점검 코드·보관함 지우기) | M10-4~7 | 일부 — 설정 > 보안(PIN·지금 잠그기·보관함 지우기) M10-4, 시드·키 > 시드 보관함 M10-5 완료, 속임수 PIN·탬퍼 점검 코드 M10-6~7 |
+| D2 | 메뉴 추가: 시드·키 > 시드 보관함, 설정 > 보안(PIN·속임수 PIN·탬퍼 점검 코드·보관함 지우기) | M10-4~7 | 일부 — 설정 > 보안(PIN·지금 잠그기·보관함 지우기) M10-4, 시드·키 > 시드 보관함 M10-5, 설정 > 보안 > 속임수 PIN M10-6 완료, 탬퍼 점검 코드 M10-7 |
 | D3 | 첫 실행 화면 문구: "M10 전까지 저장 없음" → 보관함 안내 | M10-4 | 완료 — (화면 순회) |
 
 흐름 안의 선택지 순서(확인 대화상자, 퀴즈 답, 내보내기 형식 목록, 지갑 단계, BIP-85 앱 목록 등)는 시험이 아직 위치로 고른다(남은 숫자 키 87회). M9에서 이런 목록의 순서를 바꾸는 단위는 먼저 `nav.rs`에 그 목록의 이름 기반 도우미를 더하고, 시험은 그것만 쓰게 한 뒤 바꾼다.
@@ -218,6 +218,10 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-168 | 등록한 멀티시그 지갑을 보관, 그 시드가 들어오면 코드 없이 다시 등록(등록 규칙 재검사) | 멀티시그 지갑 | wallets_register_again_for_their_seed |
 | F-169 | 설정을 보관(설정 메뉴를 떠날 때), 잠금 화면은 보관함의 언어로 | 설정 | settings_are_kept_and_the_lock_screen_speaks_their_language |
 | F-170 | 보관함 저장 실패 알림, 내용이 바뀌면 다시 시도 | 모든 화면 | a_failed_save_is_reported_once_and_retried_on_the_next_change |
+| F-171 | 속임수 PIN 미끼 지갑: 불러온 시드의 BIP-85 자식(1001~1003)이 보관함처럼 열림, 아무것도 쓰지 않음, 시도 횟수를 쓰지 않음 | 설정 > 보안 > 속임수 PIN | a_decoy_pin_opens_a_decoy_seed_and_uses_no_attempt, trick_pins_open_before_the_secure_element_and_stay_hidden |
+| F-172 | 속임수 PIN 지운 뒤 'PIN 틀림'·지운 뒤 미끼 지갑: 보관함을 영구히 지우고 잠금 화면이나 미끼로 계속 | 설정 > 보안 > 속임수 PIN | an_erase_trick_erases_then_looks_like_a_wrong_pin, an_erase_then_decoy_trick_opens_the_decoy |
+| F-173 | 속임수 PIN 빈 기기처럼 보이기: 아무것도 지우지 않고 보관함 없는 세션 | 설정 > 보안 > 속임수 PIN | a_blank_trick_starts_like_a_device_without_a_vault |
+| F-174 | 속임수 PIN 규칙: 보관함 PIN·다른 속임수 PIN과 달라야 함, 3개까지, 지우기 | 설정 > 보안 > 속임수 PIN | trick_pins_must_differ_and_are_three_at_most |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |

@@ -974,6 +974,42 @@
      "Any screen",
      "모든 화면"
     ]
+   },
+   {
+    "id": "F-171",
+    "en": "Trick PIN, decoy wallet: a BIP-85 child (1001-1003) of a loaded seed opens like the vault; nothing written, no attempt used",
+    "ko": "속임수 PIN 미끼 지갑: 불러온 시드의 BIP-85 자식(1001~1003)이 보관함처럼 열림, 아무것도 쓰지 않음, 시도 횟수 안 씀",
+    "where": [
+     "Settings > Security > Trick PINs",
+     "설정 > 보안 > 속임수 PIN"
+    ]
+   },
+   {
+    "id": "F-172",
+    "en": "Trick PIN, erase then 'wrong PIN' / erase then decoy",
+    "ko": "속임수 PIN 지운 뒤 'PIN 틀림'·지운 뒤 미끼 지갑",
+    "where": [
+     "Settings > Security > Trick PINs",
+     "설정 > 보안 > 속임수 PIN"
+    ]
+   },
+   {
+    "id": "F-173",
+    "en": "Trick PIN, look like a blank device (nothing erased)",
+    "ko": "속임수 PIN 빈 기기처럼 보이기(아무것도 지우지 않음)",
+    "where": [
+     "Settings > Security > Trick PINs",
+     "설정 > 보안 > 속임수 PIN"
+    ]
+   },
+   {
+    "id": "F-174",
+    "en": "Trick PINs differ from the vault's PIN and each other; three at most; remove",
+    "ko": "속임수 PIN은 보관함 PIN·서로와 달라야 함, 3개까지, 지우기",
+    "where": [
+     "Settings > Security > Trick PINs",
+     "설정 > 보안 > 속임수 PIN"
+    ]
    }
   ]
  },

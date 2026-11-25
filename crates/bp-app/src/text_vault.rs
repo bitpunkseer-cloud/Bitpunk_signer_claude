@@ -75,6 +75,23 @@ pub struct VaultStrings {
     pub sv_remove_title: &'static str,
     pub sv_remove_line: &'static str,
     pub sv_removed: &'static str,
+    // trick PINs (M10-6)
+    pub row_tricks: &'static str,
+    pub tr_note: &'static str,
+    pub tr_add: &'static str,
+    /// In `TrickKind` order.
+    pub tr_kinds: [&'static str; 4],
+    pub tr_explain: [[&'static str; 2]; 4],
+    pub tr_pick_seed: &'static str,
+    pub tr_need_seed: &'static str,
+    pub tr_title: &'static str,
+    pub tr_added: &'static str,
+    pub tr_removed: &'static str,
+    pub tr_clash: &'static str,
+    pub tr_full: &'static str,
+    pub tr_keep: &'static str,
+    pub tr_remove: &'static str,
+    pub tr_warn: &'static str,
 }
 
 pub static EN_VAULT: VaultStrings = VaultStrings {
@@ -160,6 +177,37 @@ pub static EN_VAULT: VaultStrings = VaultStrings {
     sv_remove_title: "Remove this seed?",
     sv_remove_line: "Keep its word backup: the vault was a copy.",
     sv_removed: "Removed from the vault.",
+    row_tricks: "Trick PINs",
+    tr_note: "A trick PIN opens something else, using no attempt.",
+    tr_add: "Add a trick PIN",
+    tr_kinds: [
+        "Decoy wallet",
+        "Erase, then 'wrong PIN'",
+        "Erase, then decoy wallet",
+        "Look like a blank device",
+    ],
+    tr_explain: [
+        [
+            "Opens like the vault, with a decoy seed:",
+            "a BIP-85 child (1001-1003) of a loaded seed.",
+        ],
+        [
+            "Erases the vault for good, then shows",
+            "'Wrong PIN' as if nothing happened.",
+        ],
+        ["Erases the vault for good, then opens", "the decoy seed."],
+        ["Starts like a device without a vault.", "Nothing is erased."],
+    ],
+    tr_pick_seed: "Decoy from which seed?",
+    tr_need_seed: "Load the seed for the decoy first (words or XPRV).",
+    tr_title: "Trick PIN",
+    tr_added: "Trick PIN added.",
+    tr_removed: "Trick PIN removed.",
+    tr_clash: "That PIN is taken (the vault's or a trick PIN).",
+    tr_full: "Three trick PINs at most.",
+    tr_keep: "Keep",
+    tr_remove: "Remove this trick PIN",
+    tr_warn: "Remember which PIN does what: no screen tells.",
 };
 
 pub static KO_VAULT: VaultStrings = VaultStrings {
@@ -245,4 +293,35 @@ pub static KO_VAULT: VaultStrings = VaultStrings {
     sv_remove_title: "이 시드를 뺄까요?",
     sv_remove_line: "단어 백업을 지키세요. 보관함은 사본입니다.",
     sv_removed: "보관함에서 뺐습니다.",
+    row_tricks: "속임수 PIN",
+    tr_note: "속임수 PIN은 다른 것을 열고 시도 횟수를 쓰지 않습니다.",
+    tr_add: "속임수 PIN 더하기",
+    tr_kinds: [
+        "미끼 지갑",
+        "지운 뒤 'PIN 틀림'",
+        "지운 뒤 미끼 지갑",
+        "빈 기기처럼 보이기",
+    ],
+    tr_explain: [
+        [
+            "보관함처럼 열리지만 미끼 시드가 나옵니다:",
+            "불러온 시드의 BIP-85 자식(1001~1003).",
+        ],
+        [
+            "보관함을 영구히 지운 뒤",
+            "아무 일 없던 듯 'PIN 틀림'을 보입니다.",
+        ],
+        ["보관함을 영구히 지운 뒤", "미끼 시드를 엽니다."],
+        ["보관함이 없는 기기처럼 시작합니다.", "아무것도 지우지 않습니다."],
+    ],
+    tr_pick_seed: "어느 시드에서 미끼를 만들까요?",
+    tr_need_seed: "미끼를 만들 시드(단어·XPRV)를 먼저 불러오세요.",
+    tr_title: "속임수 PIN",
+    tr_added: "속임수 PIN을 더했습니다.",
+    tr_removed: "속임수 PIN을 지웠습니다.",
+    tr_clash: "이미 쓰는 PIN입니다(보관함 PIN·속임수 PIN).",
+    tr_full: "속임수 PIN은 3개까지입니다.",
+    tr_keep: "그대로 두기",
+    tr_remove: "이 속임수 PIN 지우기",
+    tr_warn: "PIN마다 하는 일을 기억하세요. 화면은 알려 주지 않습니다.",
 };

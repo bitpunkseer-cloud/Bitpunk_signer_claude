@@ -73,6 +73,8 @@ pub enum Action {
     VaultPin,
     /// Seeds & keys > Seed vault (unlock first if locked).
     SeedVault,
+    /// Settings > Security > Trick PINs (M10-6).
+    VaultTricks,
     /// Settings > Security > Lock now.
     VaultLock,
     /// Settings > Security > Erase the vault.
@@ -179,11 +181,16 @@ static SETTINGS: [Entry; 15] = [
     },
 ];
 
-static SECURITY: [Entry; 3] = [
+static SECURITY: [Entry; 4] = [
     Entry {
         label: |s| s.vault.row_pin,
         detail: ">",
         action: Action::VaultPin,
+    },
+    Entry {
+        label: |s| s.vault.row_tricks,
+        detail: ">",
+        action: Action::VaultTricks,
     },
     Entry {
         label: |s| s.vault.row_lock,

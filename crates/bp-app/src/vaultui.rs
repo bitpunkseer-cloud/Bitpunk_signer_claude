@@ -4,7 +4,7 @@
 //! that says what is happening has been drawn.
 
 use crate::menus::MenuId;
-use crate::vault::{self, VaultError, VaultHw, MAX_ATTEMPTS};
+use crate::vault::{self, Opened, TrickKind, VaultError, VaultHw, MAX_ATTEMPTS};
 use crate::{session, typed, App, Screen};
 use bp_crypto::argon2::Params;
 use bp_crypto::chacha20poly1305::ct_eq;
@@ -116,6 +116,29 @@ enum Job {
     Erase,
     /// Write the vault's records again (M10-5).
     Save,
+    /// Add the trick PIN being set, or remove trick `n` (M10-6).
+    AddTrick,
+    RemoveTrick(u8),
+}
+
+/// What the last PIN opened (M10-6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// The vault itself, or nothing yet.
+    Normal,
+    /// A decoy trick PIN: looks open, nothing is ever written.
+    Decoy,
+    /// The look-blank trick PIN: a device without a vault, for this session.
+    Blank,
+    /// After a silent wipe: the lock screen goes on as if nothing happened.
+    Fake,
+}
+
+/// A trick PIN being set: its kind, and the slot its decoy comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrickDraft {
+    pub kind: TrickKind,
+    pub slot: u8,
 }
 
 pub struct VaultState {
@@ -147,6 +170,12 @@ pub struct VaultState {
     pub(crate) failed: Option<[u8; 32]>,
     pub(crate) seen_slots: crate::vaultseeds::SlotsSeen,
     pub(crate) seen_wallets: crate::vaultseeds::WalletsSeen,
+    /// What the last PIN opened (M10-6).
+    pub(crate) mode: Mode,
+    /// After a silent wipe: the key for words that look like the real ones.
+    fake_key: Option<[u8; 32]>,
+    /// The trick PIN being set.
+    pub(crate) trick: Option<TrickDraft>,
 }
 
 impl VaultState {
@@ -172,7 +201,15 @@ impl VaultState {
             failed: None,
             seen_slots: [None; crate::SEED_SLOTS],
             seen_wallets: ([[0; 32]; bp_bitcoin::multisig::register::MAX_WALLETS], 0),
+            mode: Mode::Normal,
+            fake_key: None,
+            trick: None,
         }
+    }
+
+    /// The vault is open (or a decoy PIN made it look open).
+    pub(crate) fn is_open(&self) -> bool {
+        self.unlocked.is_some() || self.mode == Mode::Decoy
     }
 
     /// A job other than the power-on probe is queued.
@@ -195,6 +232,10 @@ impl VaultState {
         self.data.clear();
         self.saved = [0; 32];
         self.failed = None;
+        self.trick = None;
+        if self.mode == Mode::Decoy {
+            self.mode = Mode::Normal;
+        }
         if self.job == Some(Job::Save) {
             self.job = None;
         }
@@ -247,6 +288,36 @@ impl App {
         self.queue(Job::Save);
     }
 
+    /// Queue removing trick PIN `i` (M10-6).
+    pub(crate) fn vault_queue_remove_trick(&mut self, i: u8) {
+        self.queue(Job::RemoveTrick(i));
+    }
+
+    pub(crate) fn vault_clear_pins(&mut self) {
+        self.vault.clear_pins();
+    }
+
+    /// The PIN typed (`prefix || 0 || suffix`) into `out`; its length.
+    pub(crate) fn vault_joined_pin(&self, out: &mut [u8; PREFIX_MAX + 1 + SUFFIX_MAX]) -> usize {
+        joined(self.vault.prefix.text(), self.vault.suffix.text(), out)
+    }
+
+    pub(crate) fn vault_prefix(&self) -> &[u8] {
+        self.vault.prefix.text()
+    }
+
+    pub(crate) fn vault_fake_key(&self) -> Option<[u8; 32]> {
+        self.vault.fake_key
+    }
+
+    pub(crate) fn vault_set_fake_key(&mut self, key: [u8; 32]) {
+        self.vault.fake_key = Some(key);
+    }
+
+    pub(crate) fn vault_start_delay(&mut self) {
+        self.start_delay_if_needed();
+    }
+
     /// Called by `render`: a queued job may run once its screen is shown.
     pub(crate) fn vault_drawn(&self) {
         self.vault.drawn.set(true);
@@ -254,9 +325,9 @@ impl App {
 
     /// For the simulator page: 0 no vault, 1 locked, 2 open.
     pub fn vault_state(&self) -> u32 {
-        match (self.vault.exists, &self.vault.unlocked) {
-            (_, Some(_)) => 2,
-            (Some(true), None) => 1,
+        match (self.vault.exists, self.vault.is_open()) {
+            (_, true) => 2,
+            (Some(true), false) => 1,
             _ => 0,
         }
     }
@@ -353,6 +424,18 @@ impl App {
                     _ => self.vault.exists = None,
                 }
             }
+            Job::Words if self.vault.mode == Mode::Fake => {
+                self.vault.words = Some(self.fake_words());
+                self.vstep(VStep::Words);
+            }
+            Job::Unlock if self.vault.mode == Mode::Fake => {
+                let mut pin = [0u8; PREFIX_MAX + 1 + SUFFIX_MAX];
+                let n = joined(self.vault.prefix.text(), self.vault.suffix.text(), &mut pin);
+                vault::spend_an_attempt(hw, &pin[..n], self.vault.kdf);
+                wipe(&mut pin);
+                self.vault.clear_pins();
+                self.fake_wrong();
+            }
             Job::Words => {
                 let words = vault::scan(hw.flash, body)
                     .ok()
@@ -376,7 +459,8 @@ impl App {
                 wipe(&mut pin);
                 self.vault.clear_pins();
                 match r {
-                    Ok((u, len)) => {
+                    Ok(Opened::Trick { kind, decoy }) => self.vault_trick(hw, kind, decoy),
+                    Ok(Opened::Vault(u, len)) => {
                         self.vault.unlocked = Some(u);
                         self.vault.left = MAX_ATTEMPTS;
                         self.vault.wrong_left = None;
@@ -428,6 +512,9 @@ impl App {
                 let lang = self.settings.lang as u8;
                 let r = match (job, self.vault.unlocked.as_mut()) {
                     _ if len == 0 => Err(VaultError::TooLarge),
+                    // nothing real is ever written behind a trick PIN
+                    (Job::Change, _) if self.vault.mode == Mode::Decoy => Ok(()),
+                    (Job::Create, _) if self.vault.mode == Mode::Blank => Err(VaultError::Hardware),
                     (Job::Change, Some(u)) => {
                         u.set_lang(lang);
                         vault::change_pin(hw, u, &pin[..n], body, len)
@@ -444,12 +531,21 @@ impl App {
                         self.vault.failed = None;
                         self.vault.exists = Some(true);
                         self.vault.left = MAX_ATTEMPTS;
-                        self.vault.words = vault::scan(hw.flash, body).ok().flatten().and_then(|found| {
-                            vault::phishing_words(hw, &found, self.vault.prefix.text()).ok()
-                        });
+                        self.vault.words = vault::scan(hw.flash, body)
+                            .ok()
+                            .flatten()
+                            .and_then(|found| {
+                                vault::phishing_words(hw, &found, self.vault.prefix.text()).ok()
+                            })
+                            .or_else(|| Some(self.fake_words()));
                         self.vault.clear_pins();
                         self.log.push(session::Event::VaultSaved, None);
                         self.vstep(VStep::Remember);
+                    }
+                    Err(VaultError::PinClash) => {
+                        self.vault.clear_pins();
+                        self.notice = Some(self.text().vault.tr_clash);
+                        self.vstep(VStep::NewPrefix);
                     }
                     Err(e) => {
                         self.vault.clear_pins();
@@ -458,32 +554,17 @@ impl App {
                     }
                 }
             }
-            Job::Save => {
-                let digest = self.vault.data.digest();
-                let Some(u) = self.vault.unlocked.as_mut() else {
-                    return;
-                };
-                u.set_lang(self.settings.lang as u8);
-                let r = match self.vault.data.to_body(body) {
-                    Some(n) => {
-                        let r = vault::save(hw, u, body, n);
-                        wipe(&mut body[..n]);
-                        r
-                    }
-                    None => Err(VaultError::TooLarge),
-                };
-                match r {
-                    Ok(()) => {
-                        self.vault.saved = digest;
-                        self.vault.failed = None;
-                        self.log.push(session::Event::VaultSaved, None);
-                    }
-                    Err(_) => {
-                        self.vault.failed = Some(digest);
-                        self.notice = Some(self.text().vault.save_failed);
-                    }
+            Job::AddTrick => self.vault_add_trick(hw, body),
+            Job::RemoveTrick(i) => {
+                if let Some(u) = self.vault.unlocked.as_mut() {
+                    vault::remove_trick(hw.rng, u, i as usize);
+                    self.vault_save_now(hw, body);
+                }
+                if self.notice.is_none() {
+                    self.notice = Some(self.text().vault.tr_removed);
                 }
             }
+            Job::Save => self.vault_save_now(hw, body),
             Job::Erase => {
                 let r = vault::wipe_all(hw);
                 self.vault.lock();
@@ -503,6 +584,34 @@ impl App {
         }
     }
 
+    /// Write the vault's records now (the save job, and after trick changes).
+    pub(crate) fn vault_save_now(&mut self, hw: &mut VaultHw, body: &mut [u8]) {
+        let digest = self.vault.data.digest();
+        let Some(u) = self.vault.unlocked.as_mut() else {
+            return;
+        };
+        u.set_lang(self.settings.lang as u8);
+        let r = match self.vault.data.to_body(body) {
+            Some(n) => {
+                let r = vault::save(hw, u, body, n);
+                wipe(&mut body[..n]);
+                r
+            }
+            None => Err(VaultError::TooLarge),
+        };
+        match r {
+            Ok(()) => {
+                self.vault.saved = digest;
+                self.vault.failed = None;
+                self.log.push(session::Event::VaultSaved, None);
+            }
+            Err(_) => {
+                self.vault.failed = Some(digest);
+                self.notice = Some(self.text().vault.save_failed);
+            }
+        }
+    }
+
     /// Bring the vault's records up to date with the session (wallets and
     /// settings; seeds change only through the seed vault).
     fn vault_records(&mut self) {
@@ -516,7 +625,7 @@ impl App {
         let t = self.text().vault;
         match self.vault.exists {
             None => self.notice = Some(t.no_hw),
-            Some(true) if self.vault.unlocked.is_none() => self.push(self.lock_screen()),
+            Some(true) if !self.vault.is_open() => self.push(self.lock_screen()),
             Some(exists) => {
                 self.vault.change = exists;
                 self.vault.clear_pins();
@@ -526,7 +635,7 @@ impl App {
     }
 
     pub(crate) fn vault_lock_action(&mut self) {
-        if self.vault.unlocked.is_some() {
+        if self.vault.is_open() {
             self.wipe_ram();
             self.vault.lock();
             let s = self.lock_screen();
@@ -621,6 +730,7 @@ impl App {
                     }
                     Key::Esc => {
                         self.vault.clear_pins();
+                        self.vault.trick = None;
                         self.pop();
                     }
                     k => {
@@ -651,7 +761,9 @@ impl App {
                         & ct_eq(v.suffix.text(), v.again_suffix.text());
                     if same {
                         self.vstep(VStep::Working);
-                        self.queue(if self.vault.change {
+                        self.queue(if self.vault.trick.is_some() {
+                            Job::AddTrick
+                        } else if self.vault.change {
                             Job::Change
                         } else {
                             Job::Create
@@ -700,13 +812,14 @@ impl App {
     pub(crate) fn render_vault(&self, c: &mut dyn Canvas, step: VStep) {
         let s = self.text();
         let t = s.vault;
-        let lock =
-            matches!(
-                step,
-                VStep::Prefix | VStep::Words | VStep::Suffix | VStep::Delay | VStep::Wiped | VStep::Problem
-            ) || (step == VStep::Working && self.vault.unlocked.is_none() && self.vault.exists == Some(true));
+        let lock = matches!(
+            step,
+            VStep::Prefix | VStep::Words | VStep::Suffix | VStep::Delay | VStep::Wiped | VStep::Problem
+        ) || (step == VStep::Working && !self.vault.is_open() && self.vault.exists == Some(true));
         let title = if lock {
             t.locked_title
+        } else if self.vault.trick.is_some() {
+            t.tr_title
         } else if self.vault.change {
             t.change_title
         } else {

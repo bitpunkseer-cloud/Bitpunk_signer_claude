@@ -20,9 +20,22 @@
 //! element's counter goes up and the old slot is erased: a power cut at
 //! any point leaves one whole vault, and a slot older than the counter is
 //! refused (rollback).
+//!
+//! Trick PINs (M10-6, decision 6) live in the trick area, encrypted with a
+//! key from D (so only this device reads them, and nobody can tell how
+//! many there are). Every attempt stretches the PIN once; the result is
+//! compared with every trick first, in constant time, and a trick never
+//! reaches the secure element's attempt counter:
+//! ```text
+//! area     = nonce (12) | ChaCha20-Poly1305(T, 3 entries of 72) | tag (16) | zeros
+//! T        = HKDF(salt, D, "bitpunk tricks")
+//! entry    = kind | source fingerprint (4) | BIP-85 index (2) | verifier (16)
+//!            | nonce (12) | decoy entropy (16, under HKDF(salt, P, "bitpunk decoy")) | tag (16)
+//! verifier = HMAC-SHA256(P, "bitpunk trick pin")[..16]
+//! ```
 
 use bp_crypto::argon2::{argon2id, Block, Params};
-use bp_crypto::chacha20poly1305::{open as aead_open, seal as aead_seal};
+use bp_crypto::chacha20poly1305::{ct_eq, open as aead_open, seal as aead_seal};
 use bp_crypto::hkdf::hkdf;
 use bp_crypto::hmac::HmacSha256;
 use bp_crypto::secret::{wipe, Secret};
@@ -68,6 +81,78 @@ pub enum VaultError {
     TooLarge,
     /// The secure element, hidden key or flash failed.
     Hardware,
+    /// The PIN is already the vault's PIN or a trick PIN (M10-6).
+    PinClash,
+    /// Three trick PINs are set already.
+    TricksFull,
+}
+
+/// Trick PINs a vault holds (M10-6).
+pub const TRICKS: usize = 3;
+const ENTRY_LEN: usize = 72;
+const AREA_PLAIN: usize = TRICKS * ENTRY_LEN;
+
+/// What a trick PIN does (decision 6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrickKind {
+    /// Opens like the vault, with a decoy seed instead.
+    Decoy,
+    /// Erases the vault, then looks like a wrong PIN.
+    WipeWrong,
+    /// Erases the vault, then opens the decoy seed.
+    WipeDecoy,
+    /// Starts like a device without a vault (nothing erased).
+    Blank,
+}
+
+impl TrickKind {
+    pub const ALL: [TrickKind; 4] = [
+        TrickKind::Decoy,
+        TrickKind::WipeWrong,
+        TrickKind::WipeDecoy,
+        TrickKind::Blank,
+    ];
+    fn code(self) -> u8 {
+        self as u8 + 1
+    }
+    fn from_code(c: u8) -> Option<TrickKind> {
+        Self::ALL.get((c as usize).wrapping_sub(1)).copied()
+    }
+    pub fn has_decoy(self) -> bool {
+        matches!(self, TrickKind::Decoy | TrickKind::WipeDecoy)
+    }
+}
+
+/// A trick PIN as the list shows it (the PIN itself is never kept).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrickInfo {
+    pub kind: TrickKind,
+    /// The seed the decoy was derived from, and the BIP-85 index.
+    pub src_fp: [u8; 4],
+    pub index: u16,
+}
+
+/// What a PIN opened. (Returned once per attempt and moved straight into
+/// the app; there is no heap to box the vault keys into.)
+#[allow(clippy::large_enum_variant)]
+pub enum Opened {
+    /// The vault: its plaintext body is in `body[..len]`.
+    Vault(Unlocked, usize),
+    /// A trick PIN; the decoy seed's entropy for the decoy kinds.
+    Trick {
+        kind: TrickKind,
+        decoy: Option<Secret<16>>,
+    },
+}
+
+impl Opened {
+    /// The vault, if the PIN was the vault's own.
+    pub fn vault(self) -> Option<(Unlocked, usize)> {
+        match self {
+            Opened::Vault(u, n) => Some((u, n)),
+            Opened::Trick { .. } => None,
+        }
+    }
 }
 
 /// The parts lent for one vault job.
@@ -257,6 +342,157 @@ fn derive_k(salt: &[u8; 16], p: &[u8; 32], s: &[u8; 32], d: &[u8; 32]) -> Secret
     k
 }
 
+fn tricks_key(salt: &[u8; 16], d: &[u8; 32]) -> Secret<32> {
+    let mut t = Secret::new([0u8; 32]);
+    let _ = hkdf(salt, &[d], b"bitpunk tricks", t.expose_mut());
+    t
+}
+
+fn decoy_key(salt: &[u8; 16], p: &[u8; 32]) -> Secret<32> {
+    let mut t = Secret::new([0u8; 32]);
+    let _ = hkdf(salt, &[p], b"bitpunk decoy", t.expose_mut());
+    t
+}
+
+fn verifier(p: &[u8; 32]) -> [u8; 16] {
+    let mut m = HmacSha256::mac(p, b"bitpunk trick pin");
+    let mut v = [0u8; 16];
+    v.copy_from_slice(&m[..16]);
+    wipe(&mut m);
+    v
+}
+
+/// The trick entries (all empty if the area does not open: a vault made
+/// before M10-6 has random bytes there).
+fn read_area(area: &[u8; TRICK_LEN], salt: &[u8; 16], d: &[u8; 32]) -> Secret<AREA_PLAIN> {
+    let mut plain = Secret::new([0u8; AREA_PLAIN]);
+    plain.expose_mut().copy_from_slice(&area[12..12 + AREA_PLAIN]);
+    let nonce: [u8; 12] = area[..12].try_into().expect("12");
+    let tag: [u8; 16] = area[12 + AREA_PLAIN..28 + AREA_PLAIN].try_into().expect("16");
+    let key = tricks_key(salt, d);
+    if aead_open(
+        key.expose(),
+        &nonce,
+        b"bitpunk tricks v1",
+        plain.expose_mut(),
+        &tag,
+    )
+    .is_err()
+    {
+        plain.expose_mut().fill(0);
+    }
+    plain
+}
+
+fn write_area(plain: &[u8; AREA_PLAIN], salt: &[u8; 16], d: &[u8; 32], rng: &mut dyn Rng) -> [u8; TRICK_LEN] {
+    let mut area = [0u8; TRICK_LEN];
+    let mut nonce = [0u8; 12];
+    rng.fill_bytes(&mut nonce);
+    area[..12].copy_from_slice(&nonce);
+    area[12..12 + AREA_PLAIN].copy_from_slice(plain);
+    let key = tricks_key(salt, d);
+    let tag = aead_seal(
+        key.expose(),
+        &nonce,
+        b"bitpunk tricks v1",
+        &mut area[12..12 + AREA_PLAIN],
+    );
+    area[12 + AREA_PLAIN..28 + AREA_PLAIN].copy_from_slice(&tag);
+    area
+}
+
+/// The entry whose verifier is `v`, comparing every entry (no early exit).
+fn match_trick(plain: &[u8; AREA_PLAIN], v: &[u8; 16]) -> Option<usize> {
+    let mut hit = None;
+    for i in 0..TRICKS {
+        let e = &plain[i * ENTRY_LEN..(i + 1) * ENTRY_LEN];
+        let same = ct_eq(&e[7..23], v) & (e[0] != 0);
+        if same {
+            hit = Some(i);
+        }
+    }
+    hit
+}
+
+fn entry_info(e: &[u8]) -> Option<TrickInfo> {
+    Some(TrickInfo {
+        kind: TrickKind::from_code(e[0])?,
+        src_fp: e[1..5].try_into().ok()?,
+        index: u16::from_le_bytes([e[5], e[6]]),
+    })
+}
+
+/// The trick PINs of an open vault, in order.
+pub fn tricks(u: &Unlocked) -> [Option<TrickInfo>; TRICKS] {
+    let plain = read_area(&u.tricks, &u.salt, u.d.expose());
+    core::array::from_fn(|i| entry_info(&plain.expose()[i * ENTRY_LEN..(i + 1) * ENTRY_LEN]))
+}
+
+/// The entry the next trick PIN takes.
+pub fn next_trick(u: &Unlocked) -> Option<usize> {
+    tricks(u).iter().position(|t| t.is_none())
+}
+
+/// Add a trick PIN to an open vault (written by the next save). Refused if
+/// `pin` is the vault's PIN or another trick PIN.
+#[allow(clippy::too_many_arguments)]
+pub fn add_trick(
+    hw: &mut VaultHw,
+    u: &mut Unlocked,
+    pin: &[u8],
+    kind: TrickKind,
+    src_fp: [u8; 4],
+    index: u16,
+    decoy: Option<&[u8; 16]>,
+) -> Result<(), VaultError> {
+    let p = derive_p(pin, &u.salt, u.kdf, u.d.expose(), hw.mem)?;
+    let k = derive_k(&u.salt, p.expose(), u.s.expose(), u.d.expose());
+    let v = verifier(p.expose());
+    let mut plain = read_area(&u.tricks, &u.salt, u.d.expose());
+    if ct_eq(k.expose(), u.k.expose()) || match_trick(plain.expose(), &v).is_some() {
+        return Err(VaultError::PinClash);
+    }
+    let i = (0..TRICKS)
+        .find(|i| plain.expose()[i * ENTRY_LEN] == 0)
+        .ok_or(VaultError::TricksFull)?;
+    let e = &mut plain.expose_mut()[i * ENTRY_LEN..(i + 1) * ENTRY_LEN];
+    e.fill(0);
+    e[0] = kind.code();
+    e[1..5].copy_from_slice(&src_fp);
+    e[5..7].copy_from_slice(&index.to_le_bytes());
+    e[7..23].copy_from_slice(&v);
+    if let Some(ent) = decoy.filter(|_| kind.has_decoy()) {
+        let mut nonce = [0u8; 12];
+        hw.rng.fill_bytes(&mut nonce);
+        e[23..35].copy_from_slice(&nonce);
+        e[35..51].copy_from_slice(ent);
+        let key = decoy_key(&u.salt, p.expose());
+        let tag = aead_seal(key.expose(), &nonce, b"bitpunk decoy v1", &mut e[35..51]);
+        e[51..67].copy_from_slice(&tag);
+    }
+    u.tricks = write_area(plain.expose(), &u.salt, u.d.expose(), hw.rng);
+    Ok(())
+}
+
+/// Remove trick PIN `i` (the rest keep their order; written by the next save).
+pub fn remove_trick(rng: &mut dyn Rng, u: &mut Unlocked, i: usize) {
+    let mut plain = read_area(&u.tricks, &u.salt, u.d.expose());
+    if i < TRICKS {
+        let p = plain.expose_mut();
+        p.copy_within((i + 1) * ENTRY_LEN.., i * ENTRY_LEN);
+        p[AREA_PLAIN - ENTRY_LEN..].fill(0);
+    }
+    u.tricks = write_area(plain.expose(), &u.salt, u.d.expose(), rng);
+}
+
+/// Stretch `pin` the way an attempt does, for nothing (after a silent
+/// wipe the lock screen still takes as long as before).
+pub fn spend_an_attempt(hw: &mut VaultHw, pin: &[u8], kdf: Params) {
+    let mut salt = [0u8; 16];
+    hw.rng.fill_bytes(&mut salt);
+    let _ = derive_p(pin, &salt, kdf, &[0; 32], hw.mem);
+}
+
 /// Encrypt `body[..n]` in place and write it to `slot` as generation `gen`.
 fn write_slot(
     hw: &mut VaultHw,
@@ -326,8 +562,7 @@ pub fn create(
     hw.rng.fill_bytes(d.expose_mut());
     let mut salt = [0u8; 16];
     hw.rng.fill_bytes(&mut salt);
-    let mut tricks = [0u8; TRICK_LEN];
-    hw.rng.fill_bytes(&mut tricks);
+    let tricks = write_area(&[0u8; AREA_PLAIN], &salt, d.expose(), hw.rng);
     let p = derive_p(pin, &salt, kdf, d.expose(), hw.mem)?;
     let auth = derive_auth(&salt, p.expose());
     if hw!(hw.se.state())? != SeState::Blank {
@@ -356,8 +591,9 @@ pub fn create(
 }
 
 /// Open the vault with `pin`; the plaintext body is left in `body` and its
-/// length returned.
-pub fn open(hw: &mut VaultHw, pin: &[u8], body: &mut [u8]) -> Result<(Unlocked, usize), VaultError> {
+/// length returned. A trick PIN is recognised before the secure element is
+/// asked, and uses no attempt.
+pub fn open(hw: &mut VaultHw, pin: &[u8], body: &mut [u8]) -> Result<Opened, VaultError> {
     let found = scan(hw.flash, body)?.ok_or(VaultError::NoVault)?;
     match hw!(hw.se.state())? {
         SeState::Blank => return Err(VaultError::NoVault),
@@ -373,6 +609,26 @@ pub fn open(hw: &mut VaultHw, pin: &[u8], body: &mut [u8]) -> Result<(Unlocked, 
         .decipher(d.expose_mut())
         .map_err(|_| VaultError::Hardware)?;
     let p = derive_p(pin, &h.salt, h.kdf, d.expose(), hw.mem)?;
+    let plain = read_area(&h.tricks, &h.salt, d.expose());
+    if let Some(i) = match_trick(plain.expose(), &verifier(p.expose())) {
+        let e = &plain.expose()[i * ENTRY_LEN..(i + 1) * ENTRY_LEN];
+        let kind = TrickKind::from_code(e[0]).ok_or(VaultError::Corrupt)?;
+        let decoy = if kind.has_decoy() {
+            let mut ent = Secret::new([0u8; 16]);
+            ent.expose_mut().copy_from_slice(&e[35..51]);
+            let nonce: [u8; 12] = e[23..35].try_into().expect("12");
+            let tag: [u8; 16] = e[51..67].try_into().expect("16");
+            let key = decoy_key(&h.salt, p.expose());
+            aead_open(key.expose(), &nonce, b"bitpunk decoy v1", ent.expose_mut(), &tag)
+                .ok()
+                .map(|_| ent)
+        } else {
+            None
+        };
+        // the secure element is asked something, as for a real attempt
+        let _ = hw.se.counter();
+        return Ok(Opened::Trick { kind, decoy });
+    }
     let auth = derive_auth(&h.salt, p.expose());
     let mut s = Secret::new([0u8; 32]);
     match hw.se.unlock(auth.expose(), s.expose_mut()) {
@@ -419,7 +675,7 @@ pub fn open(hw: &mut VaultHw, pin: &[u8], body: &mut [u8]) -> Result<(Unlocked, 
             // a write whose commit was cut short: finish it
             commit(hw, *slot, hh.gen)?;
         }
-        return Ok((u, n));
+        return Ok(Opened::Vault(u, n));
     }
     Err(if rollback {
         VaultError::Rollback
@@ -450,6 +706,10 @@ pub fn change_pin(
     n: usize,
 ) -> Result<(), VaultError> {
     let p = derive_p(new_pin, &u.salt, u.kdf, u.d.expose(), hw.mem)?;
+    let plain = read_area(&u.tricks, &u.salt, u.d.expose());
+    if match_trick(plain.expose(), &verifier(p.expose())).is_some() {
+        return Err(VaultError::PinClash);
+    }
     let auth = derive_auth(&u.salt, p.expose());
     let k = derive_k(&u.salt, p.expose(), u.s.expose(), u.d.expose());
     let gen = hw!(hw.se.counter())?.max(u.gen) + 1;
@@ -568,7 +828,9 @@ mod tests {
 
     fn open_text(dev: &mut Dev, pin: &[u8]) -> Result<Vec<u8>, VaultError> {
         let mut b = vec![0u8; SLOT_LEN];
-        let (_, n) = open(&mut dev.hw(), pin, &mut b)?;
+        let (_, n) = open(&mut dev.hw(), pin, &mut b)?
+            .vault()
+            .ok_or(VaultError::Corrupt)?;
         Ok(b[..n].to_vec())
     }
 
@@ -700,7 +962,7 @@ mod tests {
     /// Open again, as a device that stayed on would hold it.
     fn reopen(dev: &mut Dev) -> Unlocked {
         let mut b = vec![0u8; SLOT_LEN];
-        open(&mut dev.hw(), b"pin", &mut b).unwrap().0
+        open(&mut dev.hw(), b"pin", &mut b).unwrap().vault().unwrap().0
     }
 
     #[test]
@@ -813,5 +1075,63 @@ mod tests {
         other.flash.slots = a.flash.slots;
         let w4 = phishing_words(&mut other.hw(), &found, b"abcd").unwrap();
         assert_ne!(w1, w4);
+    }
+
+    #[test]
+    fn trick_pins_open_before_the_secure_element_and_stay_hidden() {
+        let mut dev = Dev::new(31);
+        let mut b = [0u8; 4096];
+        b[..5].copy_from_slice(b"hello");
+        let mut u = create(&mut dev.hw(), b"pin", KDF, 0, &mut b, 5).unwrap();
+        let before = u.tricks;
+        add_trick(
+            &mut dev.hw(),
+            &mut u,
+            b"trick",
+            TrickKind::Decoy,
+            [1, 2, 3, 4],
+            1001,
+            Some(&[7u8; 16]),
+        )
+        .unwrap();
+        assert_ne!(u.tricks, before);
+        assert_eq!(
+            add_trick(&mut dev.hw(), &mut u, b"pin", TrickKind::Blank, [0; 4], 0, None),
+            Err(VaultError::PinClash)
+        );
+        assert_eq!(
+            add_trick(&mut dev.hw(), &mut u, b"trick", TrickKind::Blank, [0; 4], 0, None),
+            Err(VaultError::PinClash)
+        );
+        b[..5].copy_from_slice(b"hello");
+        save(&mut dev.hw(), &mut u, &mut b, 5).unwrap();
+        // the area never shows the decoy or the kind in the clear
+        assert!(!u.tricks.windows(16).any(|w| w == [7u8; 16]));
+        let left = |dev: &mut Dev| match dev.se.state().unwrap() {
+            SeState::Ready { left } => left,
+            s => panic!("{s:?}"),
+        };
+        match open(&mut dev.hw(), b"trick", &mut b).unwrap() {
+            Opened::Trick { kind, decoy } => {
+                assert_eq!(kind, TrickKind::Decoy);
+                assert_eq!(decoy.unwrap().expose(), &[7u8; 16]);
+            }
+            Opened::Vault(..) => panic!("the trick opened the vault"),
+        }
+        assert_eq!(left(&mut dev), MAX_ATTEMPTS, "no attempt used");
+        assert!(matches!(
+            open(&mut dev.hw(), b"wrong", &mut b),
+            Err(VaultError::WrongPin { left: 9 })
+        ));
+        let (u2, n) = open(&mut dev.hw(), b"pin", &mut b).unwrap().vault().unwrap();
+        assert_eq!(&b[..n], b"hello");
+        assert_eq!(tricks(&u2)[0].map(|t| t.index), Some(1001));
+        // a vault made before trick PINs (random area) has none
+        let mut old = u2;
+        let mut rng = TestRng(5);
+        old.tricks.iter_mut().for_each(|x| *x = 0x5a);
+        assert!(tricks(&old).iter().all(|t| t.is_none()));
+        remove_trick(&mut rng, &mut old, 0);
+        assert!(tricks(&old).iter().all(|t| t.is_none()));
     }
 }

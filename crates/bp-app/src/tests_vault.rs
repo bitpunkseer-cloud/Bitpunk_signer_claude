@@ -2,15 +2,19 @@
 //! the wait, erasing after ten, locking, changing and erasing (D1, D2).
 //! M10-5: what it keeps — seeds stored by the user, the registered wallets
 //! and the settings, back after power on.
+//! M10-6: trick PINs — decoy, erase then "wrong PIN", erase then decoy,
+//! look blank; none uses an attempt.
 
 use super::*;
 use crate::menus::MenuId;
 use crate::nav::{self, To};
 use crate::seeds::{SeedSlot, SlotKind};
 use crate::sim_hw::{SimDeviceKey, SimFlash, SimSecureElement, SLOT_LEN};
+use crate::vault::TrickKind;
 use crate::vault::{VaultHw, MAX_ATTEMPTS};
 use crate::vaultdata::StoredSeed;
 use crate::vaultseeds::SeedVaultStep;
+use crate::vaulttricks::TrickStep;
 use crate::vaultui::VStep;
 use bp_crypto::argon2::{Block, Params};
 use std::vec;
@@ -286,7 +290,7 @@ fn lock_now_change_pin_and_erase() {
     set_pin(&mut a, &mut b, "abcd", "efgh");
     press(&mut a, Key::Enter);
     // Lock now: RAM is wiped, the lock screen comes
-    press(&mut a, Key::Char('2'));
+    nav::go(&mut a, To::VaultLock);
     assert_eq!(step(&a), VStep::Prefix);
     assert_eq!(a.seed_count(), 0);
     unlock(&mut a, &mut b, "abcd", "efgh");
@@ -300,8 +304,7 @@ fn lock_now_change_pin_and_erase() {
     unlock(&mut a, &mut b, "wxyz", "9876");
     assert!(a.vault.unlocked.is_some());
     // erase: type WIPE
-    nav::go(&mut a, To::Menu(MenuId::Security));
-    press(&mut a, Key::Char('3'));
+    nav::go(&mut a, To::VaultWipe);
     assert_eq!(step(&a), VStep::Wipe);
     type_str(&mut a, "WIPE");
     press(&mut a, Key::Enter);
@@ -396,7 +399,7 @@ pub(crate) fn vault_screens_fit() {
         b.serve(&mut a);
         shot(&a, "remember");
         press(&mut a, Key::Enter);
-        press(&mut a, Key::Char('3'));
+        nav::go(&mut a, To::VaultWipe);
         type_str(&mut a, "WI");
         shot(&a, "wipe");
         press(&mut a, Key::Esc);
@@ -415,6 +418,23 @@ pub(crate) fn vault_screens_fit() {
         press(&mut a, Key::Char('2'));
         type_str(&mut a, "WI");
         shot(&a, "sv-remove");
+        press(&mut a, Key::Esc);
+        // trick PINs (M10-6)
+        nav::go(&mut a, To::VaultTricks);
+        shot(&a, "tr-list-empty");
+        press(&mut a, Key::Char('1'));
+        shot(&a, "tr-kind");
+        press(&mut a, Key::Char('1'));
+        shot(&a, "tr-seed");
+        press(&mut a, Key::Char('1'));
+        type_str(&mut a, "zz");
+        shot(&a, "tr-pin");
+        press(&mut a, Key::Esc);
+        add_trick(&mut a, &mut b, '4', None, "zzzz", "4444");
+        add_trick(&mut a, &mut b, '1', Some('1'), "yyyy", "1111");
+        shot(&a, "tr-list");
+        press(&mut a, Key::Char('2'));
+        shot(&a, "tr-remove");
         press(&mut a, Key::Esc);
         // the lock screen
         nav::go(&mut a, To::PowerOff);
@@ -719,4 +739,273 @@ fn a_failed_save_is_reported_once_and_retried_on_the_next_change() {
     let mut a = power_cycle(&mut a, &mut b);
     unlock(&mut a, &mut b, "abcd", "efgh");
     assert_eq!(a.vault.data.seed_count(), 2);
+}
+
+// ---------- M10-6: trick PINs ----------
+
+fn tricks_set(a: &App) -> usize {
+    a.vault
+        .unlocked
+        .as_ref()
+        .map_or(0, |u| crate::vault::tricks(u).iter().flatten().count())
+}
+
+/// Security > Trick PINs > Add: kind row (1-4), the decoy's seed row, the PIN twice.
+fn add_trick(a: &mut App, b: &mut Bench, kind: char, seed: Option<char>, prefix: &str, suffix: &str) {
+    nav::go(a, To::VaultTricks);
+    let n = tricks_set(a);
+    press(a, Key::Char((b'1' + n as u8) as char));
+    assert!(matches!(
+        a.current(),
+        Screen::Tricks {
+            step: TrickStep::Kind { .. }
+        }
+    ));
+    press(a, Key::Char(kind));
+    if let Some(s) = seed {
+        assert!(matches!(
+            a.current(),
+            Screen::Tricks {
+                step: TrickStep::Seed { .. }
+            }
+        ));
+        press(a, Key::Char(s));
+    }
+    assert_eq!(step(a), VStep::NewPrefix);
+    for _ in 0..2 {
+        type_str(a, prefix);
+        press(a, Key::Enter);
+        type_str(a, suffix);
+        press(a, Key::Enter);
+    }
+    assert_eq!(step(a), VStep::Working);
+    b.serve(a);
+}
+
+fn decoy_fp(a: &App, index: u32) -> [u8; 4] {
+    let d = bp_bitcoin::bip85::derive(
+        a.slot(0).unwrap().master(),
+        bp_bitcoin::bip85::App::Bip39 { words: 12 },
+        index,
+        a.settings.network,
+    )
+    .unwrap();
+    let bp_bitcoin::bip85::Derived::Mnemonic(m) = &d else {
+        unreachable!()
+    };
+    let mut e = [0u8; 32];
+    let n = m.entropy(&mut e);
+    let m = bp_bitcoin::bip39::Mnemonic::from_entropy(&e[..n]).unwrap();
+    SeedSlot::new(m, b"").unwrap().fingerprint
+}
+
+fn se_left(b: &mut Bench) -> Option<u8> {
+    use bp_hal::secure::{SeState, SecureElement};
+    match b.se.state().unwrap() {
+        SeState::Ready { left } => Some(left),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_decoy_pin_opens_a_decoy_seed_and_uses_no_attempt() {
+    use bp_hal::secure::SecureElement;
+    let mut b = Bench::new(21);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    let real = a.slot(0).unwrap().fingerprint;
+    let decoy = decoy_fp(&a, 1001);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    store_first(&mut a, &mut b);
+    add_trick(&mut a, &mut b, '1', Some('1'), "zzzz", "1111");
+    assert_eq!(a.notice, Some(a.text().vault.tr_added));
+    let t = crate::vault::tricks(a.vault.unlocked.as_ref().unwrap());
+    assert_eq!(
+        t[0].map(|t| (t.kind, t.src_fp, t.index)),
+        Some((TrickKind::Decoy, real, 1001))
+    );
+    // the trick PIN on the lock screen: the decoy seed, no attempt used
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "zzzz", "1111");
+    assert!(matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }));
+    assert_eq!(a.vault_state(), 2, "looks open");
+    assert_eq!(a.seed_count(), 1);
+    assert_eq!(a.slot(0).unwrap().fingerprint, decoy);
+    assert_eq!(se_left(&mut b), Some(MAX_ATTEMPTS));
+    // nothing behind it is written, though it looks saved
+    let counter = b.se.counter().unwrap();
+    nav::go(&mut a, To::Setting(|s| s.units));
+    nav::home(&mut a);
+    b.serve(&mut a);
+    assert_eq!(b.se.counter().unwrap(), counter);
+    assert_eq!(
+        a.log.latest().next().unwrap().event,
+        crate::session::Event::VaultSaved
+    );
+    nav::go(&mut a, To::VaultTricks);
+    assert_eq!(tricks_set(&a), 0, "no trick PINs to see");
+    // the vault's own PIN still opens the real seed
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(a.slot(0).unwrap().fingerprint, real);
+    assert_eq!(tricks_set(&a), 1);
+    // the trick survives a PIN change
+    nav::go(&mut a, To::Menu(MenuId::Security));
+    set_pin(&mut a, &mut b, "wxyz", "9876");
+    press(&mut a, Key::Enter);
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "zzzz", "1111");
+    assert_eq!(a.slot(0).unwrap().fingerprint, decoy);
+}
+
+#[test]
+fn an_erase_trick_erases_then_looks_like_a_wrong_pin() {
+    let mut b = Bench::new(22);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    add_trick(&mut a, &mut b, '2', None, "zzzz", "2222");
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "zzzz", "2222");
+    assert_eq!(step(&a), VStep::Prefix);
+    assert_eq!(a.vault.wrong_left, Some(9), "looks like a wrong PIN");
+    assert_eq!(se_left(&mut b), None, "the secure element's secret is gone");
+    assert!(crate::vault::scan(&mut b.flash, &mut b.body).unwrap().is_none());
+    // the lock screen goes on: words still come, every PIN is "wrong"
+    let words = {
+        type_str(&mut a, "abcd");
+        press(&mut a, Key::Enter);
+        b.serve(&mut a);
+        assert_eq!(step(&a), VStep::Words);
+        a.vault.words
+    };
+    press(&mut a, Key::Esc);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(a.vault.wrong_left, Some(8));
+    assert!(words.is_some());
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(step(&a), VStep::Delay, "the waits come as before");
+    let a = power_cycle(&mut a, &mut b);
+    assert!(matches!(a.current(), Screen::Welcome { .. }), "no vault any more");
+}
+
+#[test]
+fn an_erase_then_decoy_trick_opens_the_decoy() {
+    let mut b = Bench::new(23);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    let decoy = decoy_fp(&a, 1001);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    add_trick(&mut a, &mut b, '3', Some('1'), "zzzz", "3333");
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "zzzz", "3333");
+    assert_eq!(a.vault_state(), 2);
+    assert_eq!(a.slot(0).unwrap().fingerprint, decoy);
+    assert_eq!(se_left(&mut b), None, "erased first");
+    let a = power_cycle(&mut a, &mut b);
+    assert!(matches!(a.current(), Screen::Welcome { .. }));
+}
+
+#[test]
+fn a_blank_trick_starts_like_a_device_without_a_vault() {
+    let mut b = Bench::new(24);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    load_abandon(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    store_first(&mut a, &mut b);
+    add_trick(&mut a, &mut b, '4', None, "zzzz", "4444");
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "zzzz", "4444");
+    assert!(matches!(a.current(), Screen::Welcome { .. }));
+    assert_eq!(a.vault_state(), 0);
+    assert_eq!(a.seed_count(), 0);
+    nav::home(&mut a);
+    nav::go(&mut a, To::SeedVault);
+    assert_eq!(a.notice, Some(a.text().vault.sv_no_vault));
+    // setting a PIN here never touches the real vault
+    nav::go(&mut a, To::Menu(MenuId::Security));
+    press(&mut a, Key::Char('1'));
+    press(&mut a, Key::Enter);
+    for _ in 0..2 {
+        type_str(&mut a, "qqqq");
+        press(&mut a, Key::Enter);
+        type_str(&mut a, "rrrr");
+        press(&mut a, Key::Enter);
+    }
+    b.serve(&mut a);
+    assert_eq!(step(&a), VStep::Problem);
+    assert_eq!(
+        se_left(&mut b),
+        Some(MAX_ATTEMPTS),
+        "nothing erased, no attempt used"
+    );
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(a.seed_count(), 1, "the vault was there all along");
+}
+
+#[test]
+fn trick_pins_must_differ_and_are_three_at_most() {
+    let mut b = Bench::new(25);
+    let mut a = boot(&mut b);
+    nav::home(&mut a);
+    set_pin(&mut a, &mut b, "abcd", "efgh");
+    press(&mut a, Key::Enter);
+    // the vault's own PIN cannot be a trick PIN
+    add_trick(&mut a, &mut b, '4', None, "abcd", "efgh");
+    assert_eq!(step(&a), VStep::NewPrefix);
+    assert_eq!(a.notice, Some(a.text().vault.tr_clash));
+    press(&mut a, Key::Esc);
+    add_trick(&mut a, &mut b, '2', None, "zzzz", "2222");
+    assert_eq!(tricks_set(&a), 1);
+    // nor two tricks the same PIN
+    add_trick(&mut a, &mut b, '4', None, "zzzz", "2222");
+    assert_eq!(a.notice, Some(a.text().vault.tr_clash));
+    press(&mut a, Key::Esc);
+    add_trick(&mut a, &mut b, '4', None, "yyyy", "4444");
+    add_trick(&mut a, &mut b, '4', None, "xxxx", "4444");
+    assert_eq!(tricks_set(&a), 3);
+    nav::go(&mut a, To::VaultTricks);
+    press(&mut a, Key::Char('4'));
+    assert_eq!(a.notice, Some(a.text().vault.tr_full));
+    // the vault's PIN cannot become a trick PIN either
+    nav::go(&mut a, To::Menu(MenuId::Security));
+    press(&mut a, Key::Char('1'));
+    press(&mut a, Key::Enter);
+    for _ in 0..2 {
+        type_str(&mut a, "zzzz");
+        press(&mut a, Key::Enter);
+        type_str(&mut a, "2222");
+        press(&mut a, Key::Enter);
+    }
+    b.serve(&mut a);
+    assert_eq!(step(&a), VStep::NewPrefix);
+    assert_eq!(a.notice, Some(a.text().vault.tr_clash));
+    press(&mut a, Key::Esc);
+    // remove the first (the erase trick): it is an ordinary wrong PIN again
+    nav::go(&mut a, To::VaultTricks);
+    press(&mut a, Key::Char('1'));
+    assert!(matches!(
+        a.current(),
+        Screen::Tricks {
+            step: TrickStep::Remove { idx: 0, .. }
+        }
+    ));
+    press(&mut a, Key::Char('2'));
+    b.serve(&mut a);
+    assert_eq!(a.notice, Some(a.text().vault.tr_removed));
+    assert_eq!(tricks_set(&a), 2);
+    let mut a = power_cycle(&mut a, &mut b);
+    unlock(&mut a, &mut b, "zzzz", "2222");
+    assert_eq!(a.vault.wrong_left, Some(9));
+    assert_eq!(se_left(&mut b), Some(9), "a real attempt");
+    unlock(&mut a, &mut b, "abcd", "efgh");
+    assert_eq!(tricks_set(&a), 2);
 }
