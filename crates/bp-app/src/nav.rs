@@ -84,6 +84,7 @@ pub const FEATURES: &[To] = &[
     To::VaultWipe,
     To::Slip39New,
     To::Slip39Load,
+    To::Start(Start::XorParts),
 ];
 
 fn is(t: To, action: &Action, label: &str) -> bool {

@@ -40,6 +40,8 @@ pub enum Start {
     WordNumbers,
     /// Words drawn by the user + coin flips for the last word's free bits.
     FinalWord,
+    /// Seed XOR parts, typed one after another (M11-3).
+    XorParts,
 }
 
 #[derive(Clone, Copy)]
@@ -156,11 +158,12 @@ static NEW_SEED: [Entry; 5] = [
     action(|s| s.bk.sl_new_menu, Action::Slip39New),
 ];
 
-static LOAD_SEED: [Entry; 4] = [
+static LOAD_SEED: [Entry; 5] = [
     start(|s| s.type_words, Start::TypeWords),
     start(|s| s.word_numbers, Start::WordNumbers),
     action(|s| s.scan_seedqr, Action::Scan(crate::scan::Purpose::Seed)),
     action(|s| s.bk.sl_load_menu, Action::Slip39Load),
+    start(|s| s.bk.xr_load_menu, Start::XorParts),
 ];
 
 static SETTINGS: [Entry; 15] = [

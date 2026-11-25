@@ -466,7 +466,7 @@ impl App {
                     .slot(slot as usize)
                     .map_or(crate::seeds::SlotKind::Mnemonic, |s| s.kind);
                 let opts = crate::keys::slot_opts(kind);
-                let mut items: [MenuItem; 6] = core::array::from_fn(|_| MenuItem {
+                let mut items: [MenuItem; 7] = core::array::from_fn(|_| MenuItem {
                     label: "",
                     detail: ">",
                 });
@@ -480,6 +480,7 @@ impl App {
                         SeedQr => s.backup_seedqr,
                         Addresses => s.key.addresses,
                         Slip39Shares => s.bk.sl_opt_shares,
+                        SeedXor => s.bk.xr_opt,
                         Discard => s.discard_seed,
                     };
                     if *o == Discard {
@@ -635,6 +636,7 @@ impl App {
             Screen::Tricks { step } => self.render_tricks(c, step),
             Screen::Tamper { step } => self.render_tamper(c, step),
             Screen::Slip39 { step } => self.render_slip39(c, step),
+            Screen::SeedXor { step } => self.render_seed_xor(c, step),
             Screen::CommDetected => {
                 self.status(c, s.key.comm_title);
                 let (addr, id) = match self.comm {
@@ -2158,9 +2160,18 @@ impl App {
         let Some(f) = self.flow.as_ref() else { return };
         let e = &f.entry;
         let numbers = f.numbers_mode();
+        let part: Buf<48> = match self.xor.as_ref() {
+            Some(x) if f.kind == Start::XorParts => {
+                fill(s.bk.xr_entry_title, &[&crate::seedxorui::letter(x.count)])
+            }
+            _ if f.kind == Start::XorParts => fill(s.bk.xr_entry_title, &[&'A']),
+            _ => Buf::new(),
+        };
         self.status(
             c,
-            if numbers {
+            if f.kind == Start::XorParts {
+                part.as_str()
+            } else if numbers {
                 s.entry_title_numbers
             } else {
                 s.entry_title_words
@@ -2357,6 +2368,7 @@ fn start_title(app: &App, kind: Start) -> &'static str {
         Start::TypeWords => s.entry_title_words,
         Start::WordNumbers => s.entry_title_numbers,
         Start::FinalWord => s.final_title,
+        Start::XorParts => s.bk.xr_title,
     }
 }
 

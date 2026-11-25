@@ -16,6 +16,7 @@ mod scan;
 mod sd;
 mod sdfile;
 mod seeds;
+pub mod seedxorui;
 pub(crate) mod session;
 mod settings;
 mod sigverify;
@@ -328,6 +329,10 @@ pub enum Screen {
     Slip39 {
         step: slip39ui::SlStep,
     },
+    /// Seed XOR: splitting a seed, loading one from its parts (M11-3).
+    SeedXor {
+        step: seedxorui::XorStep,
+    },
     /// The boot check found a network chip: nothing else is possible.
     CommDetected,
 }
@@ -407,6 +412,8 @@ pub struct App {
     pub(crate) vault: vaultui::VaultState,
     /// The SLIP-39 screens' state (wiped when they close).
     pub(crate) slip: Option<slip39ui::SlipState>,
+    /// The Seed XOR screens' state (wiped when they close).
+    pub(crate) xor: Option<seedxorui::XorState>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -507,6 +514,7 @@ impl App {
             help: core::cell::Cell::new(false),
             vault: vaultui::VaultState::new(),
             slip: None,
+            xor: None,
         }
     }
 
@@ -594,6 +602,7 @@ impl App {
         if matches!(self.current(), Screen::Menu { .. } | Screen::ChooseWords { .. }) {
             self.flow = None; // leaving a flow wipes its state
             self.slip = None;
+            self.xor = None;
         }
     }
 
@@ -658,6 +667,11 @@ impl App {
             } => self.set_current(Screen::Slip39 {
                 step: slip39ui::SlStep::Covered { idx },
             }),
+            Screen::SeedXor {
+                step: seedxorui::XorStep::Show { part },
+            } => self.set_current(Screen::SeedXor {
+                step: seedxorui::XorStep::Covered { part },
+            }),
             _ => {}
         }
     }
@@ -676,6 +690,7 @@ impl App {
     fn go_seeds(&mut self, then: Option<Screen>) {
         self.flow = None;
         self.slip = None;
+        self.xor = None;
         if let Some(Screen::SeedReady { slot, created }) = then {
             if let Some(s) = self.slot(slot as usize) {
                 let event = match (created, s.kind) {
@@ -1208,6 +1223,7 @@ impl App {
                     Pick::Choose(o) if o == keys::SlotOpt::Slip39Shares as u8 => {
                         self.slip39_reshare_action(slot)
                     }
+                    Pick::Choose(o) if o == keys::SlotOpt::SeedXor as u8 => self.seed_xor_split_action(slot),
                     Pick::Choose(_) => {
                         self.typed.clear();
                         self.push(Screen::Confirm {
@@ -1517,6 +1533,7 @@ impl App {
             Screen::Tricks { step } => self.tricks_key(step, ev),
             Screen::Tamper { step } => self.tamper_key(step, ev),
             Screen::Slip39 { step } => self.slip39_key(step, ev),
+            Screen::SeedXor { step } => self.seed_xor_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1960,6 +1977,7 @@ impl App {
     pub(crate) fn wipe_ram(&mut self) {
         self.flow = None;
         self.slip = None;
+        self.xor = None;
         self.seeds = [None, None, None];
         self.review = None;
         self.verify = None;
@@ -2001,7 +2019,7 @@ impl App {
         self.flow = Some(Flow::new(kind, words));
         match kind {
             Start::Dice | Start::Coin | Start::D20 => self.push(Screen::EntropyIntro),
-            Start::TypeWords | Start::WordNumbers => self.push(Screen::WordEntry),
+            Start::TypeWords | Start::WordNumbers | Start::XorParts => self.push(Screen::WordEntry),
             Start::FinalWord => self.push(Screen::FinalIntro),
         }
     }
@@ -2282,6 +2300,7 @@ impl App {
             return;
         }
         match Mnemonic::from_indices(flow.entry.indices()) {
+            Ok(m) if flow.kind == Start::XorParts => self.seed_xor_part_typed(m),
             Ok(m) => self.store_seed(Some(m), false),
             Err(_) => self.set_current(Screen::ChecksumError { sel: 0 }),
         }

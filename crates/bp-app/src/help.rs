@@ -30,6 +30,8 @@ pub enum Topic {
     Vault,
     /// SLIP-39 shares (M11-2).
     Slip39,
+    /// Seed XOR (M11-3).
+    SeedXor,
 }
 
 /// The topic for a screen; `None` where help is not offered (start-up,
@@ -95,6 +97,7 @@ pub fn topic(s: &Screen) -> Option<Topic> {
             Vault
         }
         Screen::Slip39 { .. } => Slip39,
+        Screen::SeedXor { .. } => SeedXor,
     })
 }
 

@@ -3,7 +3,7 @@
 //! short paragraphs; the help box wraps them.
 
 /// Topics in `help::Topic` order.
-pub const TOPICS: usize = 20;
+pub const TOPICS: usize = 21;
 
 pub struct HelpStrings {
     /// "Help" (the key bar label)
@@ -197,6 +197,15 @@ pub static EN_HELP: HelpStrings = HelpStrings {
                 "BIP-39 seed words are split with Seed XOR instead.",
             ],
         ),
+        (
+            "Seed XOR",
+            [
+                "A seed split into 2 to 4 parts; each part is a seed of its own.",
+                "All parts are needed: their XOR is the seed. Fewer tell nothing.",
+                "The Coldcard formula makes the same parts again, here or on a Coldcard.",
+                "To load: type the parts one after another, in any order.",
+            ],
+        ),
     ],
 };
 
@@ -382,6 +391,15 @@ pub static KO_HELP: HelpStrings = HelpStrings {
                 "조각을 하나씩, 순서 없이 입력하세요. 조각마다 바로 검사합니다.",
                 "새 조각은 비밀에서 만듭니다. 같은 선택이면 같은 조각이 나옵니다.",
                 "BIP-39 시드 단어는 Seed XOR로 나누세요.",
+            ],
+        ),
+        (
+            "Seed XOR",
+            [
+                "시드를 2~4개 조각으로 나눕니다. 조각마다 그 자체로 시드입니다.",
+                "조각이 모두 있어야 합니다. 조각의 XOR이 시드이고, 모자라면 아무것도 모릅니다.",
+                "Coldcard 공식은 이 기기나 Coldcard에서 같은 조각을 다시 만듭니다.",
+                "불러오기: 조각을 하나씩, 순서 없이 입력하세요.",
             ],
         ),
     ],

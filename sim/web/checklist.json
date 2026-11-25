@@ -1099,6 +1099,24 @@
      "Seeds & keys > Seed vault",
      "시드·키 > 시드 보관함"
     ]
+   },
+   {
+    "id": "F-185",
+    "en": "Seed XOR split: a words seed into 2–4 parts, Coldcard's formula (the same parts again) or formula and 50+ dice, each part shown (A–D) and 3 words checked, the seed's last word to write with them",
+    "ko": "Seed XOR 나누기: 단어 시드를 2~4조각, Coldcard 공식(다시 만들면 같은 조각) 또는 공식 + 주사위 50번 이상, 조각마다 표시(A~D)와 3단어 확인, 시드의 마지막 단어 안내",
+    "where": [
+     "Seed options > Split (Seed XOR)",
+     "시드 옵션 > 나누기 (Seed XOR)"
+    ]
+   },
+   {
+    "id": "F-186",
+    "en": "Load a seed from Seed XOR parts: type the parts one by one (checksum checked), a repeated part refused, the result's fingerprint and last word, then load",
+    "ko": "Seed XOR 조각으로 불러오기: 조각을 하나씩 입력(체크섬 검사), 같은 조각 두 번은 거부, 결과 지문과 마지막 단어, 불러오기",
+    "where": [
+     "Seeds & keys > Load a seed > Seed XOR parts",
+     "시드·키 > 시드 불러오기 > Seed XOR 조각"
+    ]
    }
   ]
  },

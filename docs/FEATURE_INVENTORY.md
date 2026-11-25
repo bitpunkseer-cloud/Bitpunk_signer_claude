@@ -57,7 +57,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | # | 변경 | 단위 | 상태 |
 |---|---|---|---|
 | E1 | 주 메뉴에 **[6] 백업·도구**(암호화 백업·보안 노트·OTP·데이터 보기), 설정 [6]→[7]·전원 [7]→[8] | M11-6 | 예정 |
-| E2 | 시드·키 메뉴 줄 추가: 새 시드 > SLIP-39 새 지갑, 시드 불러오기 > SLIP-39 조각·Seed XOR 조각·금속판 격자, 시드 옵션 > Seed XOR 나누기·금속판 형식(SLIP-39 슬롯은 SLIP-39 조각) | M11-2~4 | SLIP-39 줄 완료(M11-2, 기존 줄 뒤에 붙여 번호 그대로) — every_feature_is_reachable |
+| E2 | 시드·키 메뉴 줄 추가: 새 시드 > SLIP-39 새 지갑, 시드 불러오기 > SLIP-39 조각·Seed XOR 조각·금속판 격자, 시드 옵션 > Seed XOR 나누기·금속판 형식(SLIP-39 슬롯은 SLIP-39 조각) | M11-2~4 | SLIP-39 줄(M11-2), Seed XOR 줄(M11-3: 불러오기 마지막 줄, 단어 시드 옵션의 지우기 앞) — every_feature_is_reachable |
 | E3 | 단어 입력을 마치면(체크섬이 맞아도) 전체 단어 검토 화면을 한 번 보임 — 과제 효율에 Enter 1회 늘어남 | M11-5 | 예정 |
 | E4 | 보관함 본문의 새 레코드(SLIP-39 시드·노트·OTP·백업 암호). M10 보관함은 그대로 열림 | M11-2·6·7·8 | SLIP-39 시드 완료(M11-2: 시드 레코드 type 3) — a_slip39_wallet_is_kept_without_its_passphrase |
 | E5 | 부팅 점검의 펌웨어 줄 "(M12)" → "(M13)" (로드맵 v4 번호) | M11-0 | 완료 |
@@ -248,6 +248,8 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-182 | 주사위·동전·D20으로 새 SLIP-39 지갑: 엔트로피가 마스터 비밀, 나누기(1개·3중 2·5중 3·그룹 직접), 조각 무작위 값은 비밀에서(선택: 주사위 50번 이상 섞기), 조각마다 단어 표시 + 3단어 확인, 화면 보호 시 가림 | 시드·키 > 새 시드 > SLIP-39 지갑 | a_wallet_from_dice_is_its_entropy_and_opens_from_its_shares, a_wrong_check_shows_the_share_again, dice_mixed_in_make_another_set_of_the_same_wallet, custom_groups_keep_to_the_rules |
 | F-183 | SLIP-39 슬롯: xpub·주소·패스프레이즈(나중에 바꾸기)·같은 지갑의 다른 조각 묶음(같은 식별자) | 시드 옵션 | the_passphrase_can_be_set_later_like_seed_words, another_set_of_a_loaded_wallet_opens_it_too |
 | F-184 | 보관함이 SLIP-39 지갑을 보관(암호화된 마스터 비밀, 패스프레이즈 없이), SLIP-39 화면 상태는 메뉴로 나가거나 전원을 끄면 지움 | 시드 보관함 | a_slip39_wallet_is_kept_without_its_passphrase, power_off_and_menus_wipe_the_shares |
+| F-185 | Seed XOR 나누기: 단어 시드를 2~4조각으로, Coldcard 공식 그대로(다시 만들면 같은 조각) 또는 공식 + 주사위 50번 이상, 조각마다 단어 표시(A·B·C·D) + 3단어 확인, 시드의 마지막 단어를 함께 적도록 안내 | 시드 옵션 > 나누기 (Seed XOR) | coldcard_documentation_examples, deterministic_parts_match_the_reference_formula, a_split_makes_coldcard_parts_that_load_back, dice_mixed_parts_differ_and_still_make_the_seed, a_wrong_check_shows_the_part_again_and_the_saver_covers_it, only_word_seeds_offer_a_split |
+| F-186 | Seed XOR 조각으로 시드 불러오기: 조각을 단어 입력으로 하나씩(체크섬 검사·틀린 단어 고치기 그대로), 같은 조각 두 번은 거부, 결과 지문과 마지막 단어를 보고 불러오기(2조각 이상) | 시드·키 > 시드 불러오기 > Seed XOR 조각 | coldcard_documented_parts_load_their_seed, a_wrong_word_in_a_part_is_fixed_before_it_counts, parts_xor_back_and_dice_change_them |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |

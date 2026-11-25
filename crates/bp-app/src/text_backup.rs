@@ -76,6 +76,42 @@ pub struct BackupStrings {
     pub sl_done: &'static str,
     pub h_next_share: &'static str,
     pub h_check: &'static str,
+    // Seed XOR (M11-3)
+    pub xr_title: &'static str,
+    pub xr_load_menu: &'static str,
+    pub xr_opt: &'static str,
+    pub xr_parts_q: &'static str,
+    /// "{} parts"
+    pub xr_n_parts: &'static str,
+    /// "{} parts" (a log line)
+    pub xr_parts_line: &'static str,
+    pub xr_parts_note: &'static str,
+    pub xr_mode_q: &'static str,
+    pub xr_modes: [&'static str; 2],
+    pub xr_mode_notes: [&'static str; 2],
+    /// "Part {} of {}" (letter)
+    pub xr_show_title: &'static str,
+    pub xr_show_note: &'static str,
+    /// "Part {} of {}: which is word {}?"
+    pub xr_check_q: &'static str,
+    pub xr_done_title: &'static str,
+    /// "{} parts written and checked."
+    pub xr_done_parts: &'static str,
+    /// "Write the seed's last word with them: {}"
+    pub xr_done_word: &'static str,
+    pub xr_done_notes: [&'static str; 2],
+    /// "Seed XOR, part {}"
+    pub xr_entry_title: &'static str,
+    /// "Part {} added: {} parts"
+    pub xr_added: &'static str,
+    pub xr_again: &'static str,
+    /// "Result: fingerprint {}, last word {}"
+    pub xr_result: &'static str,
+    pub xr_result_note: &'static str,
+    pub xr_more: &'static str,
+    pub xr_load: &'static str,
+    pub xr_two: &'static str,
+    pub xr_full: &'static str,
 }
 
 pub static EN_BACKUP: BackupStrings = BackupStrings {
@@ -158,6 +194,38 @@ pub static EN_BACKUP: BackupStrings = BackupStrings {
     sl_done: "All shares written and checked.",
     h_next_share: "next",
     h_check: "check",
+    xr_title: "Seed XOR",
+    xr_load_menu: "Seed XOR parts",
+    xr_opt: "Split (Seed XOR)",
+    xr_parts_q: "Split the seed into how many parts?",
+    xr_n_parts: "{} parts",
+    xr_parts_line: "{} parts",
+    xr_parts_note: "All parts are needed. Each one is a seed of its own.",
+    xr_mode_q: "Make the parts from",
+    xr_modes: ["The Coldcard formula", "The formula and dice"],
+    xr_mode_notes: [
+        "Made again, the same parts come out, as on a Coldcard.",
+        "Roll a die 50+ times: how they were made stays hidden.",
+    ],
+    xr_show_title: "Part {} of {}",
+    xr_show_note: "Write the words in order, with the part's letter.",
+    xr_check_q: "Part {} of {}: which is word {}?",
+    xr_done_title: "Seed XOR parts written",
+    xr_done_parts: "{} parts written and checked.",
+    xr_done_word: "Write the seed's last word with them: {}",
+    xr_done_notes: [
+        "Each part is a working seed: decoy funds can go on it.",
+        "A passphrase, if any, is not in the parts.",
+    ],
+    xr_entry_title: "Seed XOR, part {}",
+    xr_added: "Part {} added: {} parts so far",
+    xr_again: "This part was typed before.",
+    xr_result: "Result: fingerprint {}, last word {}",
+    xr_result_note: "Compare the last word with the one you wrote.",
+    xr_more: "Add another part",
+    xr_load: "Load this seed",
+    xr_two: "At least two parts are needed.",
+    xr_full: "No more parts can be added.",
 };
 
 pub static KO_BACKUP: BackupStrings = BackupStrings {
@@ -240,4 +308,36 @@ pub static KO_BACKUP: BackupStrings = BackupStrings {
     sl_done: "조각을 모두 적고 확인했습니다.",
     h_next_share: "다음",
     h_check: "확인",
+    xr_title: "Seed XOR",
+    xr_load_menu: "Seed XOR 조각",
+    xr_opt: "나누기 (Seed XOR)",
+    xr_parts_q: "시드를 몇 개로 나눌까요?",
+    xr_n_parts: "{}개",
+    xr_parts_line: "조각 {}개",
+    xr_parts_note: "조각이 모두 있어야 합니다. 조각 하나하나가 시드입니다.",
+    xr_mode_q: "조각을 만드는 방법",
+    xr_modes: ["Coldcard 공식", "공식과 주사위"],
+    xr_mode_notes: [
+        "다시 만들면 같은 조각이 나옵니다(이 기기·Coldcard).",
+        "주사위를 50번 이상: 만든 방법을 아무도 알 수 없습니다.",
+    ],
+    xr_show_title: "조각 {} ({}개 중)",
+    xr_show_note: "단어를 순서대로, 조각 글자와 함께 적으세요.",
+    xr_check_q: "조각 {} ({}개 중): {}번째 단어는?",
+    xr_done_title: "Seed XOR 조각을 적었습니다",
+    xr_done_parts: "조각 {}개를 적고 확인했습니다.",
+    xr_done_word: "시드의 마지막 단어를 함께 적으세요: {}",
+    xr_done_notes: [
+        "조각마다 시드로 쓸 수 있어 미끼 자금을 둘 수 있습니다.",
+        "패스프레이즈는 조각에 들어가지 않습니다.",
+    ],
+    xr_entry_title: "Seed XOR 조각 {}",
+    xr_added: "조각 {} 추가: 지금까지 {}개",
+    xr_again: "이미 입력한 조각입니다.",
+    xr_result: "결과: 지문 {}, 마지막 단어 {}",
+    xr_result_note: "마지막 단어를 적어 둔 것과 비교하세요.",
+    xr_more: "조각 더 넣기",
+    xr_load: "이 시드 불러오기",
+    xr_two: "조각이 2개 이상 있어야 합니다.",
+    xr_full: "조각을 더 넣을 수 없습니다.",
 };

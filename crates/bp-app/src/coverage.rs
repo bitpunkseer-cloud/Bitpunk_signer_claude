@@ -12,6 +12,7 @@ use crate::msgsign::MsStep;
 use crate::review::Step as RvStep;
 use crate::scan::Purpose;
 use crate::sd::SdStep;
+use crate::seedxorui::XorStep;
 use crate::sigverify::SvStep;
 use crate::slip39ui::SlStep;
 use crate::vaultseeds::SeedVaultStep;
@@ -96,6 +97,7 @@ kinds!(
         Tricks,
         Tamper,
         Slip39,
+        SeedXor,
         CommDetected,
     ]
 );
@@ -224,6 +226,13 @@ kinds!(
     ]
 );
 
+kinds!(
+    xr,
+    XR,
+    XorStep,
+    [Parts, Mode, Dice, Show, Covered, Check, Done, Combined]
+);
+
 /// "Screen" or "Screen/Step" for screens that hold a step or a kind.
 pub fn key_of(s: &Screen) -> String {
     let sub = match s {
@@ -244,6 +253,7 @@ pub fn key_of(s: &Screen) -> String {
         Screen::Tricks { step } => tr(step),
         Screen::Tamper { step } => tc(step),
         Screen::Slip39 { step } => sl(step),
+        Screen::SeedXor { step } => xr(step),
         _ => return screen(s).to_string(),
     };
     let mut k = String::from(screen(s));
@@ -272,6 +282,7 @@ pub fn all() -> Vec<String> {
         ("Tricks", TR),
         ("Tamper", TC),
         ("Slip39", SL),
+        ("SeedXor", XR),
     ];
     let mut out = Vec::new();
     for s in SCREENS {
