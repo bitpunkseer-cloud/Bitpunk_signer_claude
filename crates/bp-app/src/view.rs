@@ -2381,11 +2381,11 @@ fn check_rows(s: &crate::Strings, a: &Analysis, src: Source) -> [(&'static str, 
 }
 
 /// The help box: topic `t`'s title and paragraphs and how to close it,
-/// framed over content rows 3-16 (the key bar stays visible).
+/// framed over content rows 2-16 (the key bar stays visible).
 pub(crate) fn draw_help(c: &mut dyn Canvas, h: &crate::text_help::HelpStrings, t: usize) {
     use bp_ui::grid;
     let (title, lines) = h.topics[t];
-    let (row, rows) = (3, 14);
+    let (row, rows) = (2, 15);
     c.fill_rect(
         grid::x(0) - 4,
         grid::y(row),

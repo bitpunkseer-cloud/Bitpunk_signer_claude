@@ -1411,7 +1411,7 @@ fn help_topics_fit_in_both_languages() {
             // the paragraphs, wrapped without a line limit, end above the
             // close line (the same geometry as draw_help)
             let w = (bp_ui::grid::COLS - 4) * bp_ui::grid::CELL_W;
-            let mut y = bp_ui::grid::y(6);
+            let mut y = bp_ui::grid::y(5);
             for l in lines.iter().filter(|l| !l.is_empty()) {
                 y = bp_ui::font::BODY.draw_wrapped(&mut Null, 0, y, w, 28, 99, l, bp_ui::theme::TEXT) + 8;
             }
