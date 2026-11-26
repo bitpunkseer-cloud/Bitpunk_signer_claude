@@ -94,6 +94,12 @@ pub const ALLOWED: &[(&str, u32, u32, &str)] = &[
         1,
         "C1 Sign submenu; Fn+Q from any menu stays one key",
     ),
+    (
+        "seed-typed-12",
+        1,
+        1,
+        "M11 E3: every typed word once more (and the fingerprint) before loading",
+    ),
 ];
 
 /// Print a task's counts and check them against the M8 build.

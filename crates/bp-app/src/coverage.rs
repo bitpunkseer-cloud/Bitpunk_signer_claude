@@ -65,6 +65,7 @@ kinds!(
         SlotsFull,
         WordEntry,
         ChecksumError,
+        WordReview,
         SeedOptions,
         PassphraseEntry,
         PassphraseReview,

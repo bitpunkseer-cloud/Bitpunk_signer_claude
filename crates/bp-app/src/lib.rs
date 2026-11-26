@@ -189,6 +189,11 @@ pub enum Screen {
     ChecksumError {
         sel: u8,
     },
+    /// Every typed word once more before loading (M11-5, E3): Enter loads,
+    /// Del types the selected word again.
+    WordReview {
+        sel: u8,
+    },
     SeedOptions {
         slot: u8,
         sel: u8,
@@ -1190,6 +1195,7 @@ impl App {
             },
             Screen::WordEntry => self.word_entry_key(ev),
             Screen::ChecksumError { sel } => self.checksum_key(sel, ev),
+            Screen::WordReview { sel } => self.word_review_key(sel, ev),
             Screen::SeedOptions { slot, sel } => {
                 let kind = self
                     .slot(slot as usize)
@@ -2320,9 +2326,50 @@ impl App {
         }
         match Mnemonic::from_indices(flow.entry.indices()) {
             Ok(m) if flow.kind == Start::XorParts => self.seed_xor_part_typed(m),
-            Ok(m) => self.store_seed(Some(m), false),
+            Ok(m) => self.word_review(m),
             Err(_) => self.set_current(Screen::ChecksumError { sel: 0 }),
         }
+    }
+
+    /// The words are complete and their checksum holds: show them once
+    /// more, with their fingerprint, before loading (E3).
+    pub(crate) fn word_review(&mut self, m: Mnemonic) {
+        let fp = seeds::SeedSlot::new(m.clone(), b"").map(|s| s.fingerprint);
+        if let Some(f) = self.flow.as_mut() {
+            f.mnemonic = Some(m);
+            f.review_fp = fp;
+        }
+        self.set_current(Screen::WordReview { sel: 0 });
+    }
+
+    fn word_review_key(&mut self, sel: u8, ev: KeyEvent) {
+        let Some(flow) = self.flow.as_mut() else { return };
+        let n = flow.entry.n as u8;
+        let rows = n / 4;
+        let sel = match ev.key {
+            Key::Up => (sel + n - 1) % n,
+            Key::Down => (sel + 1) % n,
+            Key::Left => (sel + n - rows) % n,
+            Key::Right => (sel + rows) % n,
+            Key::Enter => {
+                let m = flow.mnemonic.take();
+                self.store_seed(m, false);
+                return;
+            }
+            Key::Backspace => {
+                flow.mnemonic = None;
+                flow.review_fp = None;
+                flow.entry.start_fix(sel as usize);
+                self.set_current(Screen::WordEntry);
+                return;
+            }
+            Key::Esc => {
+                self.confirm_cancel();
+                return;
+            }
+            _ => sel,
+        };
+        self.set_current(Screen::WordReview { sel });
     }
 
     fn checksum_key(&mut self, sel: u8, ev: KeyEvent) {

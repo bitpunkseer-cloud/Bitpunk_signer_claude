@@ -343,6 +343,7 @@ fn abandon_app() -> App {
     for c in "abou".chars() {
         press(Key::Char(c));
     }
+    press(Key::Enter); // the words reviewed (M11-5)
     press(Key::Enter);
     assert!(matches!(a.current(), Screen::SeedOptions { .. }));
     a

@@ -148,6 +148,7 @@ fn load_legal(a: &mut App) -> u8 {
     nav::go(a, To::Start(Start::TypeWords));
     nav::words(a, 12);
     type_words(a, LEGAL);
+    press(a, Key::Enter); // the words reviewed
     let Screen::SeedReady { slot, .. } = a.current() else {
         panic!()
     };

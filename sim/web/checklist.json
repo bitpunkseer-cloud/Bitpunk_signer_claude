@@ -1135,6 +1135,15 @@
      "Seeds & keys > Load a seed > Metal plate dots",
      "시드·키 > 시드 불러오기 > 금속판 점"
     ]
+   },
+   {
+    "id": "F-189",
+    "en": "Word review: typed (or plate) words that pass the checksum are shown once more with their fingerprint; Del retypes the selected word, Enter loads",
+    "ko": "단어 검토: 체크섬을 통과한 입력(또는 금속판) 단어를 지문과 함께 한 번 더 보임, Del로 고른 단어 다시 입력, Enter로 불러오기",
+    "where": [
+     "Seeds & keys > Load a seed > Type words",
+     "시드·키 > 시드 불러오기 > 단어 입력"
+    ]
    }
   ]
  },

@@ -131,6 +131,13 @@ pub struct BackupStrings {
     pub mt_punch: &'static str,
     pub mt_clear: &'static str,
     pub mt_not_word: &'static str,
+    // word review before loading (M11-5)
+    pub wr_title: &'static str,
+    /// "Checksum correct. Fingerprint {}"
+    pub wr_ok: &'static str,
+    pub wr_note: &'static str,
+    pub h_retype: &'static str,
+    pub h_load: &'static str,
 }
 
 pub static EN_BACKUP: BackupStrings = BackupStrings {
@@ -264,6 +271,11 @@ pub static EN_BACKUP: BackupStrings = BackupStrings {
     mt_punch: "dot",
     mt_clear: "clear row",
     mt_not_word: "A row is not a word: check its dots.",
+    wr_title: "Check the words",
+    wr_ok: "Checksum correct. Fingerprint {}",
+    wr_note: "Compare every word with your backup before loading.",
+    h_retype: "retype word",
+    h_load: "load",
 };
 
 pub static KO_BACKUP: BackupStrings = BackupStrings {
@@ -397,4 +409,9 @@ pub static KO_BACKUP: BackupStrings = BackupStrings {
     mt_punch: "점",
     mt_clear: "줄 지우기",
     mt_not_word: "단어가 아닌 줄이 있습니다. 점을 확인하세요.",
+    wr_title: "단어 확인",
+    wr_ok: "체크섬이 맞습니다. 지문 {}",
+    wr_note: "불러오기 전에 단어를 하나하나 백업과 비교하세요.",
+    h_retype: "단어 다시 입력",
+    h_load: "불러오기",
 };

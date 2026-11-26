@@ -459,6 +459,12 @@ fn tour(lang: Lang) -> usize {
     ] {
         type_str(&mut b, w);
     }
+    // every word once more before loading (M11-5)
+    assert!(matches!(b.current(), Screen::WordReview { .. }));
+    t.snap(&b, "word-review");
+    press(&mut b, Key::Down);
+    t.snap(&b, "word-review-sel");
+    press(&mut b, Key::Enter);
     assert!(matches!(b.current(), Screen::SeedReady { .. }));
     t.push_snap(&mut b, Screen::PickSeed { sel: 0 }, "pick-seed");
 
@@ -719,6 +725,7 @@ fn tour(lang: Lang) -> usize {
     ] {
         type_str(&mut b, w);
     }
+    press(&mut b, Key::Enter); // the words reviewed (M11-5)
     while !matches!(b.current(), Screen::Menu { id: MenuId::Main, .. }) {
         press(&mut b, Key::Esc);
     }
@@ -899,6 +906,12 @@ fn load_words(a: &mut App, words: &[&str]) {
     for w in words {
         type_str(a, &w[..4.min(w.len())]);
     }
+    assert!(
+        matches!(a.current(), Screen::WordReview { .. }),
+        "{:?}",
+        a.current()
+    );
+    press(a, Key::Enter); // the words reviewed (M11-5)
     assert!(
         matches!(a.current(), Screen::SeedReady { .. }),
         "{:?}",

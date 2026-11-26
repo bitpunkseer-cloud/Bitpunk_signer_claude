@@ -57,6 +57,7 @@ fn load(a: &mut App, words: &str) {
     nav::go(a, To::Start(Start::TypeWords));
     nav::words(a, words.split(' ').count());
     type_words(a, words);
+    press(a, Key::Enter); // the words reviewed
     press(a, Key::Enter); // SeedReady -> options
 }
 
@@ -152,6 +153,9 @@ fn a_copied_plate_loads_its_seed() {
     for (words, plate) in [(LEGAL, '1'), (LEGAL, '2'), (LEGAL24, '1'), (LEGAL24, '2')] {
         let mut a = app();
         copy_plate(&mut a, words, plate, None);
+        // the plate's words go through the review, as typed words
+        assert_eq!(a.current(), Screen::WordReview { sel: 0 });
+        press(&mut a, Key::Enter);
         let Screen::SeedReady { slot, created: false } = a.current() else {
             panic!("{:?}", a.current())
         };
@@ -172,6 +176,7 @@ fn a_wrong_dot_ends_on_the_checksum_screen() {
     }
     press(&mut a, Key::Enter);
     type_words(&mut a, "wave");
+    press(&mut a, Key::Enter);
     let Screen::SeedReady { slot, .. } = a.current() else {
         panic!("{:?}", a.current())
     };
@@ -203,7 +208,7 @@ fn a_row_that_is_no_word_is_pointed_at() {
     assert_eq!(a.metal.as_ref().unwrap().row, 6);
     punch_row(&mut a, 6, metal::stackbit_dots(indices(LEGAL)[6]));
     press(&mut a, Key::Enter);
-    assert!(matches!(a.current(), Screen::SeedReady { .. }));
+    assert!(matches!(a.current(), Screen::WordReview { .. }));
 }
 
 #[test]

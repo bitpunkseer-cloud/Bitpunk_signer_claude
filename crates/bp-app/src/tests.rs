@@ -267,6 +267,10 @@ fn typed_words_load_with_autocomplete() {
         type_str(&mut a, "aban");
     }
     type_str(&mut a, "abou"); // about
+                              // every word once more before loading (M11-5, E3)
+    assert_eq!(a.current(), Screen::WordReview { sel: 0 });
+    assert_eq!(a.seed_count(), 0);
+    press(&mut a, Key::Enter);
     assert_eq!(a.seed_count(), 1);
     assert!(matches!(a.current(), Screen::SeedReady { created: false, .. }));
 }
@@ -284,6 +288,7 @@ fn full_words_and_prefixes_both_work() {
         }
     }
     type_str(&mut a, "about");
+    press(&mut a, Key::Enter);
     assert_eq!(a.seed_count(), 1);
 }
 
@@ -302,6 +307,7 @@ fn checksum_error_lets_user_fix_a_word() {
     press(&mut a, Key::Enter);
     assert_eq!(a.current(), Screen::WordEntry);
     type_str(&mut a, "abou");
+    press(&mut a, Key::Enter);
     assert_eq!(a.seed_count(), 1);
 }
 
@@ -327,6 +333,7 @@ fn word_numbers_entry() {
         press(&mut a, Key::Enter);
     }
     type_str(&mut a, "4"); // "about" is word #4
+    press(&mut a, Key::Enter);
     press(&mut a, Key::Enter);
     assert_eq!(a.seed_count(), 1);
 }
@@ -360,6 +367,7 @@ fn power_off_wipes_seeds() {
         type_str(&mut a, "aban");
     }
     type_str(&mut a, "abou");
+    press(&mut a, Key::Enter);
     assert_eq!(a.seed_count(), 1);
     press(&mut a, Key::Esc);
     a.reset_to(Screen::Menu {
@@ -518,6 +526,8 @@ fn load_abandon(a: &mut App) {
         type_str(a, "aban");
     }
     type_str(a, "abou");
+    assert!(matches!(a.current(), Screen::WordReview { .. }));
+    press(a, Key::Enter); // the words reviewed (M11-5)
     assert!(matches!(a.current(), Screen::SeedReady { .. }));
     press(a, Key::Enter);
     assert!(matches!(a.current(), Screen::SeedOptions { .. }));
@@ -1407,7 +1417,7 @@ fn screen_saver_closes_secret_screens_and_keeps_typing_flows() {
     }
     type_str(&mut a, "abou");
     assert!(
-        matches!(a.current(), Screen::SeedReady { .. }),
+        matches!(a.current(), Screen::WordReview { .. }),
         "the five words were kept"
     );
 }
@@ -1594,4 +1604,40 @@ fn help_opens_with_question_mark_and_the_next_key_only_closes_it() {
     press(&mut a, Key::F(1));
     idle(&mut a, 61);
     assert!(a.saver && !a.help.get());
+}
+
+/// M11-5 (E3): a word typed wrong but still a valid seed is caught on the
+/// review — Del retypes the selected word, then the review shows again.
+#[test]
+fn a_typed_word_can_be_fixed_on_the_review() {
+    let mut a = app();
+    open_typed(&mut a, 12);
+    // "legal winner thank year wave sausage worth useful legal winner
+    // thank yellow"
+    for w in [
+        "lega", "winn", "than", "year", "wave", "saus", "wort", "usef", "lega", "winn", "than", "yell",
+    ] {
+        type_str(&mut a, w);
+    }
+    assert_eq!(a.current(), Screen::WordReview { sel: 0 });
+    let fp = a.flow.as_ref().unwrap().review_fp.unwrap();
+    // move to word 5 and retype it as the same word: back on the review
+    for _ in 0..4 {
+        press(&mut a, Key::Down);
+    }
+    assert_eq!(a.current(), Screen::WordReview { sel: 4 });
+    press(&mut a, Key::Backspace);
+    assert_eq!(a.current(), Screen::WordEntry);
+    assert_eq!(a.flow.as_ref().unwrap().entry.fixing, Some(4));
+    type_str(&mut a, "wave");
+    assert_eq!(a.current(), Screen::WordReview { sel: 0 });
+    assert_eq!(a.flow.as_ref().unwrap().review_fp, Some(fp));
+    assert_eq!(a.seed_count(), 0, "nothing loads before Enter");
+    // Esc asks before throwing the words away
+    press(&mut a, Key::Esc);
+    assert!(matches!(a.current(), Screen::Confirm { .. }));
+    press(&mut a, Key::Char('1')); // keep
+    assert_eq!(a.current(), Screen::WordReview { sel: 0 });
+    press(&mut a, Key::Enter);
+    assert_eq!(a.slot(0).unwrap().fingerprint, fp);
 }

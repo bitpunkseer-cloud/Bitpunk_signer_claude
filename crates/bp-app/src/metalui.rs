@@ -258,18 +258,17 @@ impl App {
         }
         let words = st.words;
         self.metal = None;
+        // as typed words: the review, or the checksum screen (pick the
+        // word, type it)
+        let mut f = crate::flow::Flow::new(Start::TypeWords, words);
+        for (i, &v) in idx[..words].iter().enumerate() {
+            f.entry.idx[i] = v;
+            f.entry.filled[i] = true;
+        }
+        self.flow = Some(f);
         match Mnemonic::from_indices(&idx[..words]) {
-            Ok(m) => self.store_seed(Some(m), false),
-            Err(_) => {
-                // the usual checksum screen: pick the word, type it
-                let mut f = crate::flow::Flow::new(Start::TypeWords, words);
-                for (i, &v) in idx[..words].iter().enumerate() {
-                    f.entry.idx[i] = v;
-                    f.entry.filled[i] = true;
-                }
-                self.flow = Some(f);
-                self.set_current(Screen::ChecksumError { sel: 0 });
-            }
+            Ok(m) => self.word_review(m),
+            Err(_) => self.set_current(Screen::ChecksumError { sel: 0 }),
         }
         bp_crypto::secret::wipe_u16(&mut idx);
     }

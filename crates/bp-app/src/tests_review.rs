@@ -49,6 +49,8 @@ fn load_abandon(a: &mut App) {
         type_str(a, "aban");
     }
     type_str(a, "abou");
+    assert!(matches!(a.current(), Screen::WordReview { .. }));
+    press(a, Key::Enter); // the words reviewed (M11-5)
     assert!(matches!(a.current(), Screen::SeedReady { .. }));
     while !matches!(a.current(), Screen::Menu { id: MenuId::Main, .. }) {
         press(a, Key::Esc);

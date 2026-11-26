@@ -459,6 +459,7 @@ impl App {
             }
             Screen::WordEntry => self.render_word_entry(c),
             Screen::ChecksumError { sel } => self.render_checksum(c, sel),
+            Screen::WordReview { sel } => self.render_word_review(c, sel),
             Screen::SeedOptions { slot, sel } => {
                 let label = self.slot(slot as usize).map(seed_label).unwrap_or_default();
                 self.status(c, label.as_str());
@@ -2281,6 +2282,53 @@ impl App {
                 ],
             );
         }
+    }
+
+    fn render_word_review(&self, c: &mut dyn Canvas, sel: u8) {
+        let s = self.text();
+        let t = s.bk;
+        let Some(f): Option<&Flow> = self.flow.as_ref() else {
+            return;
+        };
+        let e = &f.entry;
+        self.status(c, t.wr_title);
+        let fp = f
+            .review_fp
+            .map(|fp| crate::seeds::fingerprint_hex(&fp))
+            .unwrap_or_default();
+        let ok: Buf<64> = fill(t.wr_ok, &[&fp.as_str()]);
+        widgets::log_line(
+            c,
+            MARGIN,
+            STATUS_H + 16,
+            800 - 2 * MARGIN,
+            widgets::Tag::Ok,
+            ok.as_str(),
+            "",
+        );
+        BODY.draw(c, MARGIN, STATUS_H + 44, t.wr_note, theme::TEXT_DIM);
+        let words: [&str; 24] = core::array::from_fn(|i| if i < e.n { e.word_at(i) } else { "" });
+        let rows_h = if e.n <= 12 { 44 } else { 36 };
+        widgets::word_grid(
+            c,
+            MARGIN + 6,
+            140,
+            800 - 2 * MARGIN,
+            &words[..e.n],
+            4,
+            rows_h,
+            Some(sel as usize),
+            &BODY,
+        );
+        widgets::hint_bar(
+            c,
+            &[
+                ("Arrows", s.h_move),
+                ("Del", t.h_retype),
+                ("Enter", t.h_load),
+                ("Esc", s.h_cancel),
+            ],
+        );
     }
 
     fn render_checksum(&self, c: &mut dyn Canvas, sel: u8) {

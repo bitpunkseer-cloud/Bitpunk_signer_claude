@@ -23,6 +23,9 @@ pub struct Flow {
     pub d20_digits: u8,
     /// The entropy makes a SLIP-39 wallet's master secret (M11-2), not words.
     pub slip39: bool,
+    /// Typed words under review (M11-5): their fingerprint without a
+    /// passphrase.
+    pub review_fp: Option<[u8; 4]>,
 }
 
 impl Flow {
@@ -50,6 +53,7 @@ impl Flow {
             d20: 0,
             d20_digits: 0,
             slip39: false,
+            review_fp: None,
         }
     }
 

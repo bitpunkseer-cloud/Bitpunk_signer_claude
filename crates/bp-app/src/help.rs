@@ -65,7 +65,7 @@ pub fn topic(s: &Screen) -> Option<Topic> {
         | Screen::SeedQrSelect { .. }
         | Screen::SeedQrWarning { .. }
         | Screen::Transcribe { .. } => Backup,
-        Screen::WordEntry | Screen::ChecksumError { .. } => TypeWords,
+        Screen::WordEntry | Screen::ChecksumError { .. } | Screen::WordReview { .. } => TypeWords,
         Screen::SeedReady { .. }
         | Screen::SlotsFull
         | Screen::SeedOptions { .. }

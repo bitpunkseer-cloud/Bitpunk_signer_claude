@@ -58,7 +58,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 |---|---|---|---|
 | E1 | 주 메뉴에 **[6] 백업·도구**(암호화 백업·보안 노트·OTP·데이터 보기), 설정 [6]→[7]·전원 [7]→[8] | M11-6 | 예정 |
 | E2 | 시드·키 메뉴 줄 추가: 새 시드 > SLIP-39 새 지갑, 시드 불러오기 > SLIP-39 조각·Seed XOR 조각·금속판 격자, 시드 옵션 > Seed XOR 나누기·금속판 형식(SLIP-39 슬롯은 SLIP-39 조각) | M11-2~4 | SLIP-39 줄(M11-2), Seed XOR 줄(M11-3), 금속판 줄(M11-4) — 불러오기 끝에 붙이고 단어 시드 옵션은 지우기 앞에 — every_feature_is_reachable |
-| E3 | 단어 입력을 마치면(체크섬이 맞아도) 전체 단어 검토 화면을 한 번 보임 — 과제 효율에 Enter 1회 늘어남 | M11-5 | 예정 |
+| E3 | 단어 입력을 마치면(체크섬이 맞아도) 전체 단어 검토 화면을 한 번 보임 — 과제 효율에 Enter 1회 늘어남 | M11-5 | 완료 — typed_words_load_with_autocomplete, task_seed_typed(허용 +1키·+1화면, [M9_TASKS](M9_TASKS.md)) |
 | E4 | 보관함 본문의 새 레코드(SLIP-39 시드·노트·OTP·백업 암호). M10 보관함은 그대로 열림 | M11-2·6·7·8 | SLIP-39 시드 완료(M11-2: 시드 레코드 type 3) — a_slip39_wallet_is_kept_without_its_passphrase |
 | E5 | 부팅 점검의 펌웨어 줄 "(M12)" → "(M13)" (로드맵 v4 번호) | M11-0 | 완료 |
 
@@ -252,6 +252,7 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-186 | Seed XOR 조각으로 시드 불러오기: 조각을 단어 입력으로 하나씩(체크섬 검사·틀린 단어 고치기 그대로), 같은 조각 두 번은 거부, 결과 지문과 마지막 단어를 보고 불러오기(2조각 이상) | 시드·키 > 시드 불러오기 > Seed XOR 조각 | coldcard_documented_parts_load_their_seed, a_wrong_word_in_a_part_is_fixed_before_it_counts, parts_xor_back_and_dice_change_them |
 | F-187 | 금속판 형식 보기: 단어 시드를 Tinyseed(번호의 이진수 점 12개) 또는 Stackbit 1248(자리마다 1·2·4·8 점)로, 12단어씩 쪽, 화면 보호 시 가림 | 시드 옵션 > 금속판 | tinyseed_is_the_word_number_in_binary, stackbit_is_each_decimal_digit_in_1248_dots, a_seed_shows_its_dots_for_both_plates, the_saver_covers_the_dots_and_menus_wipe_them |
 | F-188 | 금속판 점으로 시드 불러오기: 격자에서 점을 옮겨 적기(화살표·Space·Del·Tab), 단어가 아닌 줄을 가리킴, 마지막 단어를 채우지 않아 틀린 점은 체크섬 오류 화면으로 | 시드·키 > 시드 불러오기 > 금속판 점 | a_copied_plate_loads_its_seed, a_wrong_dot_ends_on_the_checksum_screen, a_row_that_is_no_word_is_pointed_at |
+| F-189 | 단어 검토: 입력한(또는 금속판에서 옮긴) 단어가 체크섬을 통과하면 불러오기 전에 단어 전체와 지문을 한 번 더 보임, Del로 고른 단어 다시 입력, Enter로 불러오기 | 시드 불러오기(단어·단어 번호·금속판 점) | typed_words_load_with_autocomplete, a_typed_word_can_be_fixed_on_the_review, a_copied_plate_loads_its_seed |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |
