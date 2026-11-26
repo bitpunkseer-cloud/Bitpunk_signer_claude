@@ -93,6 +93,8 @@ pub enum Action {
     Slip39Load,
     /// Backup & tools > Secure notes (M11-6).
     Notes,
+    /// Backup & tools > OTP codes (M11-7).
+    Otp,
 }
 
 const fn open(label: Label, id: MenuId) -> Entry {
@@ -138,7 +140,10 @@ static MAIN: [Entry; 8] = [
     open(|s| s.power, MenuId::Power),
 ];
 
-static TOOLS: [Entry; 1] = [action(|s| s.bk.nt_menu, Action::Notes)];
+static TOOLS: [Entry; 2] = [
+    action(|s| s.bk.nt_menu, Action::Notes),
+    action(|s| s.bk.otp_menu, Action::Otp),
+];
 
 static SIGN: [Entry; 2] = [
     action(|s| s.scan_qr, Action::Scan(crate::scan::Purpose::Any)),

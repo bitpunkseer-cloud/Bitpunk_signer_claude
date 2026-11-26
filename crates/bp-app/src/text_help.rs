@@ -218,10 +218,10 @@ pub static EN_HELP: HelpStrings = HelpStrings {
         (
             "Backup & tools",
             [
-                "Secure notes keep text and passwords, shown here or as a QR code.",
-                "With the vault open they are kept, encrypted; without it, until power off.",
-                "A password can be made from 50 or more dice rolls.",
-                "Deleting a note asks for WIPE.",
+                "Secure notes keep text and passwords, shown here or as a QR.",
+                "OTP: scan an otpauth QR or type the key. TOTP needs the time (UTC).",
+                "With the vault open they are kept, encrypted; else until power off.",
+                "Deleting asks for WIPE. Passwords can come from 50+ dice rolls.",
             ],
         ),
     ],
@@ -432,10 +432,10 @@ pub static KO_HELP: HelpStrings = HelpStrings {
         (
             "백업·도구",
             [
-                "보안 노트는 글과 비밀번호를 담고, 화면이나 QR로 보여 줍니다.",
-                "보관함이 열려 있으면 암호화해 보관하고, 없으면 전원을 끌 때까지만 둡니다.",
-                "비밀번호는 주사위 50번 이상으로 만들 수 있습니다.",
-                "노트를 지울 때는 WIPE를 입력합니다.",
+                "보안 노트는 글과 비밀번호를 담아 화면이나 QR로 보여 줍니다.",
+                "OTP: otpauth QR을 스캔하거나 키를 입력. TOTP는 시각(UTC)이 필요합니다.",
+                "보관함이 열려 있으면 암호화해 보관하고, 없으면 끌 때까지만 둡니다.",
+                "지울 때는 WIPE. 비밀번호는 주사위 50번 이상으로 만듭니다.",
             ],
         ),
     ],

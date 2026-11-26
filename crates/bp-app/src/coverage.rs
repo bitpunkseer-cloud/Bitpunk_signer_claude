@@ -11,6 +11,7 @@ use crate::keys::KeyStep;
 use crate::metalui::MetalStep;
 use crate::msgsign::MsStep;
 use crate::notesui::NoteStep;
+use crate::otpui::OtpStep;
 use crate::review::Step as RvStep;
 use crate::scan::Purpose;
 use crate::sd::SdStep;
@@ -103,6 +104,7 @@ kinds!(
         SeedXor,
         Metal,
         Notes,
+        Otp,
         CommDetected,
     ]
 );
@@ -123,7 +125,7 @@ kinds!(
     purpose,
     PURPOSES,
     Purpose,
-    [Any, Seed, Verify, Address, Signed, SigText, Wallet, PrivKey, Cosigner,]
+    [Any, Seed, Verify, Address, Signed, SigText, Wallet, PrivKey, Cosigner, Otp,]
 );
 kinds!(
     review,
@@ -239,6 +241,7 @@ kinds!(
 );
 kinds!(mt, MT, MetalStep, [Format, View, Covered, Grid]);
 kinds!(nt, NT, NoteStep, [List, View, Edit, Field, Generate, Delete]);
+kinds!(op, OP, OtpStep, [List, Code, Type, Add, Time, Delete]);
 
 /// "Screen" or "Screen/Step" for screens that hold a step or a kind.
 pub fn key_of(s: &Screen) -> String {
@@ -263,6 +266,7 @@ pub fn key_of(s: &Screen) -> String {
         Screen::SeedXor { step } => xr(step),
         Screen::Metal { step } => mt(step),
         Screen::Notes { step } => nt(step),
+        Screen::Otp { step } => op(step),
         _ => return screen(s).to_string(),
     };
     let mut k = String::from(screen(s));
@@ -294,6 +298,7 @@ pub fn all() -> Vec<String> {
         ("SeedXor", XR),
         ("Metal", MT),
         ("Notes", NT),
+        ("Otp", OP),
     ];
     let mut out = Vec::new();
     for s in SCREENS {

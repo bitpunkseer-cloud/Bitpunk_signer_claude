@@ -44,6 +44,8 @@ pub enum To {
     Slip39Load,
     /// Backup & tools > Secure notes (M11-6).
     Notes,
+    /// Backup & tools > OTP codes (M11-7).
+    Otp,
     /// A settings row, by its English label.
     Setting(fn(&crate::text::Strings) -> &'static str),
 }
@@ -90,6 +92,7 @@ pub const FEATURES: &[To] = &[
     To::Start(Start::MetalGrid),
     To::Menu(MenuId::Tools),
     To::Notes,
+    To::Otp,
 ];
 
 fn is(t: To, action: &Action, label: &str) -> bool {
@@ -116,7 +119,8 @@ fn is(t: To, action: &Action, label: &str) -> bool {
         | (To::VaultWipe, Action::VaultWipe)
         | (To::Slip39New, Action::Slip39New)
         | (To::Slip39Load, Action::Slip39Load)
-        | (To::Notes, Action::Notes) => true,
+        | (To::Notes, Action::Notes)
+        | (To::Otp, Action::Otp) => true,
         (To::Setting(f), Action::CycleSetting) => f(&crate::text::EN) == label,
         _ => false,
     }

@@ -104,7 +104,7 @@ pub fn topic(s: &Screen) -> Option<Topic> {
         Screen::Slip39 { .. } => Slip39,
         Screen::SeedXor { .. } => SeedXor,
         Screen::Metal { .. } => Metal,
-        Screen::Notes { .. } => Notes,
+        Screen::Notes { .. } | Screen::Otp { .. } => Notes,
     })
 }
 
@@ -124,6 +124,9 @@ fn types_text(s: &Screen) -> bool {
             }
             | Screen::Notes {
                 step: crate::notesui::NoteStep::Field { .. }
+            }
+            | Screen::Otp {
+                step: crate::otpui::OtpStep::Type { .. }
             }
     )
 }

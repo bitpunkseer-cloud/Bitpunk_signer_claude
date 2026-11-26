@@ -11,6 +11,7 @@ mod menus;
 pub mod metalui;
 mod msgsign;
 pub mod notesui;
+pub mod otpui;
 mod qrview;
 pub mod review;
 mod review_view;
@@ -352,6 +353,10 @@ pub enum Screen {
     Notes {
         step: notesui::NoteStep,
     },
+    /// Backup & tools > OTP codes (M11-7).
+    Otp {
+        step: otpui::OtpStep,
+    },
     /// The boot check found a network chip: nothing else is possible.
     CommDetected,
 }
@@ -437,6 +442,12 @@ pub struct App {
     pub(crate) metal: Option<metalui::MetalState>,
     /// The notes screens' draft and typing (wiped when they close).
     pub(crate) notes: Option<notesui::NotesState>,
+    /// The OTP screens' typing and a key waiting for "Add" (wiped when
+    /// they close).
+    pub(crate) otp: Option<otpui::OtpState>,
+    /// The time typed this power-on: UTC seconds and milliseconds past
+    /// them (M11-7: the board has no clock battery).
+    pub(crate) clock: Option<(u64, u32)>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -540,6 +551,8 @@ impl App {
             xor: None,
             metal: None,
             notes: None,
+            otp: None,
+            clock: None,
         }
     }
 
@@ -630,6 +643,7 @@ impl App {
             self.xor = None;
             self.metal = None;
             self.notes = None;
+            self.otp = None;
         }
     }
 
@@ -728,7 +742,7 @@ impl App {
         self.xor = None;
         self.metal = None;
         self.notes = None;
-        self.notes = None;
+        self.otp = None;
         if let Some(Screen::SeedReady { slot, created }) = then {
             if let Some(s) = self.slot(slot as usize) {
                 let event = match (created, s.kind) {
@@ -761,6 +775,7 @@ impl App {
     /// Advance timers. Returns true when the screen needs redrawing.
     pub fn tick(&mut self, dt_ms: u32) -> bool {
         self.log.tick(dt_ms);
+        self.clock_tick(dt_ms);
         let hides_in = self.hides_in();
         // the screen saver (M9-5)
         match crate::settings::SAVER_MS[self.settings.saver as usize % 3] {
@@ -1004,6 +1019,16 @@ impl App {
             };
             text[..n].copy_from_slice(&self.scan.out[..n]);
             self.key_text(core::str::from_utf8(&text[..n]).unwrap_or(""));
+            bp_crypto::secret::wipe(&mut text);
+            self.end_scan_if_left();
+        } else if purpose == scan::Purpose::Otp {
+            let mut text = [0u8; 512];
+            let n = match self.scan.outcome {
+                Some(scan::Outcome::Text { len }) => len.min(text.len()),
+                _ => 0,
+            };
+            text[..n].copy_from_slice(&self.scan.out[..n]);
+            self.otp_scanned(core::str::from_utf8(&text[..n]).unwrap_or(""));
             bp_crypto::secret::wipe(&mut text);
             self.end_scan_if_left();
         } else if purpose == scan::Purpose::SigText {
@@ -1576,6 +1601,7 @@ impl App {
             Screen::SeedXor { step } => self.seed_xor_key(step, ev),
             Screen::Metal { step } => self.metal_key(step, ev),
             Screen::Notes { step } => self.notes_key(step, ev),
+            Screen::Otp { step } => self.otp_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -2003,12 +2029,14 @@ impl App {
             Action::Slip39New => self.slip39_new_action(),
             Action::Slip39Load => self.slip39_load_action(),
             Action::Notes => self.notes_action(),
+            Action::Otp => self.otp_action(),
             Action::VaultTricks => self.vault_tricks_action(),
             Action::VaultTamper => self.vault_tamper_action(),
             Action::VaultLock => self.vault_lock_action(),
             Action::VaultWipe => self.vault_wipe_action(),
             Action::PowerOff => {
                 self.log.clear();
+                self.clock = None; // no clock battery: the time is gone
                 self.wipe_ram();
                 self.vault.lock();
                 self.reset_to(Screen::PoweredOff);
@@ -2023,6 +2051,8 @@ impl App {
         self.slip = None;
         self.xor = None;
         self.metal = None;
+        self.notes = None;
+        self.otp = None;
         self.seeds = [None, None, None];
         self.review = None;
         self.verify = None;

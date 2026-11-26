@@ -43,6 +43,8 @@ pub enum Purpose {
     /// Multisig > Create: a cosigner's key (text, Coldcard JSON, UR
     /// crypto-account / crypto-hdkey). Never a seed.
     Cosigner,
+    /// Backup & tools > OTP codes: an `otpauth://` key (text).
+    Otp,
 }
 
 /// What the scan produced (data in `ScanState::out`).
@@ -285,6 +287,10 @@ impl ScanState {
                 _ => Outcome::NotAWallet,
             }),
             // a private key arrives as text; nothing else is taken
+            Ok((c, _)) if purpose == Purpose::Otp => Some(match c {
+                Content::Text { len } => Outcome::Text { len },
+                _ => Outcome::Text { len: 0 },
+            }),
             Ok((c, _)) if purpose == Purpose::PrivKey => Some(match c {
                 Content::Text { len } => Outcome::Text { len },
                 _ => Outcome::Text { len: 0 },

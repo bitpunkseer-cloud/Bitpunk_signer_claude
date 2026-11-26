@@ -641,6 +641,7 @@ impl App {
             Screen::SeedXor { step } => self.render_seed_xor(c, step),
             Screen::Metal { step } => self.render_metal(c, step),
             Screen::Notes { step } => self.render_notes(c, step),
+            Screen::Otp { step } => self.render_otp(c, step),
             Screen::CommDetected => {
                 self.status(c, s.key.comm_title);
                 let (addr, id) = match self.comm {
@@ -1701,6 +1702,7 @@ impl App {
             Purpose::Wallet => s.wl.scan_title,
             Purpose::Cosigner => s.wl.key_scan_title,
             Purpose::PrivKey => s.key.scan_title,
+            Purpose::Otp => s.bk.otp_scan,
         };
         self.status(c, title);
         let (bx, by) = (MARGIN, STATUS_H + 20);

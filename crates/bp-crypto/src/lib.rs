@@ -18,6 +18,7 @@ pub mod pbkdf2_sha256;
 pub mod ripemd160;
 pub mod secp256k1;
 pub mod secret;
+pub mod sha1;
 pub mod sha256;
 pub mod sha512;
 

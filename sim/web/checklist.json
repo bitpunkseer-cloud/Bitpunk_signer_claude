@@ -1162,6 +1162,24 @@
      "Backup & tools > Secure notes",
      "백업·도구 > 보안 노트"
     ]
+   },
+   {
+    "id": "F-192",
+    "en": "OTP engine: SHA-1 and HMAC-SHA1 (new), HOTP and TOTP (RFC 4226 / 6238), Base32, otpauth URIs",
+    "ko": "OTP 엔진: SHA-1·HMAC-SHA1(새로), HOTP·TOTP(RFC 4226 / 6238), Base32, otpauth URI",
+    "where": [
+     "(inside; OTP codes run it)",
+     "(내부, OTP 코드가 실행)"
+    ]
+   },
+   {
+    "id": "F-193",
+    "en": "OTP codes: add from an otpauth QR or a typed Base32 key, TOTP from the time typed at power-on (UTC), HOTP counter moves on Enter, delete (WIPE), kept in the vault",
+    "ko": "OTP 코드: otpauth QR 또는 Base32 키로 추가, TOTP는 켤 때 입력한 시각(UTC)으로, HOTP는 Enter마다 카운터, 지우기(WIPE), 보관함에 보관",
+    "where": [
+     "Backup & tools > OTP codes",
+     "백업·도구 > OTP 코드"
+    ]
    }
   ]
  },

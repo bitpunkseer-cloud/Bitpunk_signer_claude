@@ -1430,6 +1430,9 @@ mod metal_flow;
 #[path = "tests_notes.rs"]
 mod notes_flow;
 
+#[path = "tests_otp.rs"]
+mod otp_flow;
+
 /// A BIP-85 result recorded from embit (see tools/gen_embit_bip85.py).
 pub(crate) fn b85_embit(app: &str, index: u32) -> String {
     let src = include_str!("../../bp-bitcoin/tests/data/embit_bip85.rs");
@@ -1462,6 +1465,7 @@ fn every_screen_and_step_is_drawn() {
     seedxor_flow::seedxor_screens_fit();
     metal_flow::metal_screens_fit();
     notes_flow::notes_screens_fit();
+    otp_flow::otp_screens_fit();
     let seen = crate::coverage::finish();
     let all = crate::coverage::all();
     let missing: std::vec::Vec<_> = all.iter().filter(|k| !seen.contains(*k)).collect();

@@ -21,3 +21,5 @@ hkdf = "0.12.4"
 # M10-8: SCP03 (AES-128, AES-CMAC)
 aes_ref = { package = "aes", version = "0.8.4" }
 cmac_ref = { package = "cmac", version = "0.7.2" }
+# M11-7: SHA-1 (HOTP/TOTP)
+sha1_ref = { package = "sha1", version = "0.10.6" }

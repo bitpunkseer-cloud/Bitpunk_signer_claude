@@ -10,6 +10,7 @@
 //! | 1 seed | `type u8` (0 words, 1 XPRV, 2 WIF, 3 SLIP-39), fingerprint (4), secret: the words' entropy, the XPRV in Base58, the WIF's 32-byte key, or a SLIP-39 wallet's identifier (2, big-endian), extendable flag, iteration exponent and encrypted master secret (16–32) |
 //! | 2 wallet | the `.bpw` text (name, wallet code, 256-bit tag, descriptor) |
 //! | 3 settings | 12 bytes, one per setting |
+//! | 5 OTP key | (M11-7) `bp_backup::otp::OtpKey::encode`: kind, algorithm, digits, period or counter (8, big-endian), label, secret |
 //! | 4 note | (M11-6) `kind u8` (0 note, 1 password), then title, user, password, site and text, each `len u16 LE` + printable ASCII |
 //!
 //! A seed is checked when it is loaded (its fingerprint must come out the
@@ -39,6 +40,11 @@ const R_SEED: u8 = 1;
 const R_WALLET: u8 = 2;
 const R_SETTINGS: u8 = 3;
 const R_NOTE: u8 = 4;
+const R_OTP: u8 = 5;
+
+/// One-time password keys kept (M11-7).
+pub const MAX_OTP: usize = 16;
+type OtpBuf = [u8; 2 + 1 + 8 + 1 + bp_backup::otp::MAX_LABEL + 1 + bp_backup::otp::MAX_SECRET];
 
 /// Notes and passwords kept (M11-6, decision 9).
 pub const MAX_NOTES: usize = 16;
@@ -429,6 +435,8 @@ pub struct VaultData {
     /// Notes and passwords (M11-6): kept with the vault when it is open,
     /// for the session otherwise.
     notes: [Option<Note>; MAX_NOTES],
+    /// One-time password keys (M11-7), kept as the notes are.
+    otp: [Option<bp_backup::otp::OtpKey>; MAX_OTP],
 }
 
 impl Default for VaultData {
@@ -448,6 +456,7 @@ impl VaultData {
             wallets: [const { WalletRec::new() }; MAX_WALLETS],
             settings: None,
             notes: [const { None }; MAX_NOTES],
+            otp: [const { None }; MAX_OTP],
         }
     }
 
@@ -459,6 +468,65 @@ impl VaultData {
         }
         self.settings = None;
         self.notes = [const { None }; MAX_NOTES];
+        self.otp = [const { None }; MAX_OTP];
+    }
+
+    pub fn otp_count(&self) -> usize {
+        self.otp.iter().flatten().count()
+    }
+
+    pub fn otp_key(&self, i: usize) -> Option<&bp_backup::otp::OtpKey> {
+        self.otp.iter().flatten().nth(i)
+    }
+
+    /// Add a key at the end; `false` if there are 16, the same key is
+    /// there, or the body would not fit.
+    pub fn add_otp(&mut self, k: bp_backup::otp::OtpKey) -> bool {
+        if self.has_otp(&k) {
+            return false;
+        }
+        let Some(pos) = self.otp.iter().position(|x| x.is_none()) else {
+            return false;
+        };
+        let mut b: OtpBuf = [0; core::mem::size_of::<OtpBuf>()];
+        let room = self.body_len() + 3 + k.encode(&mut b) <= BODY_MAX;
+        wipe(&mut b);
+        if room {
+            self.otp[pos] = Some(k);
+        }
+        room
+    }
+
+    /// Move an HOTP key's counter (each code shown uses one).
+    pub fn set_otp_counter(&mut self, i: usize, counter: u64) {
+        if let Some(k) = self.otp.iter_mut().flatten().nth(i) {
+            if let bp_backup::otp::OtpKind::Hotp { .. } = k.kind {
+                k.kind = bp_backup::otp::OtpKind::Hotp { counter };
+            }
+        }
+    }
+
+    pub fn remove_otp(&mut self, i: usize) {
+        if let Some(pos) = self
+            .otp
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| k.is_some())
+            .nth(i)
+            .map(|(p, _)| p)
+        {
+            self.otp[pos] = None;
+            self.otp[pos..].rotate_left(1);
+        }
+    }
+
+    pub fn has_otp(&self, k: &bp_backup::otp::OtpKey) -> bool {
+        self.otp.iter().flatten().any(|x| x == k)
+    }
+
+    /// Take the keys out (as `take_notes`).
+    pub fn take_otp(&mut self) -> [Option<bp_backup::otp::OtpKey>; MAX_OTP] {
+        core::mem::replace(&mut self.otp, [const { None }; MAX_OTP])
     }
 
     pub fn note_count(&self) -> usize {
@@ -616,6 +684,12 @@ impl VaultData {
                 ],
             );
         }
+        for k in self.otp.iter().flatten() {
+            let mut b: OtpBuf = [0; core::mem::size_of::<OtpBuf>()];
+            let n = k.encode(&mut b);
+            rec(R_OTP, &[&b[..n]]);
+            wipe(&mut b);
+        }
         if let Some(st) = &self.settings {
             rec(R_SETTINGS, &[&settings_bytes(st)]);
         }
@@ -655,7 +729,7 @@ impl VaultData {
     pub fn read(&mut self, body: &[u8]) -> Result<(), BadBody> {
         self.clear();
         let mut rest = body.strip_prefix(HEAD.as_slice()).ok_or(BadBody)?;
-        let (mut seeds, mut wallets, mut notes) = (0, 0, 0);
+        let (mut seeds, mut wallets, mut notes, mut otp) = (0, 0, 0, 0);
         while !rest.is_empty() {
             if rest.len() < 3 {
                 self.clear();
@@ -678,7 +752,11 @@ impl VaultData {
                     self.notes[notes] = Some(n);
                     notes += 1;
                 }),
-                R_SEED | R_WALLET | R_SETTINGS | R_NOTE => None,
+                R_OTP if otp < MAX_OTP => bp_backup::otp::OtpKey::decode(d).map(|k| {
+                    self.otp[otp] = Some(k);
+                    otp += 1;
+                }),
+                R_SEED | R_WALLET | R_SETTINGS | R_NOTE | R_OTP => None,
                 _ => Some(()),
             };
             if ok.is_none() {

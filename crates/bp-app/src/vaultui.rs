@@ -549,9 +549,13 @@ impl App {
                     // wallets and the notes written this session (M11-6);
                     // seeds go in through the seed vault
                     let notes = self.vault.data.take_notes();
+                    let keys = self.vault.data.take_otp();
                     self.vault.data.clear();
                     for n in notes.into_iter().flatten() {
                         let _ = self.vault.data.add_note(n);
+                    }
+                    for k in keys.into_iter().flatten() {
+                        let _ = self.vault.data.add_otp(k);
                     }
                     self.vault.seen_wallets.1 = usize::MAX;
                 }
