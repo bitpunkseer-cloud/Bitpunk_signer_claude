@@ -109,7 +109,7 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   await key("Enter");
   await key("Enter");
   for (let i = 0; i < 4; i++) await key("Escape");
-  await key("6");
+  await key("7"); // Settings (M11: Backup & tools is 6)
   for (let i = 0; i < 12; i++) await key("ArrowDown");
   await key("Enter"); // Security
   await key("1"); // PIN
@@ -126,7 +126,7 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   await key("3"); await key("6"); await key("1"); await key("Enter");
   await page.waitForTimeout(300);
   for (let i = 0; i < 4; i++) await key("Escape");
-  await key("7"); await key("1"); // Power off
+  await key("8"); await key("1"); // Power off
   await key("Enter"); // power on
   await page.waitForTimeout(2500); // splash
   if (!(await vaultIs("Vault locked", 3000))) fail("no lock screen after power on");
@@ -153,7 +153,7 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   // 6. a trick PIN (M10-6): "look blank" starts without the vault, uses no
   // attempt, and the vault's own PIN still opens it. Security row 2.
   for (let i = 0; i < 4; i++) await key("Escape");
-  await key("6");
+  await key("7"); // Settings
   for (let i = 0; i < 12; i++) await key("ArrowDown");
   await key("Enter"); // Security
   await key("2"); await key("1"); await key("4"); // Trick PINs, Add, Look blank
@@ -163,14 +163,14 @@ const fail = msg => { console.error("FAIL: " + msg); process.exitCode = 1; };
   }
   await page.waitForTimeout(500);
   for (let i = 0; i < 4; i++) await key("Escape");
-  await key("7"); await key("1"); await key("Enter");
+  await key("8"); await key("1"); await key("Enter");
   await page.waitForTimeout(2500);
   await typeText("zzzz"); await key("Enter");
   await page.waitForTimeout(500); await key("Enter");
   await typeText("4444"); await key("Enter");
   const blank = await vaultIs("No vault", 30000);
   for (let i = 0; i < 4; i++) await key("Escape");
-  await key("7"); await key("1"); await key("Enter");
+  await key("8"); await key("1"); await key("Enter");
   await page.waitForTimeout(2500);
   await typeText("abcd"); await key("Enter");
   await page.waitForTimeout(500); await key("Enter");

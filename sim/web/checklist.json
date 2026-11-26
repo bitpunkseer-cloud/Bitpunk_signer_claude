@@ -1144,6 +1144,24 @@
      "Seeds & keys > Load a seed > Type words",
      "시드·키 > 시드 불러오기 > 단어 입력"
     ]
+   },
+   {
+    "id": "F-190",
+    "en": "Secure notes and passwords (16): masked password shown on request, as a QR, edit, delete (WIPE), a 20-character password from 50+ dice",
+    "ko": "보안 노트·비밀번호(16개): 가린 비밀번호를 요청 시 보임, QR, 고치기, 지우기(WIPE), 주사위 50번 이상으로 20자 비밀번호",
+    "where": [
+     "Backup & tools > Secure notes",
+     "백업·도구 > 보안 노트"
+    ]
+   },
+   {
+    "id": "F-191",
+    "en": "Notes are kept encrypted in the vault when it is open, until power off otherwise; notes written without the vault join it when it opens",
+    "ko": "노트는 보관함이 열려 있으면 암호화해 보관, 없으면 전원을 끌 때까지; 보관함 없이 쓴 노트는 열 때 합쳐짐",
+    "where": [
+     "Backup & tools > Secure notes",
+     "백업·도구 > 보안 노트"
+    ]
    }
   ]
  },

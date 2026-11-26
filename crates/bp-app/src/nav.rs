@@ -42,6 +42,8 @@ pub enum To {
     /// Seeds & keys > New seed / Load a seed > SLIP-39 (M11-2).
     Slip39New,
     Slip39Load,
+    /// Backup & tools > Secure notes (M11-6).
+    Notes,
     /// A settings row, by its English label.
     Setting(fn(&crate::text::Strings) -> &'static str),
 }
@@ -86,6 +88,8 @@ pub const FEATURES: &[To] = &[
     To::Slip39Load,
     To::Start(Start::XorParts),
     To::Start(Start::MetalGrid),
+    To::Menu(MenuId::Tools),
+    To::Notes,
 ];
 
 fn is(t: To, action: &Action, label: &str) -> bool {
@@ -111,7 +115,8 @@ fn is(t: To, action: &Action, label: &str) -> bool {
         | (To::VaultLock, Action::VaultLock)
         | (To::VaultWipe, Action::VaultWipe)
         | (To::Slip39New, Action::Slip39New)
-        | (To::Slip39Load, Action::Slip39Load) => true,
+        | (To::Slip39Load, Action::Slip39Load)
+        | (To::Notes, Action::Notes) => true,
         (To::Setting(f), Action::CycleSetting) => f(&crate::text::EN) == label,
         _ => false,
     }

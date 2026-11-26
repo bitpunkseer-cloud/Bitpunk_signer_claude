@@ -56,17 +56,17 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 
 | # | 변경 | 단위 | 상태 |
 |---|---|---|---|
-| E1 | 주 메뉴에 **[6] 백업·도구**(암호화 백업·보안 노트·OTP·데이터 보기), 설정 [6]→[7]·전원 [7]→[8] | M11-6 | 예정 |
+| E1 | 주 메뉴에 **[6] 백업·도구**(암호화 백업·보안 노트·OTP·데이터 보기), 설정 [6]→[7]·전원 [7]→[8] | M11-6 | 완료(보안 노트부터, 나머지 줄은 M11-7~9) — every_feature_is_reachable, 시뮬레이터 E2E는 숫자 키 7·8로 |
 | E2 | 시드·키 메뉴 줄 추가: 새 시드 > SLIP-39 새 지갑, 시드 불러오기 > SLIP-39 조각·Seed XOR 조각·금속판 격자, 시드 옵션 > Seed XOR 나누기·금속판 형식(SLIP-39 슬롯은 SLIP-39 조각) | M11-2~4 | SLIP-39 줄(M11-2), Seed XOR 줄(M11-3), 금속판 줄(M11-4) — 불러오기 끝에 붙이고 단어 시드 옵션은 지우기 앞에 — every_feature_is_reachable |
 | E3 | 단어 입력을 마치면(체크섬이 맞아도) 전체 단어 검토 화면을 한 번 보임 — 과제 효율에 Enter 1회 늘어남 | M11-5 | 완료 — typed_words_load_with_autocomplete, task_seed_typed(허용 +1키·+1화면, [M9_TASKS](M9_TASKS.md)) |
-| E4 | 보관함 본문의 새 레코드(SLIP-39 시드·노트·OTP·백업 암호). M10 보관함은 그대로 열림 | M11-2·6·7·8 | SLIP-39 시드 완료(M11-2: 시드 레코드 type 3) — a_slip39_wallet_is_kept_without_its_passphrase |
+| E4 | 보관함 본문의 새 레코드(SLIP-39 시드·노트·OTP·백업 암호). M10 보관함은 그대로 열림 | M11-2·6·7·8 | SLIP-39 시드(M11-2: 시드 레코드 type 3), 노트(M11-6: 레코드 4) 완료 — a_slip39_wallet_is_kept_without_its_passphrase, notes_are_kept_by_the_vault_and_written_ones_join_it |
 | E5 | 부팅 점검의 펌웨어 줄 "(M12)" → "(M13)" (로드맵 v4 번호) | M11-0 | 완료 |
 
 흐름 안의 선택지 순서(확인 대화상자, 퀴즈 답, 내보내기 형식 목록, 지갑 단계, BIP-85 앱 목록 등)는 시험이 아직 위치로 고른다(남은 숫자 키 87회). M9에서 이런 목록의 순서를 바꾸는 단위는 먼저 `nav.rs`에 그 목록의 이름 기반 도우미를 더하고, 시험은 그것만 쓰게 한 뒤 바꾼다.
 
 ## 1-1. M9 이후 위치 (M9-4 메뉴 재편)
 
-주 메뉴: **[1] 서명하기 · [2] 받기·확인 · [3] 시드·키 · [4] 멀티시그 지갑 · [5] SD 카드 · [6] 설정 · [7] 전원**. QR 스캔은 메뉴 어디서나 Fn+Q.
+주 메뉴: **[1] 서명하기 · [2] 받기·확인 · [3] 시드·키 · [4] 멀티시그 지갑 · [5] SD 카드 · [6] 설정 · [7] 전원** (M11부터 [6] 백업·도구 · [7] 설정 · [8] 전원, 의도한 변경 E1). QR 스캔은 메뉴 어디서나 Fn+Q.
 흐름을 마치거나 Esc로 나오면 그 기능이 있는 메뉴로 돌아간다(스캔·메시지 서명 → 서명하기; M8에서는 주 메뉴였다).
 
 | M8 위치 | M9 이후 |
@@ -253,6 +253,8 @@ M9(UX/UI 개선)는 이 대장의 기능을 **하나도 빠뜨리거나 다르�
 | F-187 | 금속판 형식 보기: 단어 시드를 Tinyseed(번호의 이진수 점 12개) 또는 Stackbit 1248(자리마다 1·2·4·8 점)로, 12단어씩 쪽, 화면 보호 시 가림 | 시드 옵션 > 금속판 | tinyseed_is_the_word_number_in_binary, stackbit_is_each_decimal_digit_in_1248_dots, a_seed_shows_its_dots_for_both_plates, the_saver_covers_the_dots_and_menus_wipe_them |
 | F-188 | 금속판 점으로 시드 불러오기: 격자에서 점을 옮겨 적기(화살표·Space·Del·Tab), 단어가 아닌 줄을 가리킴, 마지막 단어를 채우지 않아 틀린 점은 체크섬 오류 화면으로 | 시드·키 > 시드 불러오기 > 금속판 점 | a_copied_plate_loads_its_seed, a_wrong_dot_ends_on_the_checksum_screen, a_row_that_is_no_word_is_pointed_at |
 | F-189 | 단어 검토: 입력한(또는 금속판에서 옮긴) 단어가 체크섬을 통과하면 불러오기 전에 단어 전체와 지문을 한 번 더 보임, Del로 고른 단어 다시 입력, Enter로 불러오기 | 시드 불러오기(단어·단어 번호·금속판 점) | typed_words_load_with_autocomplete, a_typed_word_can_be_fixed_on_the_review, a_copied_plate_loads_its_seed |
+| F-190 | 보안 노트·비밀번호: 노트(제목·내용)와 비밀번호(제목·사용자·비밀번호·사이트·메모) 16개까지, 비밀번호는 가려 보이고 요청 시 보임, QR로 보기(화면 보호 시 닫힘), 고치기, 지우기(WIPE), 주사위 50번 이상으로 20자 비밀번호 | 백업·도구 > 보안 노트 | a_password_is_written_shown_edited_and_deleted, a_text_note_and_its_rules, a_password_from_dice, sixteen_notes_at_most_and_the_vault_body_limit |
+| F-191 | 노트는 보관함이 열려 있으면 암호화해 보관(바뀌면 저장), 없으면 전원을 끌 때까지만; 보관함 없이 쓴 노트는 보관함을 만들거나 열 때 합쳐짐 | 백업·도구 > 보안 노트 | notes_are_kept_by_the_vault_and_written_ones_join_it |
 
 ### 시뮬레이터 (M3~M8)
 | # | 기능 | 시험 |

@@ -640,6 +640,7 @@ impl App {
             Screen::Slip39 { step } => self.render_slip39(c, step),
             Screen::SeedXor { step } => self.render_seed_xor(c, step),
             Screen::Metal { step } => self.render_metal(c, step),
+            Screen::Notes { step } => self.render_notes(c, step),
             Screen::CommDetected => {
                 self.status(c, s.key.comm_title);
                 let (addr, id) = match self.comm {
@@ -783,7 +784,8 @@ impl App {
     fn render_main_menu(&self, c: &mut dyn Canvas, items: &[MenuItem], sel: u8) {
         let s = self.text();
         let w = c.width() as i32;
-        let row_h = 36;
+        // eight rows since M11 (Backup & tools): a little tighter
+        let row_h = if items.len() > 7 { 34 } else { 36 };
         let top = STATUS_H + 8;
         widgets::list_rows(
             c,
@@ -1419,6 +1421,14 @@ impl App {
             QrKind::SignedPsbt { format } => fill(s.rv.qr_title, &[&s.rv.formats[format as usize]]),
             QrKind::MessageSig => fill(s.ms_sig_qr, &[]),
             QrKind::Settings => fill(s.settings_qr, &[]),
+            QrKind::Note { idx } => {
+                let title = self
+                    .vault
+                    .data
+                    .note(idx as usize)
+                    .map_or("", |n| n.text_of(crate::vaultdata::Field::Title));
+                fill(s.bk.nt_qr_title, &[&title])
+            }
             QrKind::Wallet { idx, .. } => {
                 let name = self
                     .wallets
@@ -1565,6 +1575,7 @@ impl App {
             QrKind::SeedQr { .. } => s.qr_keys_seed,
             QrKind::SignedPsbt { .. } | QrKind::MessageSig => s.rv.qr_keys,
             QrKind::Settings => s.si_note_short,
+            QrKind::Note { .. } => s.bk.nt_qr_keys,
             QrKind::Wallet { .. } | QrKind::MsKey { .. } => s.wl.qr_keys,
             QrKind::Bip85 { .. } => s.b85.qr_keys,
         };

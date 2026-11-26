@@ -3,7 +3,7 @@
 //! short paragraphs; the help box wraps them.
 
 /// Topics in `help::Topic` order.
-pub const TOPICS: usize = 22;
+pub const TOPICS: usize = 23;
 
 pub struct HelpStrings {
     /// "Help" (the key bar label)
@@ -215,6 +215,15 @@ pub static EN_HELP: HelpStrings = HelpStrings {
                 "The last word is not filled in: a wrong dot shows as a checksum error.",
             ],
         ),
+        (
+            "Backup & tools",
+            [
+                "Secure notes keep text and passwords, shown here or as a QR code.",
+                "With the vault open they are kept, encrypted; without it, until power off.",
+                "A password can be made from 50 or more dice rolls.",
+                "Deleting a note asks for WIPE.",
+            ],
+        ),
     ],
 };
 
@@ -418,6 +427,15 @@ pub static KO_HELP: HelpStrings = HelpStrings {
                 "Stackbit 1248: 번호의 자리마다 1, 2, 4, 8의 점으로.",
                 "옮겨 적기: 화살표로 이동, Space로 점, Enter로 검사.",
                 "마지막 단어를 채워 주지 않습니다. 틀린 점은 체크섬 오류로 드러납니다.",
+            ],
+        ),
+        (
+            "백업·도구",
+            [
+                "보안 노트는 글과 비밀번호를 담고, 화면이나 QR로 보여 줍니다.",
+                "보관함이 열려 있으면 암호화해 보관하고, 없으면 전원을 끌 때까지만 둡니다.",
+                "비밀번호는 주사위 50번 이상으로 만들 수 있습니다.",
+                "노트를 지울 때는 WIPE를 입력합니다.",
             ],
         ),
     ],

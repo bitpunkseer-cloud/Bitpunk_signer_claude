@@ -34,6 +34,8 @@ pub enum Topic {
     SeedXor,
     /// Metal plates (M11-4).
     Metal,
+    /// Secure notes (M11-6).
+    Notes,
 }
 
 /// The topic for a screen; `None` where help is not offered (start-up,
@@ -48,6 +50,7 @@ pub fn topic(s: &Screen) -> Option<Topic> {
             MenuId::Security => Vault,
             MenuId::NewSeed => MakeSeed,
             MenuId::Seeds | MenuId::LoadSeed => Seeds,
+            MenuId::Tools => Notes,
             _ => Menus,
         },
         Screen::ChooseWords { .. }
@@ -101,6 +104,7 @@ pub fn topic(s: &Screen) -> Option<Topic> {
         Screen::Slip39 { .. } => Slip39,
         Screen::SeedXor { .. } => SeedXor,
         Screen::Metal { .. } => Metal,
+        Screen::Notes { .. } => Notes,
     })
 }
 
@@ -117,6 +121,9 @@ fn types_text(s: &Screen) -> bool {
             }
             | Screen::Slip39 {
                 step: crate::slip39ui::SlStep::Passphrase
+            }
+            | Screen::Notes {
+                step: crate::notesui::NoteStep::Field { .. }
             }
     )
 }

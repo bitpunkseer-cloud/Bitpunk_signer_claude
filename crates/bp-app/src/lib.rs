@@ -10,6 +10,7 @@ mod keys;
 mod menus;
 pub mod metalui;
 mod msgsign;
+pub mod notesui;
 mod qrview;
 pub mod review;
 mod review_view;
@@ -99,6 +100,10 @@ pub enum QrKind {
     /// A BIP-85 result (a mnemonic as SeedQR, or the text).
     Bip85 {
         compact: bool,
+    },
+    /// A secure note's password or text (M11-6).
+    Note {
+        idx: u8,
     },
     /// This device's BIP-48 multisig key, for a coordinator.
     MsKey {
@@ -343,6 +348,10 @@ pub enum Screen {
     Metal {
         step: metalui::MetalStep,
     },
+    /// Backup & tools > Secure notes (M11-6).
+    Notes {
+        step: notesui::NoteStep,
+    },
     /// The boot check found a network chip: nothing else is possible.
     CommDetected,
 }
@@ -426,6 +435,8 @@ pub struct App {
     pub(crate) xor: Option<seedxorui::XorState>,
     /// The metal plate screens' state (wiped when they close).
     pub(crate) metal: Option<metalui::MetalState>,
+    /// The notes screens' draft and typing (wiped when they close).
+    pub(crate) notes: Option<notesui::NotesState>,
 }
 
 /// Passphrase input buffer. Wiped on clear and on drop.
@@ -528,6 +539,7 @@ impl App {
             slip: None,
             xor: None,
             metal: None,
+            notes: None,
         }
     }
 
@@ -617,6 +629,7 @@ impl App {
             self.slip = None;
             self.xor = None;
             self.metal = None;
+            self.notes = None;
         }
     }
 
@@ -636,7 +649,10 @@ impl App {
             Screen::Vault {
                 step: vaultui::VStep::Delay,
             } => true,
-            Screen::QrShow { kind } => !matches!(kind, QrKind::SeedQr { .. } | QrKind::Bip85 { .. }),
+            Screen::QrShow { kind } => !matches!(
+                kind,
+                QrKind::SeedQr { .. } | QrKind::Bip85 { .. } | QrKind::Note { .. }
+            ),
             _ => false,
         };
         !busy && !blocked
@@ -671,7 +687,7 @@ impl App {
             Screen::ShowWords { view: None } => self.set_current(Screen::WordsWarning { view: None }),
             Screen::ShowWords { view: Some(_) } | Screen::Transcribe { .. } => self.pop(),
             Screen::QrShow {
-                kind: QrKind::SeedQr { .. } | QrKind::Bip85 { .. },
+                kind: QrKind::SeedQr { .. } | QrKind::Bip85 { .. } | QrKind::Note { .. },
             } => self.pop(),
             Screen::Bip85 {
                 step: b85::B85Step::Result { .. },
@@ -711,6 +727,8 @@ impl App {
         self.slip = None;
         self.xor = None;
         self.metal = None;
+        self.notes = None;
+        self.notes = None;
         if let Some(Screen::SeedReady { slot, created }) = then {
             if let Some(s) = self.slot(slot as usize) {
                 let event = match (created, s.kind) {
@@ -1557,6 +1575,7 @@ impl App {
             Screen::Slip39 { step } => self.slip39_key(step, ev),
             Screen::SeedXor { step } => self.seed_xor_key(step, ev),
             Screen::Metal { step } => self.metal_key(step, ev),
+            Screen::Notes { step } => self.notes_key(step, ev),
             Screen::ScanVerify { .. } | Screen::ScanResult => match ev.key {
                 Key::Enter | Key::Esc | Key::Backspace => self.pop(),
                 _ => {}
@@ -1710,6 +1729,7 @@ impl App {
                 s
             }
             QrKind::Bip85 { compact } => self.b85_qr(compact),
+            QrKind::Note { idx } => self.note_qr(idx),
             QrKind::Settings => {
                 let mut b = [0u8; 256];
                 let n = self.settings.to_qr(&mut b);
@@ -1982,6 +2002,7 @@ impl App {
             Action::SeedVault => self.seed_vault_action(),
             Action::Slip39New => self.slip39_new_action(),
             Action::Slip39Load => self.slip39_load_action(),
+            Action::Notes => self.notes_action(),
             Action::VaultTricks => self.vault_tricks_action(),
             Action::VaultTamper => self.vault_tamper_action(),
             Action::VaultLock => self.vault_lock_action(),

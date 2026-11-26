@@ -132,14 +132,14 @@ pub(super) fn set_pin(a: &mut App, b: &mut Bench, prefix: &str, suffix: &str) {
 }
 
 /// Power off and on again: the same parts, a fresh RAM.
-fn power_cycle(a: &mut App, b: &mut Bench) -> App {
+pub(super) fn power_cycle(a: &mut App, b: &mut Bench) -> App {
     nav::go(a, To::PowerOff);
     let _ = a;
     boot(b)
 }
 
 /// Type the PIN on the lock screen.
-fn unlock(a: &mut App, b: &mut Bench, prefix: &str, suffix: &str) {
+pub(super) fn unlock(a: &mut App, b: &mut Bench, prefix: &str, suffix: &str) {
     assert_eq!(step(a), VStep::Prefix);
     type_str(a, prefix);
     press(a, Key::Enter);

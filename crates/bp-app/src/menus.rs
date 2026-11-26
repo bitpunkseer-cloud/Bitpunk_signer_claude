@@ -18,6 +18,8 @@ pub enum MenuId {
     /// Settings > Security: the vault's PIN, locking, erasing (M10).
     Security,
     Power,
+    /// Backup & tools (M11): notes, OTP, encrypted backup, data viewer.
+    Tools,
 }
 
 pub const MAX_ITEMS: usize = 15;
@@ -89,6 +91,8 @@ pub enum Action {
     Slip39New,
     /// Seeds & keys > Load a seed > SLIP-39 shares (M11-2).
     Slip39Load,
+    /// Backup & tools > Secure notes (M11-6).
+    Notes,
 }
 
 const fn open(label: Label, id: MenuId) -> Entry {
@@ -123,15 +127,18 @@ const fn action(label: Label, action: Action) -> Entry {
     }
 }
 
-static MAIN: [Entry; 7] = [
+static MAIN: [Entry; 8] = [
     open(|s| s.m_sign, MenuId::Sign),
     open(|s| s.m_verify, MenuId::Verify),
     open(|s| s.m_seeds, MenuId::Seeds),
     action(|s| s.wl.menu, Action::Multisig),
     action(|s| s.sd.menu, Action::SdCard),
+    open(|s| s.bk.tools_menu, MenuId::Tools),
     open(|s| s.settings, MenuId::Settings),
     open(|s| s.power, MenuId::Power),
 ];
+
+static TOOLS: [Entry; 1] = [action(|s| s.bk.nt_menu, Action::Notes)];
 
 static SIGN: [Entry; 2] = [
     action(|s| s.scan_qr, Action::Scan(crate::scan::Purpose::Any)),
@@ -240,6 +247,7 @@ pub fn table(id: MenuId) -> &'static [Entry] {
         MenuId::Settings => &SETTINGS,
         MenuId::Security => &SECURITY,
         MenuId::Power => &POWER,
+        MenuId::Tools => &TOOLS,
     }
 }
 
@@ -254,6 +262,7 @@ pub fn title(id: MenuId, s: &Strings) -> &'static str {
         MenuId::Settings => s.settings,
         MenuId::Security => s.vault.menu,
         MenuId::Power => s.power,
+        MenuId::Tools => s.bk.tools_menu,
     }
 }
 

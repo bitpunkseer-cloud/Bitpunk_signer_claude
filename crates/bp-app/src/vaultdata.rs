@@ -10,6 +10,7 @@
 //! | 1 seed | `type u8` (0 words, 1 XPRV, 2 WIF, 3 SLIP-39), fingerprint (4), secret: the words' entropy, the XPRV in Base58, the WIF's 32-byte key, or a SLIP-39 wallet's identifier (2, big-endian), extendable flag, iteration exponent and encrypted master secret (16–32) |
 //! | 2 wallet | the `.bpw` text (name, wallet code, 256-bit tag, descriptor) |
 //! | 3 settings | 12 bytes, one per setting |
+//! | 4 note | (M11-6) `kind u8` (0 note, 1 password), then title, user, password, site and text, each `len u16 LE` + printable ASCII |
 //!
 //! A seed is checked when it is loaded (its fingerprint must come out the
 //! same); a wallet only registers again when a loaded seed recomputes its
@@ -37,6 +38,150 @@ const HEAD: &[u8; 6] = b"BPVB\x01\x00";
 const R_SEED: u8 = 1;
 const R_WALLET: u8 = 2;
 const R_SETTINGS: u8 = 3;
+const R_NOTE: u8 = 4;
+
+/// Notes and passwords kept (M11-6, decision 9).
+pub const MAX_NOTES: usize = 16;
+
+/// A note's kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoteKind {
+    Text,
+    Password,
+}
+
+/// A note's fields, in record order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Field {
+    Title,
+    User,
+    Secret,
+    Site,
+    Text,
+}
+
+impl Field {
+    pub const ALL: [Field; 5] = [Field::Title, Field::User, Field::Secret, Field::Site, Field::Text];
+
+    /// Longest value (printable ASCII).
+    pub const fn max(self) -> usize {
+        match self {
+            Field::Title => 32,
+            Field::User | Field::Secret | Field::Site => 64,
+            Field::Text => 400,
+        }
+    }
+}
+
+/// A secure note or password (printable ASCII only: the keyboard types it).
+#[derive(Clone)]
+pub struct Note {
+    pub kind: NoteKind,
+    title: [u8; 32],
+    user: [u8; 64],
+    secret: [u8; 64],
+    site: [u8; 64],
+    text: [u8; 400],
+    lens: [u16; 5],
+}
+
+impl Drop for Note {
+    fn drop(&mut self) {
+        wipe(&mut self.user);
+        wipe(&mut self.secret);
+        wipe(&mut self.text);
+        wipe(&mut self.site);
+        wipe(&mut self.title);
+    }
+}
+
+impl PartialEq for Note {
+    fn eq(&self, o: &Note) -> bool {
+        self.kind == o.kind && Field::ALL.iter().all(|&f| self.get(f) == o.get(f))
+    }
+}
+
+impl Note {
+    pub const fn new(kind: NoteKind) -> Note {
+        Note {
+            kind,
+            title: [0; 32],
+            user: [0; 64],
+            secret: [0; 64],
+            site: [0; 64],
+            text: [0; 400],
+            lens: [0; 5],
+        }
+    }
+
+    fn buf(&self, f: Field) -> &[u8] {
+        match f {
+            Field::Title => &self.title,
+            Field::User => &self.user,
+            Field::Secret => &self.secret,
+            Field::Site => &self.site,
+            Field::Text => &self.text,
+        }
+    }
+
+    pub fn get(&self, f: Field) -> &[u8] {
+        &self.buf(f)[..self.lens[f as usize] as usize]
+    }
+
+    /// The field as text (always ASCII).
+    pub fn text_of(&self, f: Field) -> &str {
+        core::str::from_utf8(self.get(f)).unwrap_or("")
+    }
+
+    /// Set a field; false if too long or not printable ASCII.
+    pub fn set(&mut self, f: Field, v: &[u8]) -> bool {
+        if v.len() > f.max() || v.iter().any(|&c| !(32..=126).contains(&c)) {
+            return false;
+        }
+        let b: &mut [u8] = match f {
+            Field::Title => &mut self.title,
+            Field::User => &mut self.user,
+            Field::Secret => &mut self.secret,
+            Field::Site => &mut self.site,
+            Field::Text => &mut self.text,
+        };
+        b.fill(0);
+        b[..v.len()].copy_from_slice(v);
+        self.lens[f as usize] = v.len() as u16;
+        true
+    }
+
+    /// The fields this kind of note has.
+    pub fn fields(&self) -> &'static [Field] {
+        match self.kind {
+            NoteKind::Text => &[Field::Title, Field::Text],
+            NoteKind::Password => &Field::ALL,
+        }
+    }
+
+    fn record_len(&self) -> usize {
+        1 + Field::ALL.iter().map(|&f| 2 + self.get(f).len()).sum::<usize>()
+    }
+
+    fn parse(d: &[u8]) -> Option<Note> {
+        let (&k, mut rest) = d.split_first()?;
+        let kind = match k {
+            0 => NoteKind::Text,
+            1 => NoteKind::Password,
+            _ => return None,
+        };
+        let mut n = Note::new(kind);
+        for f in Field::ALL {
+            let len = u16::from_le_bytes([*rest.first()?, *rest.get(1)?]) as usize;
+            let v = rest.get(2..2 + len)?;
+            if !n.set(f, v) {
+                return None;
+            }
+            rest = &rest[2 + len..];
+        }
+        (rest.is_empty() && !n.get(Field::Title).is_empty()).then_some(n)
+    }
+}
 const SETTINGS_LEN: usize = 12;
 
 /// A seed in the vault.
@@ -281,6 +426,9 @@ pub struct VaultData {
     pub seeds: [Option<StoredSeed>; MAX_STORED],
     wallets: [WalletRec; MAX_WALLETS],
     pub settings: Option<Settings>,
+    /// Notes and passwords (M11-6): kept with the vault when it is open,
+    /// for the session otherwise.
+    notes: [Option<Note>; MAX_NOTES],
 }
 
 impl Default for VaultData {
@@ -299,6 +447,7 @@ impl VaultData {
             seeds: [const { None }; MAX_STORED],
             wallets: [const { WalletRec::new() }; MAX_WALLETS],
             settings: None,
+            notes: [const { None }; MAX_NOTES],
         }
     }
 
@@ -309,6 +458,68 @@ impl VaultData {
             w.set(&[]);
         }
         self.settings = None;
+        self.notes = [const { None }; MAX_NOTES];
+    }
+
+    pub fn note_count(&self) -> usize {
+        self.notes.iter().flatten().count()
+    }
+
+    /// The `i`-th note, in list order.
+    pub fn note(&self, i: usize) -> Option<&Note> {
+        self.notes.iter().flatten().nth(i)
+    }
+
+    /// Add a note at the end; `false` if there are 16 or the body would
+    /// not fit the vault.
+    pub fn add_note(&mut self, n: Note) -> bool {
+        let Some(pos) = self.notes.iter().position(|x| x.is_none()) else {
+            return false;
+        };
+        let room = self.body_len() + 3 + n.record_len() <= BODY_MAX;
+        if room {
+            self.notes[pos] = Some(n);
+        }
+        room
+    }
+
+    /// Replace the `i`-th note; `false` (nothing changed) if it would not fit.
+    pub fn set_note(&mut self, i: usize, n: Note) -> bool {
+        let Some(pos) = self.note_pos(i) else { return false };
+        let old = self.notes[pos].as_ref().map_or(0, |o| o.record_len());
+        if self.body_len() - old + n.record_len() > BODY_MAX {
+            return false;
+        }
+        self.notes[pos] = Some(n);
+        true
+    }
+
+    /// Remove the `i`-th note (the rest keep their order).
+    pub fn remove_note(&mut self, i: usize) {
+        if let Some(pos) = self.note_pos(i) {
+            self.notes[pos] = None;
+            self.notes[pos..].rotate_left(1);
+        }
+    }
+
+    fn note_pos(&self, i: usize) -> Option<usize> {
+        self.notes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.is_some())
+            .nth(i)
+            .map(|(p, _)| p)
+    }
+
+    /// Take the notes out (the vault's body replaces the session's when it
+    /// opens; the session's are added back after).
+    pub fn take_notes(&mut self) -> [Option<Note>; MAX_NOTES] {
+        core::mem::replace(&mut self.notes, [const { None }; MAX_NOTES])
+    }
+
+    /// Whether this exact note is kept.
+    pub fn has_note(&self, n: &Note) -> bool {
+        self.notes.iter().flatten().any(|x| x == n)
     }
 
     pub fn seed_count(&self) -> usize {
@@ -394,6 +605,17 @@ impl VaultData {
         for w in self.wallets() {
             rec(R_WALLET, &[w.text()]);
         }
+        for n in self.notes.iter().flatten() {
+            let k = [(n.kind == NoteKind::Password) as u8];
+            let l = Field::ALL.map(|f| (n.get(f).len() as u16).to_le_bytes());
+            let v = Field::ALL.map(|f| n.get(f));
+            rec(
+                R_NOTE,
+                &[
+                    &k, &l[0], v[0], &l[1], v[1], &l[2], v[2], &l[3], v[3], &l[4], v[4],
+                ],
+            );
+        }
         if let Some(st) = &self.settings {
             rec(R_SETTINGS, &[&settings_bytes(st)]);
         }
@@ -433,7 +655,7 @@ impl VaultData {
     pub fn read(&mut self, body: &[u8]) -> Result<(), BadBody> {
         self.clear();
         let mut rest = body.strip_prefix(HEAD.as_slice()).ok_or(BadBody)?;
-        let (mut seeds, mut wallets) = (0, 0);
+        let (mut seeds, mut wallets, mut notes) = (0, 0, 0);
         while !rest.is_empty() {
             if rest.len() < 3 {
                 self.clear();
@@ -452,7 +674,11 @@ impl VaultData {
                 }),
                 R_WALLET if wallets < MAX_WALLETS => self.wallets[wallets].set(d).then(|| wallets += 1),
                 R_SETTINGS if self.settings.is_none() => settings_from(d).map(|s| self.settings = Some(s)),
-                R_SEED | R_WALLET | R_SETTINGS => None,
+                R_NOTE if notes < MAX_NOTES => Note::parse(d).map(|n| {
+                    self.notes[notes] = Some(n);
+                    notes += 1;
+                }),
+                R_SEED | R_WALLET | R_SETTINGS | R_NOTE => None,
                 _ => Some(()),
             };
             if ok.is_none() {

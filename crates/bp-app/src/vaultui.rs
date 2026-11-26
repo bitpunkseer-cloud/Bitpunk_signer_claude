@@ -545,9 +545,14 @@ impl App {
                 let mut pin = [0u8; PREFIX_MAX + 1 + SUFFIX_MAX];
                 let n = joined(self.vault.prefix.text(), self.vault.suffix.text(), &mut pin);
                 if job == Job::Create {
-                    // a new vault keeps the settings and the registered
-                    // wallets; seeds go in through the seed vault
+                    // a new vault keeps the settings, the registered
+                    // wallets and the notes written this session (M11-6);
+                    // seeds go in through the seed vault
+                    let notes = self.vault.data.take_notes();
                     self.vault.data.clear();
+                    for n in notes.into_iter().flatten() {
+                        let _ = self.vault.data.add_note(n);
+                    }
                     self.vault.seen_wallets.1 = usize::MAX;
                 }
                 self.vault_records();

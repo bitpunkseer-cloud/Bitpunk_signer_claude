@@ -138,7 +138,17 @@ impl App {
     /// The vault opened with `body` (plaintext): apply its settings, load
     /// its first seeds into the free slots. `false` if the body is unreadable.
     pub(crate) fn vault_opened(&mut self, body: &[u8]) -> bool {
-        if self.vault.data.read(body).is_err() {
+        // notes written this session before the vault opened join it
+        // (M11-6); the body as read is what is saved, so they get written
+        let session = self.vault.data.take_notes();
+        let read = self.vault.data.read(body).is_ok();
+        let saved = self.vault.data.digest();
+        for n in session.into_iter().flatten() {
+            if !self.vault.data.has_note(&n) {
+                let _ = self.vault.data.add_note(n);
+            }
+        }
+        if !read {
             return false;
         }
         if let Some(st) = self.vault.data.settings {
@@ -150,7 +160,7 @@ impl App {
             }
             let _ = self.sv_load(i, true);
         }
-        self.vault.saved = self.vault.data.digest();
+        self.vault.saved = saved;
         self.vault.failed = None;
         self.vault.seen_slots = [None; crate::SEED_SLOTS];
         self.vault.seen_wallets = ([[0; 32]; MAX_WALLETS], usize::MAX);
